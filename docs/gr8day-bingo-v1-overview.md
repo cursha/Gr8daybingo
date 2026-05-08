@@ -45,11 +45,11 @@ A weekly, community-driven bingo game where players complete real-world **Gr8Day
 
 ### Special Squares
 - **Purchasable squares:** 1–3 per card, priced via admin-controlled distribution ($0.50 / $1 / $2).
-- **Referral squares:** 0–2 per card. Submitting one valid referral unlocks ALL of them at once.
+- **Referral squares:** 1-2 squares per card.  The centre square is always a referral square. Submitting one valid referral unlocks ALL of them at once.
 - **Secret Square:** Exactly one per card, reward ($1 / $2 / $5) drawn from admin-controlled distribution. Credits wallet + records a transaction on reveal.
 
 ### Deed Suggestion & Moderation
-- Logged-in players can suggest new Gr8Day Deeds from the game board.
+- Registered players can suggest new Gr8Day Deeds from the game board.
 - Suggestions land in a `pending_deeds` queue with status (pending / approved / rejected).
 - Admin can view the queue, approve (pushing the deed into the active pool), reject, or delete suggestions.
 - Players can see the status of their own submitted suggestions.

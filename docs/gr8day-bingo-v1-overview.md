@@ -8,7 +8,7 @@ A weekly, community-driven bingo game where players complete real-world **Gr8Day
 
 - **Goal:** Complete good deeds in real life to mark squares on your personal weekly bingo card. Be the first to hit the required winning pattern and claim the week's prize.
 - **Cadence:** A new game starts every Monday. Each player gets their own deterministic card for the week (same player + same week = same card).
-- **Card:** 5×5 grid (25 cells). Center cell (index 12) is always a **FREE SPACE**.
+- **Card:** 5×5 grid (25 cells). Center cell (index 12) is always a **REFER A PLAYER**.
 - **Deeds:** Each non-free cell shows a "Gr8Day Deed" (e.g. *"Donate to a food bank"*, *"Write a kind note to a coworker"*). Players tap a cell to mark a deed complete.
 - **Winning:** The win pattern is set by the admin (One Line, Two Lines, Four Corners, X Pattern, Around the Edges, or Fill the Card).
 - **Monetization & Engagement Hooks:**

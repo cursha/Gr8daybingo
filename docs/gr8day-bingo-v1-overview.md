@@ -15,7 +15,7 @@ A weekly, community-driven bingo game where players complete real-world **Gr8Day
   - **Purchasable Squares ($0.50 / $1 / $2):** A few random squares per card can be unlocked by spending wallet funds.
   - **Referral Squares:** Some squares are "Refer a Player" — inviting one friend unlocks ALL referral squares on the card.
   - **Secret Square:** One hidden square per card awards a surprise wallet bonus (+$1, $2, or $5) the first time it's marked.
-  - **Signup Bonus:** New players receive a wallet top-up after completing their profile.
+  - **Signup Bonus:** New players receive a wallet top-up after completing their profile.  The amount is set by a user defined field in the setup table. 
 
 ---
 

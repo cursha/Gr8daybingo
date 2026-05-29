@@ -15,6 +15,7 @@ interface Cell {
   is_secret: boolean
   secret_reward: number | null
   secret_revealed?: boolean
+  quantity: number
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -155,7 +156,7 @@ Deno.serve(async (req: Request) => {
           const completed = parseJsonArr(existing.completed_cells)
           const purchased = parseJsonArr(existing.purchased_cells)
           const referral = parseJsonArr(existing.referral_cells)
-          const allCompleted = [...new Set([...completed, ...purchased, ...referral, 12])]
+          const allCompleted = [...new Set([...completed, ...purchased, ...referral])]
           existing.is_bingo = checkBingo(allCompleted, existing.win_condition)
           existing.updated_at = new Date().toISOString()
           await supabase.from('player_cards').update({
@@ -198,7 +199,7 @@ Deno.serve(async (req: Request) => {
       const rng = new SeededRandom(seed)
 
       const purchasableCount = rng.randint(1, 3)
-      const referralFreeCount = rng.randint(0, 2)
+      const referralFreeCount = 0
 
       const deedList = [...deeds]
       rng.shuffle(deedList)
@@ -232,10 +233,10 @@ Deno.serve(async (req: Request) => {
       for (let i = 0; i < 25; i++) {
         if (i === 12) {
           cells.push({
-            index: 12, deed_text: 'FREE SPACE',
-            deed_text_long: 'Your free space — you start every card with this square already completed. Enjoy it!',
-            deed_id: null, is_free_space: true, is_purchasable: false, purchase_price: null,
-            is_referral_free: false, is_secret: false, secret_reward: null,
+            index: 12, deed_text: 'Refer a Player',
+            deed_text_long: 'Invite a friend to play! Submit a valid referral and this square marks itself complete.',
+            deed_id: null, is_free_space: false, is_purchasable: false, purchase_price: null,
+            is_referral_free: true, is_secret: false, secret_reward: null, quantity: 1,
           })
         } else {
           const deed = selectedDeeds[deedIdx++]
@@ -253,6 +254,7 @@ Deno.serve(async (req: Request) => {
             is_referral_free: referralPos.includes(i),
             is_secret: isSecret,
             secret_reward: isSecret ? secretReward : null,
+            quantity: deed.quantity ?? 1,
           })
         }
       }
@@ -260,7 +262,8 @@ Deno.serve(async (req: Request) => {
       // Check validated referrals to pre-mark referral squares
       const { data: validRefs } = await supabase
         .from('referrals').select('id').eq('user_id', user.sub).eq('is_validated', true)
-      const referralCellIndices = (validRefs?.length ?? 0) > 0 ? [...referralPos] : []
+      const allReferralPositions = cells.filter((c) => c.is_referral_free).map((c) => c.index)
+      const referralCellIndices = (validRefs?.length ?? 0) > 0 ? allReferralPositions : []
 
       const { data: newCard, error: cardErr } = await supabase
         .from('player_cards')
@@ -343,7 +346,7 @@ Deno.serve(async (req: Request) => {
       }
 
       completed.push(cell_index)
-      const allCompleted = [...new Set([...completed, ...purchased, ...referral, 12])]
+      const allCompleted = [...new Set([...completed, ...purchased, ...referral])]
       const isBingo = checkBingo(allCompleted, card.win_condition)
 
       await supabase.from('player_cards').update({
@@ -426,7 +429,7 @@ Deno.serve(async (req: Request) => {
       purchased.push(cell_index)
       const completed = parseJsonArr(card.completed_cells)
       const referral = parseJsonArr(card.referral_cells)
-      const allCompleted = [...new Set([...completed, ...purchased, ...referral, 12])]
+      const allCompleted = [...new Set([...completed, ...purchased, ...referral])]
       const isBingo = checkBingo(allCompleted, card.win_condition)
 
       await supabase.from('player_cards').update({
@@ -467,7 +470,7 @@ Deno.serve(async (req: Request) => {
         const allReferralPos = cells.filter((c) => c.is_referral_free).map((c) => c.index)
         const completed = parseJsonArr(card.completed_cells)
         const purchased = parseJsonArr(card.purchased_cells)
-        const allCompleted = [...new Set([...completed, ...purchased, ...allReferralPos, 12])]
+        const allCompleted = [...new Set([...completed, ...purchased, ...allReferralPos])]
         await supabase.from('player_cards').update({
           referral_cells: JSON.stringify(allReferralPos),
           is_bingo: checkBingo(allCompleted, card.win_condition),
@@ -628,7 +631,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({
         deeds: (data ?? []).map((d) => ({
           id: d.id, deed_text: d.deed_text, deed_text_long: d.deed_text_long ?? null,
-          category: d.category, is_active: d.is_active,
+          category: d.category, is_active: d.is_active, complexity: d.complexity ?? null,
         })),
       })
     }
@@ -641,9 +644,40 @@ Deno.serve(async (req: Request) => {
         deed_text_long: body.deed_text_long || null,
         category: body.category ?? '',
         is_active: body.is_active ?? true,
+        complexity: body.complexity != null ? Number(body.complexity) : null,
       }).select().single()
       if (error) throw error
-      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active })
+      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active, complexity: data.complexity ?? null })
+    }
+
+    // ── POST /admin/deeds/import ──────────────────────────────────────────────
+    if (method === 'POST' && path === '/admin/deeds/import') {
+      const body = await req.json()
+      const rows: Array<{ id?: number; deed_text?: string; deed_text_long?: string | null; category?: string; complexity?: number | null; is_active?: boolean }> = body.deeds ?? []
+      let updated = 0, created = 0, skipped = 0
+      for (const row of rows) {
+        const text = String(row.deed_text ?? '').trim()
+        if (!text) { skipped++; continue }
+        const complexityVal = (row.complexity != null && row.complexity !== '' as unknown)
+          ? (Number(row.complexity) || null)
+          : null
+        const payload = {
+          deed_text: text,
+          deed_text_long: row.deed_text_long ? String(row.deed_text_long).trim() || null : null,
+          category: row.category ? String(row.category).trim() : null,
+          complexity: complexityVal,
+          is_active: row.is_active !== false && String(row.is_active) !== 'false',
+        }
+        const rowId = row.id ? Number(row.id) : 0
+        if (rowId > 0) {
+          const { error } = await supabase.from('good_deeds').update(payload).eq('id', rowId)
+          if (!error) updated++; else skipped++
+        } else {
+          const { error } = await supabase.from('good_deeds').insert(payload)
+          if (!error) created++; else skipped++
+        }
+      }
+      return jsonResponse({ success: true, updated, created, skipped, total: updated + created })
     }
 
     // ── PUT /admin/deeds/:id ──────────────────────────────────────────────────
@@ -655,11 +689,12 @@ Deno.serve(async (req: Request) => {
       if ('deed_text_long' in body) updates.deed_text_long = body.deed_text_long || null
       if ('category' in body) updates.category = body.category
       if ('is_active' in body) updates.is_active = body.is_active
+      if ('complexity' in body) updates.complexity = body.complexity != null ? Number(body.complexity) : null
       const { data, error } = await supabase.from('good_deeds')
         .update(updates).eq('id', parseInt(deedPutMatch.id)).select().maybeSingle()
       if (error) throw error
       if (!data) return errorResponse('Deed not found', 404)
-      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active })
+      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active, complexity: data.complexity ?? null })
     }
 
     // ── DELETE /admin/deeds/:id ───────────────────────────────────────────────
@@ -753,6 +788,44 @@ Deno.serve(async (req: Request) => {
       if (!pending) return errorResponse('Pending deed not found', 404)
       await supabase.from('pending_deeds').delete().eq('id', pending.id)
       return jsonResponse({ success: true })
+    }
+
+    // ── POST /unmark-cell ─────────────────────────────────────────────────────
+    if (method === 'POST' && path === '/unmark-cell') {
+      const user = requireAuth(authUser)
+      const body = await req.json()
+      const { card_id, cell_index } = body
+
+      const { data: card } = await supabase
+        .from('player_cards').select('*')
+        .eq('id', card_id).eq('user_id', user.sub).maybeSingle()
+      if (!card) return errorResponse('Card not found', 404)
+
+      const cells: Cell[] = JSON.parse(card.card_data)
+      const cell = cells[cell_index]
+      if (cell.is_purchasable) return errorResponse('Purchased squares cannot be unmarked', 400)
+      if (cell.is_referral_free) return errorResponse('Referral squares cannot be unmarked', 400)
+      if (cell.is_free_space) return errorResponse('Free squares cannot be unmarked', 400)
+      if (cell.is_secret && cell.secret_revealed) {
+        return errorResponse('Secret squares that already awarded a reward cannot be unmarked', 400)
+      }
+
+      const completed = parseJsonArr(card.completed_cells)
+      if (!completed.includes(cell_index)) return errorResponse('Cell is not marked', 400)
+
+      const updatedCompleted = completed.filter((i) => i !== cell_index)
+      const purchased = parseJsonArr(card.purchased_cells)
+      const referral = parseJsonArr(card.referral_cells)
+      const allCompleted = [...new Set([...updatedCompleted, ...purchased, ...referral])]
+      const isBingo = checkBingo(allCompleted, card.win_condition)
+
+      await supabase.from('player_cards').update({
+        completed_cells: JSON.stringify(updatedCompleted),
+        is_bingo: isBingo,
+        updated_at: new Date().toISOString(),
+      }).eq('id', card_id)
+
+      return jsonResponse({ success: true, completed_cells: updatedCompleted, is_bingo: isBingo })
     }
 
     return errorResponse('Not found', 404)

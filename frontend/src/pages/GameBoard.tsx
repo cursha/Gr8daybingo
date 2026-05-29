@@ -7,6 +7,7 @@ import {
   PendingDeed,
   generateCard,
   markCell,
+  unmarkCell,
   purchaseCell,
   submitReferral,
   getWallet,
@@ -57,6 +58,7 @@ const GameBoard: React.FC = () => {
   const [showCelebration, setShowCelebration] = useState(false);
   const [referralEmail, setReferralEmail] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [cellProgress, setCellProgress] = useState<Record<number, number>>({});
 
   // Deed suggestion state
   const [suggestText, setSuggestText] = useState('');
@@ -82,6 +84,7 @@ const GameBoard: React.FC = () => {
   const loadGame = useCallback(async () => {
     try {
       setLoading(true);
+      setCellProgress({});
       const [cardData, walletData] = await Promise.all([
         generateCard(),
         getWallet(),
@@ -156,6 +159,29 @@ const GameBoard: React.FC = () => {
     }
   };
 
+  const handleUnmark = async (cellIndex: number) => {
+    if (!card || actionLoading) return;
+    setActionLoading(true);
+    try {
+      const result = await unmarkCell(card.card_id, cellIndex);
+      setCard((prev) =>
+        prev
+          ? { ...prev, completed_cells: result.completed_cells, is_bingo: result.is_bingo }
+          : null
+      );
+      setCellProgress((prev) => {
+        const next = { ...prev };
+        delete next[cellIndex];
+        return next;
+      });
+      toast.success('Deed unmarked.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to unmark cell');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handlePurchase = async (cellIndex: number) => {
     if (!card || actionLoading) return;
     if (card.is_bingo) {
@@ -200,6 +226,7 @@ const GameBoard: React.FC = () => {
     try {
       const newCard = await resetCard();
       setCard(newCard);
+      setCellProgress({});
       setShowCelebration(false);
       toast.success('New game started! Good luck and keep spreading kindness.');
     } catch (err: any) {
@@ -306,7 +333,6 @@ const GameBoard: React.FC = () => {
         ...card.completed_cells,
         ...card.purchased_cells,
         ...card.referral_cells,
-        12, // free space
       ]).size
     : 0;
 
@@ -550,6 +576,11 @@ const GameBoard: React.FC = () => {
                           onPurchase={handlePurchase}
                           locked={card.is_bingo}
                           prizeImageUrl={prize?.prize_image_url}
+                          progress={cellProgress[cell.index] ?? 0}
+                          onProgressChange={(idx, p) =>
+                            setCellProgress((prev) => ({ ...prev, [idx]: p }))
+                          }
+                          onUnmark={handleUnmark}
                         />
                       </div>
                     </div>

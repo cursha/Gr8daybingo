@@ -14,6 +14,7 @@ import {
   approvePendingDeed,
   rejectPendingDeed,
   deletePendingDeed,
+  importDeeds,
 } from '@/lib/game-utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,7 +22,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, Heart, Lock, Settings, Plus, Trash2, Save, Edit2, X, Target, Inbox, Check, XCircle, Lightbulb, Gift, Upload } from 'lucide-react';
+import { ArrowLeft, Heart, Lock, Settings, Plus, Trash2, Save, Edit2, X, Target, Inbox, Check, XCircle, Lightbulb, Gift, Upload, Download, FileSpreadsheet, Printer } from 'lucide-react';
 
 const WIN_CONDITIONS = [
   { id: 'one_line', name: 'One Line', description: 'Complete 5 in a row (horizontal, vertical, or diagonal)' },
@@ -47,6 +48,13 @@ const AdminPanel: React.FC = () => {
   const [newDeed, setNewDeed] = useState({ deed_text: '', deed_text_long: '', category: '' });
   const [editingDeed, setEditingDeed] = useState<number | null>(null);
   const [editDeedData, setEditDeedData] = useState({ deed_text: '', deed_text_long: '', category: '' });
+
+  // Export / import state
+  const [exportCategoryFilter, setExportCategoryFilter] = useState('');
+  const [exportComplexityFilter, setExportComplexityFilter] = useState('');
+  const [exportSortBy, setExportSortBy] = useState<'category' | 'az'>('category');
+  const [importLoading, setImportLoading] = useState(false);
+  const importInputRef = React.useRef<HTMLInputElement>(null);
 
   // Pending deed suggestions state
   const [pendingDeeds, setPendingDeeds] = useState<PendingDeed[]>([]);
@@ -200,6 +208,186 @@ const AdminPanel: React.FC = () => {
       toast.error('Failed to toggle Gr8Day Deed');
     }
   };
+
+  // ── CSV helpers ──────────────────────────────────────────────────────────────
+
+  function toCsvField(value: string | number | boolean | null | undefined): string {
+    const s = String(value ?? '');
+    if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  }
+
+  function getFilteredSortedDeeds(): DeedItem[] {
+    let result = [...deeds];
+    if (exportCategoryFilter) result = result.filter((d) => d.category === exportCategoryFilter);
+    if (exportComplexityFilter !== '') {
+      const num = parseInt(exportComplexityFilter);
+      result = result.filter((d) => (d.complexity ?? null) === num);
+    }
+    if (exportSortBy === 'category') {
+      result.sort((a, b) => (a.category ?? '').localeCompare(b.category ?? '') || a.deed_text.localeCompare(b.deed_text));
+    } else {
+      result.sort((a, b) => a.deed_text.localeCompare(b.deed_text));
+    }
+    return result;
+  }
+
+  function handleDownloadCsv() {
+    const filtered = getFilteredSortedDeeds();
+    const header = ['id', 'category', 'complexity', 'deed_text', 'deed_text_long', 'is_active'].join(',');
+    const rows = filtered.map((d) =>
+      [
+        toCsvField(d.id),
+        toCsvField(d.category),
+        toCsvField(d.complexity),
+        toCsvField(d.deed_text),
+        toCsvField(d.deed_text_long),
+        toCsvField(d.is_active),
+      ].join(',')
+    );
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gr8day-deeds-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Downloaded ${filtered.length} deed${filtered.length !== 1 ? 's' : ''}`);
+  }
+
+  function handlePrint() {
+    const filtered = getFilteredSortedDeeds();
+    const complexityLabel = (c: number | null | undefined) => {
+      if (c === 1) return 'Easy';
+      if (c === 3) return 'Medium';
+      if (c === 5) return 'Hard';
+      if (c != null) return String(c);
+      return '—';
+    };
+
+    const filterDesc: string[] = [];
+    if (exportCategoryFilter) filterDesc.push(`Category: ${exportCategoryFilter}`);
+    if (exportComplexityFilter !== '') filterDesc.push(`Complexity: ${complexityLabel(parseInt(exportComplexityFilter))}`);
+    filterDesc.push(`Sorted: ${exportSortBy === 'category' ? 'By Category' : 'A – Z'}`);
+
+    const rows = filtered.map((d) => `
+      <tr>
+        <td>${d.category || '—'}</td>
+        <td class="complexity-cell">${complexityLabel(d.complexity)}</td>
+        <td>${d.deed_text}</td>
+        <td class="desc">${d.deed_text_long || ''}</td>
+        <td class="active-cell">${d.is_active ? '✓' : '✗'}</td>
+      </tr>`).join('');
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Gr8Day Deeds</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 11px; color: #1e293b; padding: 20px; }
+    h1 { font-size: 18px; margin-bottom: 4px; }
+    .meta { font-size: 10px; color: #64748b; margin-bottom: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #f1f5f9; text-align: left; padding: 6px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #e2e8f0; }
+    td { padding: 5px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+    .complexity-cell { width: 60px; white-space: nowrap; }
+    .active-cell { width: 40px; text-align: center; }
+    .desc { font-size: 10px; color: #64748b; }
+    tr:nth-child(even) td { background: #f8fafc; }
+    @media print {
+      body { padding: 0; }
+      @page { margin: 15mm; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Gr8Day Deeds</h1>
+  <p class="meta">${filtered.length} deeds &nbsp;·&nbsp; ${filterDesc.join(' &nbsp;·&nbsp; ')} &nbsp;·&nbsp; ${new Date().toLocaleDateString()}</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Category</th>
+        <th>Complexity</th>
+        <th>Deed</th>
+        <th>Description</th>
+        <th>Active</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <script>window.onload = function(){ window.print(); }</script>
+</body>
+</html>`;
+
+    const win = window.open('', '_blank');
+    if (!win) { toast.error('Pop-up blocked — please allow pop-ups and try again'); return; }
+    win.document.write(html);
+    win.document.close();
+  }
+
+  function parseCsv(text: string): Record<string, string>[] {
+    const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const result: string[][] = [[]];
+    let i = 0;
+    let field = '';
+    let inQuotes = false;
+    while (i < normalized.length) {
+      const ch = normalized[i];
+      if (inQuotes) {
+        if (ch === '"' && normalized[i + 1] === '"') { field += '"'; i += 2; }
+        else if (ch === '"') { inQuotes = false; i++; }
+        else { field += ch; i++; }
+      } else {
+        if (ch === '"') { inQuotes = true; i++; }
+        else if (ch === ',') { result[result.length - 1].push(field); field = ''; i++; }
+        else if (ch === '\n') { result[result.length - 1].push(field); field = ''; result.push([]); i++; }
+        else { field += ch; i++; }
+      }
+    }
+    result[result.length - 1].push(field);
+    const rows = result.filter((r) => r.some((f) => f.trim() !== ''));
+    if (rows.length < 2) return [];
+    const headers = rows[0].map((h) => h.trim());
+    return rows.slice(1).map((row) => {
+      const obj: Record<string, string> = {};
+      headers.forEach((h, idx) => { obj[h] = (row[idx] ?? '').trim(); });
+      return obj;
+    });
+  }
+
+  async function handleImportCsv(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setImportLoading(true);
+    try {
+      const text = await file.text();
+      const rows = parseCsv(text);
+      if (rows.length === 0) { toast.error('No valid rows found in CSV'); return; }
+      const deeds = rows.map((row) => ({
+        id: row['id'] ? parseInt(row['id']) || undefined : undefined,
+        deed_text: row['deed_text'] ?? '',
+        deed_text_long: row['deed_text_long'] || null,
+        category: row['category'] || '',
+        complexity: row['complexity'] ? parseInt(row['complexity']) || null : null,
+        is_active: row['is_active'] !== 'false',
+      }));
+      const result = await importDeeds(deeds);
+      toast.success(`Import complete — ${result.updated} updated, ${result.created} created${result.skipped > 0 ? `, ${result.skipped} skipped` : ''}`);
+      await loadData();
+    } catch (err: any) {
+      toast.error(err?.message || 'Import failed');
+    } finally {
+      setImportLoading(false);
+    }
+  }
+
+  const uniqueCategories = [...new Set(deeds.map((d) => d.category).filter(Boolean))].sort();
 
   if (!authenticated) {
     return (
@@ -525,6 +713,114 @@ const AdminPanel: React.FC = () => {
                 </div>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Deeds Export / Import */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5 text-emerald-500" />
+              Deeds Export / Import
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-slate-500">
+              Download all deeds as a CSV file, edit in Excel (set complexity, fix text, reorder), then re-upload to save your changes.
+            </p>
+
+            {/* Filters */}
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs font-medium text-slate-600 mb-1 block">Category</label>
+                <Select value={exportCategoryFilter} onValueChange={setExportCategoryFilter}>
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue placeholder="All categories" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">All categories</SelectItem>
+                    {uniqueCategories.map((cat) => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600 mb-1 block">Complexity</label>
+                <Select value={exportComplexityFilter} onValueChange={setExportComplexityFilter}>
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue placeholder="All complexities" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">All complexities</SelectItem>
+                    <SelectItem value="1">Easy (1)</SelectItem>
+                    <SelectItem value="3">Medium (3)</SelectItem>
+                    <SelectItem value="5">Hard (5)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600 mb-1 block">Sort by</label>
+                <Select value={exportSortBy} onValueChange={(v) => setExportSortBy(v as 'category' | 'az')}>
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="category">Category</SelectItem>
+                    <SelectItem value="az">A – Z</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Row count preview */}
+            <p className="text-xs text-slate-500">
+              {getFilteredSortedDeeds().length} deed{getFilteredSortedDeeds().length !== 1 ? 's' : ''} match the current filters
+            </p>
+
+            {/* Action buttons */}
+            <div className="flex flex-wrap gap-3">
+              <Button
+                onClick={handleDownloadCsv}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                disabled={deeds.length === 0}
+              >
+                <Download className="w-4 h-4 mr-1" /> Download CSV
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => importInputRef.current?.click()}
+                disabled={importLoading}
+              >
+                <Upload className="w-4 h-4 mr-1" />
+                {importLoading ? 'Importing…' : 'Upload CSV'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handlePrint}
+                disabled={deeds.length === 0}
+              >
+                <Printer className="w-4 h-4 mr-1" /> Print / PDF
+              </Button>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={handleImportCsv}
+              />
+            </div>
+
+            {/* CSV column guide */}
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600 space-y-1">
+              <p className="font-semibold text-slate-700">CSV columns (do not rename headers):</p>
+              <p><span className="font-mono bg-white px-1 rounded">id</span> — leave as-is to update existing rows; blank to create new</p>
+              <p><span className="font-mono bg-white px-1 rounded">category</span> — e.g. Generosity, Community, Charity</p>
+              <p><span className="font-mono bg-white px-1 rounded">complexity</span> — 1=Easy, 3=Medium, 5=Hard (or leave blank)</p>
+              <p><span className="font-mono bg-white px-1 rounded">deed_text</span> — short text shown on the bingo square (required)</p>
+              <p><span className="font-mono bg-white px-1 rounded">deed_text_long</span> — long description shown on hover (optional)</p>
+              <p><span className="font-mono bg-white px-1 rounded">is_active</span> — true or false</p>
+            </div>
           </CardContent>
         </Card>
 

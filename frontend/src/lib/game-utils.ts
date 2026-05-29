@@ -47,6 +47,7 @@ export interface CellData {
   is_secret?: boolean;
   secret_reward?: number | null;
   secret_revealed?: boolean;
+  quantity?: number;
 }
 
 export interface MarkCellResult {
@@ -92,6 +93,7 @@ export interface DeedItem {
   deed_text_long?: string | null;
   category: string;
   is_active: boolean;
+  complexity?: number | null;
 }
 
 // API calls
@@ -105,6 +107,13 @@ export async function resetCard(): Promise<CardData> {
 
 export async function markCell(cardId: number, cellIndex: number): Promise<MarkCellResult> {
   return apiClient.post<MarkCellResult>('/game/mark-cell', {
+    card_id: cardId,
+    cell_index: cellIndex,
+  });
+}
+
+export async function unmarkCell(cardId: number, cellIndex: number): Promise<MarkCellResult> {
+  return apiClient.post<MarkCellResult>('/game/unmark-cell', {
     card_id: cardId,
     cell_index: cellIndex,
   });
@@ -200,6 +209,18 @@ export async function updateAdminDeed(id: number, deed: Partial<DeedItem>) {
 
 export async function deleteAdminDeed(id: number) {
   return apiClient.delete<{ success: boolean }>(`/game/admin/deeds/${id}`);
+}
+
+export interface ImportDeedsResult {
+  success: boolean;
+  updated: number;
+  created: number;
+  skipped: number;
+  total: number;
+}
+
+export async function importDeeds(deeds: Partial<DeedItem>[]): Promise<ImportDeedsResult> {
+  return apiClient.post<ImportDeedsResult>('/game/admin/deeds/import', { deeds });
 }
 
 // ---------- Deed Suggestion / Approval ----------

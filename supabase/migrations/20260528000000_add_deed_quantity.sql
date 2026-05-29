@@ -1,0 +1,2 @@
+ALTER TABLE good_deeds ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE good_deeds ADD CONSTRAINT deed_quantity_range CHECK (quantity BETWEEN 1 AND 4);

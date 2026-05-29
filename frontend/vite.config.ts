@@ -59,42 +59,42 @@ export default defineConfig(({ command }) => {
       proxy: {
         // Supabase Edge Functions (local emulator on port 54321)
         '/admin-settings': {
-          target: 'http://localhost:54321',
+          target: 'https://cjvnxvzuummcgzmjkffk.supabase.co',
           changeOrigin: true,
           rewrite: (p: string) => p.replace('/admin-settings', '/functions/v1/admin-settings'),
         },
         '/auth-custom': {
-          target: 'http://localhost:54321',
+          target: 'https://cjvnxvzuummcgzmjkffk.supabase.co',
           changeOrigin: true,
           rewrite: (p: string) => p.replace('/auth-custom', '/functions/v1/auth-custom'),
         },
         '/registration': {
-          target: 'http://localhost:54321',
+          target: 'https://cjvnxvzuummcgzmjkffk.supabase.co',
           changeOrigin: true,
           rewrite: (p: string) => p.replace('/registration', '/functions/v1/registration'),
         },
         '/users': {
-          target: 'http://localhost:54321',
+          target: 'https://cjvnxvzuummcgzmjkffk.supabase.co',
           changeOrigin: true,
           rewrite: (p: string) => p.replace('/users', '/functions/v1/users'),
         },
         '/aihub': {
-          target: 'http://localhost:54321',
+          target: 'https://cjvnxvzuummcgzmjkffk.supabase.co',
           changeOrigin: true,
           rewrite: (p: string) => p.replace('/aihub', '/functions/v1/aihub'),
         },
         '/payment': {
-          target: 'http://localhost:54321',
+          target: 'https://cjvnxvzuummcgzmjkffk.supabase.co',
           changeOrigin: true,
           rewrite: (p: string) => p.replace('/payment', '/functions/v1/payment'),
         },
         '/game': {
-          target: 'http://localhost:54321',
+          target: 'https://cjvnxvzuummcgzmjkffk.supabase.co',
           changeOrigin: true,
           rewrite: (p: string) => p.replace('/game', '/functions/v1/game'),
         },
         '/health': {
-          target: 'http://localhost:54321',
+          target: 'https://cjvnxvzuummcgzmjkffk.supabase.co',
           changeOrigin: true,
           rewrite: (_p: string) => '/functions/v1/health',
         },

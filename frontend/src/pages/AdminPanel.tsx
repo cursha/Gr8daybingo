@@ -50,8 +50,8 @@ const AdminPanel: React.FC = () => {
   const [editDeedData, setEditDeedData] = useState({ deed_text: '', deed_text_long: '', category: '' });
 
   // Export / import state
-  const [exportCategoryFilter, setExportCategoryFilter] = useState('');
-  const [exportComplexityFilter, setExportComplexityFilter] = useState('');
+  const [exportCategoryFilter, setExportCategoryFilter] = useState('all');
+  const [exportComplexityFilter, setExportComplexityFilter] = useState('all');
   const [exportSortBy, setExportSortBy] = useState<'category' | 'az'>('category');
   const [importLoading, setImportLoading] = useState(false);
   const importInputRef = React.useRef<HTMLInputElement>(null);
@@ -221,8 +221,8 @@ const AdminPanel: React.FC = () => {
 
   function getFilteredSortedDeeds(): DeedItem[] {
     let result = [...deeds];
-    if (exportCategoryFilter) result = result.filter((d) => d.category === exportCategoryFilter);
-    if (exportComplexityFilter !== '') {
+    if (exportCategoryFilter && exportCategoryFilter !== 'all') result = result.filter((d) => d.category === exportCategoryFilter);
+    if (exportComplexityFilter && exportComplexityFilter !== 'all') {
       const num = parseInt(exportComplexityFilter);
       result = result.filter((d) => (d.complexity ?? null) === num);
     }
@@ -269,8 +269,8 @@ const AdminPanel: React.FC = () => {
     };
 
     const filterDesc: string[] = [];
-    if (exportCategoryFilter) filterDesc.push(`Category: ${exportCategoryFilter}`);
-    if (exportComplexityFilter !== '') filterDesc.push(`Complexity: ${complexityLabel(parseInt(exportComplexityFilter))}`);
+    if (exportCategoryFilter && exportCategoryFilter !== 'all') filterDesc.push(`Category: ${exportCategoryFilter}`);
+    if (exportComplexityFilter && exportComplexityFilter !== 'all') filterDesc.push(`Complexity: ${complexityLabel(parseInt(exportComplexityFilter))}`);
     filterDesc.push(`Sorted: ${exportSortBy === 'category' ? 'By Category' : 'A – Z'}`);
 
     const rows = filtered.map((d) => `
@@ -738,7 +738,7 @@ const AdminPanel: React.FC = () => {
                     <SelectValue placeholder="All categories" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All categories</SelectItem>
+                    <SelectItem value="all">All categories</SelectItem>
                     {uniqueCategories.map((cat) => (
                       <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                     ))}
@@ -752,7 +752,7 @@ const AdminPanel: React.FC = () => {
                     <SelectValue placeholder="All complexities" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All complexities</SelectItem>
+                    <SelectItem value="all">All complexities</SelectItem>
                     <SelectItem value="1">Easy (1)</SelectItem>
                     <SelectItem value="3">Medium (3)</SelectItem>
                     <SelectItem value="5">Hard (5)</SelectItem>

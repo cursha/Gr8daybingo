@@ -184,7 +184,43 @@ Access details for this project are held by Michael. If you need a credential va
 
 ---
 
-## 8. GitHub Workflow
+## 8. Hosting Architecture — CRITICAL, READ BEFORE DEPLOYING
+
+The cPanel account `falleng1` on `173.209.32.66` hosts **multiple separate websites**. Deploying to the wrong directory will overwrite a different site. This has happened once and caused real damage.
+
+### Website → Document Root mapping
+
+| Website | Type | Real document root | FTP absolute path |
+|---|---|---|---|
+| `fallengators.ca` | Primary domain | `/home/falleng1/public_html` | `/public_html` |
+| `fallengators.com` | Addon domain | `/home/falleng1/public_html` | `/public_html` |
+| **`havagr8day.com`** | **Addon domain** | `/home/falleng1/havagr8day.com` | **`/havagr8day.com`** |
+
+### Deployment rules
+
+1. **Always use FTP** — the cPanel Fileman API (`/execute/Fileman/upload_files` and `save_file_content`) writes to a **virtual staging filesystem** that the web server never reads. It looks like it works (returns "OK") but nothing actually reaches the live site. FTP on port 21 is the only reliable method.
+
+2. **Use `tools/deploy_to_cpanel.py`** — this script uses FTP and targets `/havagr8day.com` correctly. Run it after every production build.
+
+3. **Never deploy to `/public_html`** — that is `fallengators.ca`, a completely separate memorial website (Fallen Gators Registry). Deploying havagr8day content there overwrites it.
+
+4. **Use absolute FTP paths** — FTP home is `/home/falleng1/`. Always use `/havagr8day.com` (with leading slash), not the relative `havagr8day.com`.
+
+5. **LiteSpeed file cache** — LiteSpeed caches files aggressively. New files (never served before) are available immediately. Overwriting an existing file that LiteSpeed has cached may show stale content until LiteSpeed restarts. If the live site looks stale after deployment, ask the hosting provider to restart LiteSpeed.
+
+### Deployment sequence
+
+```
+1. pnpm build                         (in frontend/)
+2. Supabase edge functions deploy      (if game/index.ts changed)
+3. supabase db push                    (if new migrations)
+4. git commit + push to GitHub         (after Curt + Michael confirm)
+5. python tools/deploy_to_cpanel.py    (FTP upload to havagr8day.com)
+```
+
+---
+
+## 9. GitHub Workflow
 
 1. Work is done locally and verified working
 2. Smoke test all affected features

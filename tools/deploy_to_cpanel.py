@@ -1,5 +1,9 @@
 """
-Deploy frontend/dist to the live cPanel server via FTP.
+Deploy frontend/dist to the live cPanel server via FTP (using curl).
+
+Uses curl instead of Python ftplib because ftplib's passive mode is
+unreliable through NAT — connections drop mid-transfer on large files.
+curl handles FTP passive mode correctly through NAT.
 
 Usage:
     python tools/deploy_to_cpanel.py
@@ -12,7 +16,7 @@ Requires in .env (project root):
 """
 import os
 import sys
-import ftplib
+import subprocess
 import time
 from pathlib import Path
 from dotenv import load_dotenv
@@ -23,47 +27,35 @@ load_dotenv(Path(__file__).parent.parent / ".env.local", override=True)
 CPANEL_USER = os.environ["CPANEL_USER"]
 CPANEL_PASS = os.environ["CPANEL_PASS"]
 CPANEL_HOST = os.environ["CPANEL_HOST"]
-# havagr8day.com document root via FTP (absolute from FTP home = /home/falleng1/)
-FTP_ROOT = os.environ.get("CPANEL_FTP_ROOT", "/havagr8day.com")
+FTP_ROOT    = os.environ.get("CPANEL_FTP_ROOT", "/havagr8day.com")
 
 DIST_DIR = Path(__file__).parent.parent / "frontend" / "dist"
 
 
-def connect_ftp() -> ftplib.FTP:
-    ftp = ftplib.FTP()
-    ftp.connect(CPANEL_HOST, 21, timeout=30)
-    ftp.login(CPANEL_USER, CPANEL_PASS)
-    ftp.set_pasv(True)
-    return ftp
+def ftp_url(remote_path: str) -> str:
+    return f"ftp://{CPANEL_USER}:{CPANEL_PASS}@{CPANEL_HOST}{remote_path}"
 
 
-def ensure_dir(ftp: ftplib.FTP, path: str):
-    try:
-        ftp.mkd(path)
-    except ftplib.error_perm:
-        pass  # directory already exists
-
-
-def upload_file(ftp: ftplib.FTP, local_path: Path, remote_dir: str) -> bool:
-    for attempt in range(3):
-        try:
-            ftp.cwd(remote_dir)
-            with open(local_path, "rb") as f:
-                ftp.storbinary(f"STOR {local_path.name}", f)
+def upload(local_path: Path, remote_dir: str) -> bool:
+    """Upload a single file via curl FTP. Retries once on failure."""
+    url = ftp_url(f"{remote_dir}/")
+    for attempt in range(2):
+        r = subprocess.run(
+            [
+                "curl", "--ftp-pasv", "--ftp-create-dirs",
+                "--silent", "--show-error",
+                "-T", str(local_path), url,
+                "--connect-timeout", "30",
+                "--max-time", "120",
+            ],
+            capture_output=True, text=True, timeout=130,
+        )
+        if r.returncode == 0:
             print(f"  OK  {remote_dir}/{local_path.name}")
             return True
-        except Exception as e:
-            if attempt < 2:
-                # Try to reconnect on timeout
-                try:
-                    ftp.quit()
-                except Exception:
-                    pass
-                time.sleep(2)
-                new_ftp = connect_ftp()
-                ftp.__dict__.update(new_ftp.__dict__)
-            else:
-                print(f"  FAIL  {local_path.name} -> {e}")
+        if attempt == 0:
+            time.sleep(2)
+    print(f"  FAIL  {local_path.name} -> {r.stderr.strip()[-200:]}")
     return False
 
 
@@ -73,13 +65,7 @@ def main():
         print("Run:  cd frontend && pnpm build")
         sys.exit(1)
 
-    print(f"Connecting to {CPANEL_HOST} via FTP as {CPANEL_USER}...")
-    ftp = connect_ftp()
-    print(f"Connected. Deploying to {FTP_ROOT}")
-
-    ensure_dir(ftp, FTP_ROOT)
-    ensure_dir(ftp, f"{FTP_ROOT}/assets")
-    ensure_dir(ftp, f"{FTP_ROOT}/blog")
+    print(f"Deploying to {CPANEL_HOST}{FTP_ROOT} via FTP (curl)...")
 
     succeeded = 0
     failed = 0
@@ -88,7 +74,7 @@ def main():
     for fname in ["index.html", "robots.txt", "sitemap.xml", "favicon.svg"]:
         local = DIST_DIR / fname
         if local.exists():
-            if upload_file(ftp, local, FTP_ROOT):
+            if upload(local, FTP_ROOT):
                 succeeded += 1
             else:
                 failed += 1
@@ -100,7 +86,7 @@ def main():
         print("\nUploading assets/...")
         for f in sorted(assets_dir.iterdir()):
             if f.is_file():
-                if upload_file(ftp, f, f"{FTP_ROOT}/assets"):
+                if upload(f, f"{FTP_ROOT}/assets"):
                     succeeded += 1
                 else:
                     failed += 1
@@ -110,12 +96,11 @@ def main():
         print("\nUploading blog/...")
         for f in blog_dir.iterdir():
             if f.is_file():
-                if upload_file(ftp, f, f"{FTP_ROOT}/blog"):
+                if upload(f, f"{FTP_ROOT}/blog"):
                     succeeded += 1
                 else:
                     failed += 1
 
-    ftp.quit()
     print(f"\n{'='*40}")
     print(f"Done: {succeeded} succeeded, {failed} failed")
     if failed:

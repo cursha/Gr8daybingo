@@ -45,15 +45,26 @@ def ensure_dir(ftp: ftplib.FTP, path: str):
 
 
 def upload_file(ftp: ftplib.FTP, local_path: Path, remote_dir: str) -> bool:
-    try:
-        ftp.cwd(remote_dir)
-        with open(local_path, "rb") as f:
-            ftp.storbinary(f"STOR {local_path.name}", f)
-        print(f"  OK  {remote_dir}/{local_path.name}")
-        return True
-    except Exception as e:
-        print(f"  FAIL  {local_path.name} → {e}")
-        return False
+    for attempt in range(3):
+        try:
+            ftp.cwd(remote_dir)
+            with open(local_path, "rb") as f:
+                ftp.storbinary(f"STOR {local_path.name}", f)
+            print(f"  OK  {remote_dir}/{local_path.name}")
+            return True
+        except Exception as e:
+            if attempt < 2:
+                # Try to reconnect on timeout
+                try:
+                    ftp.quit()
+                except Exception:
+                    pass
+                time.sleep(2)
+                new_ftp = connect_ftp()
+                ftp.__dict__.update(new_ftp.__dict__)
+            else:
+                print(f"  FAIL  {local_path.name} -> {e}")
+    return False
 
 
 def main():

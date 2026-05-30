@@ -29,9 +29,19 @@ These rules override everything else. No exceptions.
 ### 2.2 Never change what you were not asked to change
 
 - Work only on the specific file, function, or feature that was explicitly requested.
-- If you notice something else that needs fixing while working, **flag it — do not fix it**.
-- Write up what you noticed and why it matters, and wait for instruction before touching it.
-- This applies to: formatting, variable names, file structure, comments, styles, imports — everything.
+- Before editing ANY file, ask: "Was I explicitly asked to change this file?" If no — do not touch it.
+- If you notice something else that needs fixing while working, **flag it as a suggestion — do not fix it**. Use this format:
+
+```
+💡 SUGGESTION (out of scope — not touching it)
+While working on [task], I noticed: [issue]
+Impact: [what could go wrong]
+Suggested fix: [brief description]
+→ Let me know if you want me to address this separately.
+```
+
+- This applies to: formatting, variable names, file structure, comments, styles, imports, `.htaccess`, deployment scripts, unrelated components — **everything not named in the task**.
+- **A previous session accidentally overwrote `fallengators.ca`** (a completely separate website) by deploying to the wrong cPanel directory. This happened because files outside the task scope were modified. That mistake required a full site restore from the Wayback Machine. This rule exists to prevent that from ever happening again.
 
 ### 2.3 Never implement until all information is clear
 

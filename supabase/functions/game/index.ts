@@ -828,6 +828,246 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: true, completed_cells: updatedCompleted, is_bingo: isBingo })
     }
 
+    // ── POST /wallet/create-payment-intent ───────────────────────────────────
+    if (method === 'POST' && path === '/wallet/create-payment-intent') {
+      const user = requireAuth(authUser)
+      const body = await req.json()
+      const amount = Number(body.amount)
+      if (!amount || amount <= 0 || amount > 200) return errorResponse('Invalid amount', 400)
+
+      const stripeKey = Deno.env.get('STRIPE_SECRET_KEY')
+      if (!stripeKey || stripeKey === 'FILL_IN_FROM_STRIPE_DASHBOARD') {
+        return errorResponse('Payment processing is not yet configured. Please contact support.', 503)
+      }
+
+      // Create Stripe PaymentIntent
+      const params = new URLSearchParams({
+        amount: String(Math.round(amount * 100)), // cents
+        currency: 'cad',
+        'metadata[user_id]': user.sub,
+        'metadata[wallet_amount]': String(amount),
+        'automatic_payment_methods[enabled]': 'true',
+      })
+
+      const stripeResp = await fetch('https://api.stripe.com/v1/payment_intents', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${stripeKey}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString(),
+      })
+
+      const paymentIntent = await stripeResp.json() as { id?: string; client_secret?: string; error?: { message: string } }
+      if (paymentIntent.error) return errorResponse(paymentIntent.error.message, 400)
+
+      return jsonResponse({ client_secret: paymentIntent.client_secret })
+    }
+
+    // ── POST /wallet/confirm-payment ──────────────────────────────────────────
+    if (method === 'POST' && path === '/wallet/confirm-payment') {
+      const user = requireAuth(authUser)
+      const body = await req.json()
+      const { payment_intent_id } = body
+      if (!payment_intent_id) return errorResponse('payment_intent_id is required', 400)
+
+      const stripeKey = Deno.env.get('STRIPE_SECRET_KEY')
+      if (!stripeKey || stripeKey === 'FILL_IN_FROM_STRIPE_DASHBOARD') {
+        return errorResponse('Payment processing not configured', 503)
+      }
+
+      // Retrieve and verify the payment intent from Stripe
+      const stripeResp = await fetch(`https://api.stripe.com/v1/payment_intents/${payment_intent_id}`, {
+        headers: { 'Authorization': `Bearer ${stripeKey}` },
+      })
+      const pi = await stripeResp.json() as { status?: string; metadata?: { user_id?: string; wallet_amount?: string }; error?: { message: string } }
+
+      if (pi.error) return errorResponse(pi.error.message, 400)
+      if (pi.status !== 'succeeded') return errorResponse('Payment not completed', 400)
+      if (pi.metadata?.user_id !== user.sub) return errorResponse('Payment does not belong to this account', 403)
+
+      const walletAmount = parseFloat(pi.metadata?.wallet_amount ?? '0')
+      if (!walletAmount || walletAmount <= 0) return errorResponse('Invalid wallet amount', 400)
+
+      // Credit the wallet
+      let { data: wallet } = await supabase
+        .from('player_wallets').select('*').eq('user_id', user.sub).maybeSingle()
+      if (!wallet) {
+        const { data: w } = await supabase
+          .from('player_wallets').insert({ user_id: user.sub, balance: 0 }).select().single()
+        wallet = w
+      }
+      const newBalance = parseFloat(wallet.balance) + walletAmount
+      await supabase.from('player_wallets')
+        .update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
+      await supabase.from('wallet_transactions').insert({
+        user_id: user.sub,
+        amount: walletAmount,
+        transaction_type: 'deposit',
+        item_description: `Added $${walletAmount.toFixed(2)} to wallet`,
+      })
+
+      return jsonResponse({ success: true, new_balance: newBalance })
+    }
+
+    // ── POST /request-password-reset ─────────────────────────────────────────
+    if (method === 'POST' && path === '/request-password-reset') {
+      const body = await req.json()
+      const email = String(body.email ?? '').trim().toLowerCase()
+      if (!email) return errorResponse('Email is required', 400)
+
+      // Look up user by email in auth_users table
+      const { data: userRow } = await supabase
+        .from('auth_users').select('id, email').eq('email', email).maybeSingle()
+
+      if (userRow) {
+        // Generate secure random token
+        const tokenBytes = new Uint8Array(32)
+        crypto.getRandomValues(tokenBytes)
+        const token = Array.from(tokenBytes).map(b => b.toString(16).padStart(2, '0')).join('')
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString() // 1 hour
+
+        await supabase.from('password_reset_tokens').insert({
+          user_id: userRow.id,
+          token,
+          expires_at: expiresAt,
+        })
+
+        const resetUrl = `https://havagr8day.com/reset-password?token=${token}`
+        const resendKey = Deno.env.get('RESEND_API_KEY')
+
+        if (resendKey) {
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: 'Havagr8day Bingo <noreply@havagr8day.com>',
+              to: [email],
+              subject: 'Reset your Havagr8day Bingo password',
+              html: `
+                <div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:24px">
+                  <h2 style="color:#4F46E5">Reset your password</h2>
+                  <p>We received a request to reset your Havagr8day Bingo password.</p>
+                  <p>Click the button below to choose a new password. This link expires in 1 hour.</p>
+                  <a href="${resetUrl}" style="display:inline-block;background:#DC2626;color:#fff;font-weight:bold;padding:12px 28px;border-radius:8px;text-decoration:none;margin:16px 0">
+                    Reset Password
+                  </a>
+                  <p style="color:#64748B;font-size:13px">If you didn't request this, you can safely ignore this email.</p>
+                </div>
+              `,
+            }),
+          }).catch(() => { /* best effort */ })
+        }
+      }
+
+      // Always return success to prevent email enumeration
+      return jsonResponse({ success: true })
+    }
+
+    // ── POST /reset-password ──────────────────────────────────────────────────
+    if (method === 'POST' && path === '/reset-password') {
+      const body = await req.json()
+      const token = String(body.token ?? '').trim()
+      const newPassword = String(body.new_password ?? '').trim()
+
+      if (!token || !newPassword) return errorResponse('Token and new password are required', 400)
+      if (newPassword.length < 8) return errorResponse('Password must be at least 8 characters', 400)
+
+      const { data: tokenRow } = await supabase
+        .from('password_reset_tokens').select('*')
+        .eq('token', token).maybeSingle()
+
+      if (!tokenRow) return errorResponse('Invalid or expired reset link', 400)
+      if (tokenRow.used_at) return errorResponse('This reset link has already been used', 400)
+      if (new Date(tokenRow.expires_at) < new Date()) return errorResponse('Reset link has expired. Please request a new one.', 400)
+
+      // Hash the new password
+      const encoder = new TextEncoder()
+      const saltBytes = new Uint8Array(16)
+      crypto.getRandomValues(saltBytes)
+      const salt = Array.from(saltBytes).map(b => b.toString(16).padStart(2, '0')).join('')
+      const passwordData = encoder.encode(newPassword + salt)
+      const hashBuffer = await crypto.subtle.digest('SHA-256', passwordData)
+      const hashHex = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('')
+      const passwordHash = `sha256:${salt}:${hashHex}`
+
+      await supabase.from('auth_users').update({ password_hash: passwordHash }).eq('id', tokenRow.user_id)
+      await supabase.from('password_reset_tokens').update({ used_at: new Date().toISOString() }).eq('id', tokenRow.id)
+
+      return jsonResponse({ success: true, message: 'Password updated successfully' })
+    }
+
+    // ── POST /claim-prize ─────────────────────────────────────────────────────
+    if (method === 'POST' && path === '/claim-prize') {
+      const user = requireAuth(authUser)
+      const body = await req.json()
+      const { full_name, email, phone, mailing_address, notes } = body
+
+      if (!full_name || !email) return errorResponse('Name and email are required', 400)
+
+      const weekYear = getCurrentWeekYear()
+
+      // Verify player actually won this week
+      const { data: card } = await supabase
+        .from('player_cards').select('is_bingo, week_year')
+        .eq('user_id', user.sub).eq('week_year', weekYear).maybeSingle()
+      if (!card || !card.is_bingo) return errorResponse('No winning card found for this week', 400)
+
+      // Prevent duplicate claims
+      const { data: existing } = await supabase
+        .from('prize_claims').select('id').eq('user_id', user.sub).eq('week_year', weekYear).maybeSingle()
+      if (existing) return errorResponse('You have already submitted a claim for this week', 400)
+
+      const { error } = await supabase.from('prize_claims').insert({
+        user_id: user.sub,
+        week_year: weekYear,
+        full_name: String(full_name).trim(),
+        email: String(email).trim().toLowerCase(),
+        phone: phone ? String(phone).trim() : null,
+        mailing_address: mailing_address ? String(mailing_address).trim() : null,
+        notes: notes ? String(notes).trim() : null,
+        status: 'pending',
+      })
+      if (error) throw error
+
+      return jsonResponse({ success: true, message: 'Prize claim submitted! We will contact you within 48 hours.' })
+    }
+
+    // ── GET /admin/prize-claims ───────────────────────────────────────────────
+    if (method === 'GET' && path === '/admin/prize-claims') {
+      const { data } = await supabase
+        .from('prize_claims').select('*').order('created_at', { ascending: false })
+      return jsonResponse({
+        claims: (data ?? []).map((c) => ({
+          id: c.id,
+          user_id: c.user_id,
+          week_year: c.week_year,
+          full_name: c.full_name,
+          email: c.email,
+          phone: c.phone ?? null,
+          mailing_address: c.mailing_address ?? null,
+          notes: c.notes ?? null,
+          status: c.status,
+          created_at: c.created_at,
+        })),
+      })
+    }
+
+    // ── PUT /admin/prize-claims/:id ───────────────────────────────────────────
+    const claimMatch = matchPath('/admin/prize-claims/:id', path)
+    if (method === 'PUT' && claimMatch) {
+      const body = await req.json()
+      const { status } = body
+      if (!['pending', 'contacted', 'fulfilled', 'rejected'].includes(status)) {
+        return errorResponse('Invalid status', 400)
+      }
+      const { error } = await supabase.from('prize_claims')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', parseInt(claimMatch.id))
+      if (error) throw error
+      return jsonResponse({ success: true })
+    }
+
     return errorResponse('Not found', 404)
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'status' in err) {

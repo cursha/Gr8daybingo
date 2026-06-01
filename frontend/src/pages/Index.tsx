@@ -268,7 +268,20 @@ const Index: React.FC = () => {
             <Heart className="w-5 h-5 text-indigo-400 fill-indigo-400" />
             <span className="text-white font-bold">Gr8Day Bingo</span>
           </div>
-          <p className="text-sm">Building stronger communities through everyday acts of kindness.</p>
+          <p className="text-sm mb-4">Building stronger communities through everyday acts of kindness.</p>
+          <div className="flex items-center justify-center gap-4 text-xs text-slate-500">
+            <button onClick={() => navigate('/terms')} className="hover:text-slate-300 underline underline-offset-2">
+              Terms of Service
+            </button>
+            <span>·</span>
+            <button onClick={() => navigate('/privacy')} className="hover:text-slate-300 underline underline-offset-2">
+              Privacy Policy
+            </button>
+            <span>·</span>
+            <a href="mailto:support@havagr8day.com" className="hover:text-slate-300 underline underline-offset-2">
+              Contact
+            </a>
+          </div>
         </div>
       </footer>
     </div>

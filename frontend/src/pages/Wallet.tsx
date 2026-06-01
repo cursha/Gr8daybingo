@@ -1,29 +1,94 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { WalletData, Transaction, getWallet, addFunds, getTransactions } from '@/lib/game-utils';
+import { WalletData, Transaction, getWallet, getTransactions } from '@/lib/game-utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { ArrowLeft, Heart, Wallet as WalletIcon, Plus, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { ArrowLeft, Heart, Wallet as WalletIcon, Plus, ArrowUpRight, ArrowDownLeft, Loader2, X } from 'lucide-react';
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { apiClient } from '@/lib/apiClient';
+
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
 
 const FUND_OPTIONS = [5, 10, 20];
 
+// ── Inner Stripe checkout form ────────────────────────────────────────────────
+const CheckoutForm: React.FC<{ amount: number; onSuccess: (newBalance: number) => void; onCancel: () => void }> = ({
+  amount,
+  onSuccess,
+  onCancel,
+}) => {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [processing, setProcessing] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+    setProcessing(true);
+    try {
+      const { error: submitError } = await elements.submit();
+      if (submitError) { toast.error(submitError.message || 'Payment error'); return; }
+
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: { return_url: window.location.href },
+        redirect: 'if_required',
+      });
+
+      if (error) {
+        toast.error(error.message || 'Payment failed');
+        return;
+      }
+
+      if (paymentIntent && paymentIntent.status === 'succeeded') {
+        const result = await apiClient.post<{ success: boolean; new_balance: number }>(
+          '/game/wallet/confirm-payment',
+          { payment_intent_id: paymentIntent.id }
+        );
+        toast.success(`$${amount} added to your wallet!`);
+        onSuccess(result.new_balance);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Payment failed');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <PaymentElement />
+      <div className="flex gap-3 pt-2">
+        <Button type="submit" disabled={processing || !stripe} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
+          {processing ? <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> Processing…</> : `Pay $${amount}`}
+        </Button>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={processing}>
+          <X className="w-4 h-4 mr-1" /> Cancel
+        </Button>
+      </div>
+    </form>
+  );
+};
+
+// ── Main wallet page ──────────────────────────────────────────────────────────
 const WalletPage: React.FC = () => {
   const navigate = useNavigate();
   const { user, loading } = useAuth();
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [addingFunds, setAddingFunds] = useState(false);
+  const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [preparingPayment, setPreparingPayment] = useState(false);
 
   useEffect(() => {
     if (loading) return;
-    if (!user) {
-      navigate('/login', { state: { from: '/wallet' } });
-    }
+    if (!user) navigate('/login', { state: { from: '/wallet' } });
   }, [loading, user, navigate]);
 
-  const loadWalletData = async () => {
+  const loadWalletData = useCallback(async () => {
     try {
       const [walletData, txnData] = await Promise.all([getWallet(), getTransactions()]);
       setWallet(walletData);
@@ -31,26 +96,38 @@ const WalletPage: React.FC = () => {
     } catch (err: any) {
       toast.error(err?.message || 'Failed to load wallet');
     }
-  };
+  }, []);
 
   useEffect(() => {
-    if (user) {
-      loadWalletData();
-    }
-  }, [user]);
+    if (user) loadWalletData();
+  }, [user, loadWalletData]);
 
-  const handleAddFunds = async (amount: number) => {
-    setAddingFunds(true);
+  const handleSelectAmount = async (amount: number) => {
+    setPreparingPayment(true);
     try {
-      const result = await addFunds(amount);
-      setWallet((prev) => (prev ? { ...prev, balance: result.new_balance } : null));
-      toast.success(`$${amount} added to your wallet`);
-      await loadWalletData();
+      const result = await apiClient.post<{ client_secret: string }>(
+        '/game/wallet/create-payment-intent',
+        { amount }
+      );
+      setSelectedAmount(amount);
+      setClientSecret(result.client_secret);
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to add funds');
+      toast.error(err?.message || 'Could not start payment. Please try again.');
     } finally {
-      setAddingFunds(false);
+      setPreparingPayment(false);
     }
+  };
+
+  const handlePaymentSuccess = (newBalance: number) => {
+    setWallet((prev) => prev ? { ...prev, balance: newBalance } : null);
+    setClientSecret(null);
+    setSelectedAmount(null);
+    loadWalletData();
+  };
+
+  const handleCancel = () => {
+    setClientSecret(null);
+    setSelectedAmount(null);
   };
 
   if (loading) {
@@ -63,7 +140,6 @@ const WalletPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
       <header className="bg-white/80 backdrop-blur-sm border-b border-slate-200 sticky top-0 z-40">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => navigate('/game')}>
@@ -100,22 +176,48 @@ const WalletPage: React.FC = () => {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-slate-500 mb-4">
-              Select an amount to top up your wallet. Funds can be used to purchase select squares on your card.
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {FUND_OPTIONS.map((amount) => (
-                <Button
-                  key={amount}
-                  variant="outline"
-                  onClick={() => handleAddFunds(amount)}
-                  disabled={addingFunds}
-                  className="h-16 text-lg font-bold border-2 hover:border-indigo-500 hover:bg-indigo-50 transition-all"
+            {clientSecret && selectedAmount ? (
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-slate-700">
+                  Adding <span className="text-emerald-600">${selectedAmount}</span> to your wallet
+                </p>
+                <Elements
+                  stripe={stripePromise}
+                  options={{
+                    clientSecret,
+                    appearance: { theme: 'stripe', variables: { colorPrimary: '#4F46E5' } },
+                  }}
                 >
-                  ${amount}
-                </Button>
-              ))}
-            </div>
+                  <CheckoutForm
+                    amount={selectedAmount}
+                    onSuccess={handlePaymentSuccess}
+                    onCancel={handleCancel}
+                  />
+                </Elements>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-slate-500 mb-4">
+                  Select an amount to top up your wallet. Funds can be used to purchase select squares on your card.
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {FUND_OPTIONS.map((amount) => (
+                    <Button
+                      key={amount}
+                      variant="outline"
+                      onClick={() => handleSelectAmount(amount)}
+                      disabled={preparingPayment}
+                      className="h-16 text-lg font-bold border-2 hover:border-indigo-500 hover:bg-indigo-50 transition-all"
+                    >
+                      {preparingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : `$${amount}`}
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-400 mt-3 flex items-center gap-1">
+                  🔒 Payments are processed securely by Stripe. We never store your card details.
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -135,40 +237,17 @@ const WalletPage: React.FC = () => {
                     className="flex items-center justify-between py-3 border-b border-slate-100 last:border-0"
                   >
                     <div className="flex items-center gap-3">
-                      <div
-                        className={`rounded-full p-1.5 ${
-                          txn.transaction_type === 'deposit'
-                            ? 'bg-emerald-100 text-emerald-600'
-                            : 'bg-rose-100 text-rose-600'
-                        }`}
-                      >
-                        {txn.transaction_type === 'deposit' ? (
-                          <ArrowDownLeft className="w-4 h-4" />
-                        ) : (
-                          <ArrowUpRight className="w-4 h-4" />
-                        )}
+                      <div className={`rounded-full p-1.5 ${txn.transaction_type === 'deposit' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                        {txn.transaction_type === 'deposit' ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-slate-700">
-                          {txn.item_description || txn.transaction_type}
-                        </p>
+                        <p className="text-sm font-medium text-slate-700">{txn.item_description || txn.transaction_type}</p>
                         <p className="text-xs text-slate-400">
-                          {txn.created_at
-                            ? new Date(txn.created_at).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })
-                            : ''}
+                          {txn.created_at ? new Date(txn.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
                         </p>
                       </div>
                     </div>
-                    <span
-                      className={`font-bold ${
-                        txn.amount >= 0 ? 'text-emerald-600' : 'text-rose-600'
-                      }`}
-                    >
+                    <span className={`font-bold ${txn.amount >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                       {txn.amount >= 0 ? '+' : ''}${Math.abs(txn.amount).toFixed(2)}
                     </span>
                   </div>

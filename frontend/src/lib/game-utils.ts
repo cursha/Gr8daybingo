@@ -273,6 +273,38 @@ export async function deletePendingDeed(id: number) {
   return apiClient.delete<{ success: boolean }>(`/game/admin/pending-deeds/${id}`);
 }
 
+// ---------- Prize Claims ----------
+export interface PrizeClaim {
+  id: number;
+  user_id: string;
+  week_year: string;
+  full_name: string;
+  email: string;
+  phone: string | null;
+  mailing_address: string | null;
+  notes: string | null;
+  status: string;
+  created_at: string | null;
+}
+
+export async function submitPrizeClaim(payload: {
+  full_name: string;
+  email: string;
+  phone?: string;
+  mailing_address?: string;
+  notes?: string;
+}): Promise<{ success: boolean; message: string }> {
+  return apiClient.post('/game/claim-prize', payload);
+}
+
+export async function getAdminPrizeClaims(): Promise<{ claims: PrizeClaim[] }> {
+  return apiClient.get('/game/admin/prize-claims');
+}
+
+export async function updatePrizeClaimStatus(id: number, status: string): Promise<{ success: boolean }> {
+  return apiClient.put(`/game/admin/prize-claims/${id}`, { status });
+}
+
 // ---------- Registration ----------
 export interface ProfileStatus {
   profile_completed: boolean;

@@ -99,15 +99,17 @@ const Login: React.FC = () => {
                 'Sign In'
               )}
             </Button>
-            <p className="text-center text-sm text-slate-500 pt-2">
-              Don&apos;t have an account?{' '}
-              <Link
-                to="/register"
-                className="font-semibold text-indigo-600 hover:text-indigo-700 underline underline-offset-2"
-              >
-                Sign up
+            <div className="flex items-center justify-between pt-2">
+              <Link to="/forgot-password" className="text-sm text-slate-500 hover:text-indigo-600 underline underline-offset-2">
+                Forgot password?
               </Link>
-            </p>
+              <p className="text-sm text-slate-500">
+                No account?{' '}
+                <Link to="/register" className="font-semibold text-indigo-600 hover:text-indigo-700 underline underline-offset-2">
+                  Sign up
+                </Link>
+              </p>
+            </div>
           </form>
         </CardContent>
       </Card>

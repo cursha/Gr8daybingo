@@ -48,9 +48,9 @@ const AdminPanel: React.FC = () => {
 
   // Deeds state
   const [deeds, setDeeds] = useState<DeedItem[]>([]);
-  const [newDeed, setNewDeed] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '' });
+  const [newDeed, setNewDeed] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1' });
   const [editingDeed, setEditingDeed] = useState<number | null>(null);
-  const [editDeedData, setEditDeedData] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '' });
+  const [editDeedData, setEditDeedData] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1' });
 
   // Export / import state
   const [exportCategoryFilter, setExportCategoryFilter] = useState('all');
@@ -196,8 +196,9 @@ const AdminPanel: React.FC = () => {
         category: newDeed.category.trim(),
         is_active: true,
         complexity: newDeed.complexity ? parseInt(newDeed.complexity) : undefined,
+        quantity: newDeed.quantity ? parseInt(newDeed.quantity) : 1,
       });
-      setNewDeed({ deed_text: '', deed_text_long: '', category: '', complexity: '' });
+      setNewDeed({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1' });
       toast.success('Gr8Day Deed added!');
       await loadData();
     } catch {
@@ -210,6 +211,7 @@ const AdminPanel: React.FC = () => {
       await updateAdminDeed(id, {
         ...editDeedData,
         complexity: editDeedData.complexity ? parseInt(editDeedData.complexity) : null,
+        quantity: editDeedData.quantity ? parseInt(editDeedData.quantity) : 1,
       });
       setEditingDeed(null);
       toast.success('Gr8Day Deed updated!');
@@ -266,12 +268,13 @@ const AdminPanel: React.FC = () => {
 
   function handleDownloadCsv() {
     const filtered = getFilteredSortedDeeds();
-    const header = ['id', 'category', 'complexity', 'deed_text', 'deed_text_long', 'is_active'].join(',');
+    const header = ['id', 'category', 'complexity', 'quantity', 'deed_text', 'deed_text_long', 'is_active'].join(',');
     const rows = filtered.map((d) =>
       [
         toCsvField(d.id),
         toCsvField(d.category),
         toCsvField(d.complexity),
+        toCsvField(d.quantity ?? 1),
         toCsvField(d.deed_text),
         toCsvField(d.deed_text_long),
         toCsvField(d.is_active),
@@ -405,7 +408,8 @@ const AdminPanel: React.FC = () => {
         deed_text_long: row['deed_text_long'] || null,
         category: row['category'] || '',
         complexity: row['complexity'] ? parseInt(row['complexity']) || null : null,
-        is_active: (row['is_active'] ?? '').toLowerCase() !== 'false',
+        quantity: row['quantity'] ? parseInt(row['quantity']) || 1 : 1,
+        is_active: (row['is_active'] ?? '').trim().toLowerCase() !== 'false',
       }));
       const result = await importDeeds(deeds);
       toast.success(`Import complete — ${result.updated} updated, ${result.created} created${result.skipped > 0 ? `, ${result.skipped} skipped` : ''}`);
@@ -906,12 +910,13 @@ const AdminPanel: React.FC = () => {
             {/* CSV column guide */}
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600 space-y-1">
               <p className="font-semibold text-slate-700">CSV columns (do not rename headers):</p>
-              <p><span className="font-mono bg-white px-1 rounded">id</span> — leave as-is to update existing rows; blank to create new</p>
+              <p><span className="font-mono bg-white px-1 rounded">id</span> — leave as-is to update existing rows. If blank, we match by <strong>deed_text</strong>: a deed with the same name is updated, not duplicated. A brand-new name creates a new deed.</p>
               <p><span className="font-mono bg-white px-1 rounded">category</span> — e.g. Generosity, Community, Charity</p>
               <p><span className="font-mono bg-white px-1 rounded">complexity</span> — 1=Easy, 3=Medium, 5=Hard (or leave blank)</p>
+              <p><span className="font-mono bg-white px-1 rounded">quantity</span> — how many times the player must do it (1–4). Use 1 for normal deeds, 2–4 for "do it multiple times" deeds.</p>
               <p><span className="font-mono bg-white px-1 rounded">deed_text</span> — short text shown on the bingo square (required)</p>
               <p><span className="font-mono bg-white px-1 rounded">deed_text_long</span> — long description shown on hover (optional)</p>
-              <p><span className="font-mono bg-white px-1 rounded">is_active</span> — true or false</p>
+              <p><span className="font-mono bg-white px-1 rounded">is_active</span> — true or false (TRUE/FALSE in any case works)</p>
             </div>
           </CardContent>
         </Card>
@@ -956,6 +961,17 @@ const AdminPanel: React.FC = () => {
                   <option value="3">3 – Medium</option>
                   <option value="4">4</option>
                   <option value="5">5 – Hard</option>
+                </select>
+                <select
+                  value={newDeed.quantity}
+                  onChange={(e) => setNewDeed((prev) => ({ ...prev, quantity: e.target.value }))}
+                  className="w-32 sm:w-36 border border-input rounded-md bg-background px-2 text-sm"
+                  title="How many times the player must do this deed"
+                >
+                  <option value="1">Do it 1× (default)</option>
+                  <option value="2">Do it 2×</option>
+                  <option value="3">Do it 3×</option>
+                  <option value="4">Do it 4×</option>
                 </select>
               </div>
               <Textarea
@@ -1017,6 +1033,17 @@ const AdminPanel: React.FC = () => {
                             <option value="4">4</option>
                             <option value="5">5 – Hard</option>
                           </select>
+                          <select
+                            value={editDeedData.quantity}
+                            onChange={(e) => setEditDeedData((prev) => ({ ...prev, quantity: e.target.value }))}
+                            className="w-28 h-8 text-sm border border-input rounded-md bg-background px-2"
+                            title="How many times the player must do this deed"
+                          >
+                            <option value="1">Do it 1×</option>
+                            <option value="2">Do it 2×</option>
+                            <option value="3">Do it 3×</option>
+                            <option value="4">Do it 4×</option>
+                          </select>
                         </div>
                         <Textarea
                           value={editDeedData.deed_text_long}
@@ -1056,11 +1083,23 @@ const AdminPanel: React.FC = () => {
                               No long description yet — add one so players see context on hover.
                             </p>
                           )}
-                          {deed.category && (
-                            <span className="inline-block mt-1 text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">
-                              {deed.category}
-                            </span>
-                          )}
+                          <div className="flex flex-wrap items-center gap-1 mt-1">
+                            {deed.category && (
+                              <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">
+                                {deed.category}
+                              </span>
+                            )}
+                            {deed.complexity != null && (
+                              <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">
+                                Complexity {deed.complexity}
+                              </span>
+                            )}
+                            {(deed.quantity ?? 1) > 1 && (
+                              <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-semibold">
+                                Do it {deed.quantity}×
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <Button
@@ -1084,6 +1123,7 @@ const AdminPanel: React.FC = () => {
                                 deed_text_long: deed.deed_text_long || '',
                                 category: deed.category || '',
                                 complexity: deed.complexity != null ? String(deed.complexity) : '',
+                                quantity: deed.quantity != null ? String(deed.quantity) : '1',
                               });
                             }}
                           >

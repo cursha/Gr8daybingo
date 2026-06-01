@@ -94,6 +94,7 @@ export interface DeedItem {
   category: string;
   is_active: boolean;
   complexity?: number | null;
+  quantity?: number | null;
 }
 
 // API calls
@@ -199,6 +200,8 @@ export async function createAdminDeed(deed: {
   deed_text_long?: string;
   category: string;
   is_active: boolean;
+  complexity?: number;
+  quantity?: number;
 }) {
   return apiClient.post<DeedItem>('/game/admin/deeds', deed);
 }

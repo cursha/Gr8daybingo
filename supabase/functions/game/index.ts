@@ -632,6 +632,7 @@ Deno.serve(async (req: Request) => {
         deeds: (data ?? []).map((d) => ({
           id: d.id, deed_text: d.deed_text, deed_text_long: d.deed_text_long ?? null,
           category: d.category, is_active: d.is_active, complexity: d.complexity ?? null,
+          quantity: d.quantity ?? 1,
         })),
       })
     }
@@ -645,20 +646,44 @@ Deno.serve(async (req: Request) => {
         category: body.category ?? '',
         is_active: body.is_active ?? true,
         complexity: body.complexity != null ? Number(body.complexity) : null,
+        quantity: body.quantity != null ? Math.min(4, Math.max(1, Math.round(Number(body.quantity)))) : 1,
       }).select().single()
       if (error) throw error
-      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active, complexity: data.complexity ?? null })
+      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active, complexity: data.complexity ?? null, quantity: data.quantity ?? 1 })
     }
 
     // ── POST /admin/deeds/import ──────────────────────────────────────────────
     if (method === 'POST' && path === '/admin/deeds/import') {
       const body = await req.json()
-      const rows: Array<{ id?: number; deed_text?: string; deed_text_long?: string | null; category?: string; complexity?: number | null; is_active?: boolean }> = body.deeds ?? []
+      const rows: Array<{ id?: number; deed_text?: string; deed_text_long?: string | null; category?: string; complexity?: number | null; quantity?: number | null; is_active?: unknown }> = body.deeds ?? []
       let updated = 0, created = 0, skipped = 0
+
+      // Build a lookup of existing deeds by lowercased text so an upload with a
+      // blank id matches an existing deed by NAME instead of creating a duplicate.
+      const { data: allDeeds } = await supabase.from('good_deeds').select('id, deed_text')
+      const idByText = new Map<string, number>()
+      for (const d of allDeeds ?? []) {
+        idByText.set(String(d.deed_text ?? '').trim().toLowerCase(), d.id)
+      }
+
+      // Robustly interpret is_active for both booleans and strings of any case.
+      const parseActive = (v: unknown): boolean => {
+        if (v === false) return false
+        const s = String(v ?? '').trim().toLowerCase()
+        return !(s === 'false' || s === '0' || s === 'no' || s === 'n')
+      }
+
+      // Clamp quantity to the allowed 1–4 range; default to 1.
+      const parseQuantity = (v: unknown): number => {
+        const n = Number(v)
+        if (!Number.isFinite(n)) return 1
+        return Math.min(4, Math.max(1, Math.round(n)))
+      }
+
       for (const row of rows) {
         const text = String(row.deed_text ?? '').trim()
         if (!text) { skipped++; continue }
-        const complexityVal = (row.complexity != null && row.complexity !== '' as unknown)
+        const complexityVal = (row.complexity != null && String(row.complexity).trim() !== '')
           ? (Number(row.complexity) || null)
           : null
         const payload = {
@@ -666,15 +691,26 @@ Deno.serve(async (req: Request) => {
           deed_text_long: row.deed_text_long ? String(row.deed_text_long).trim() || null : null,
           category: row.category ? String(row.category).trim() : null,
           complexity: complexityVal,
-          is_active: row.is_active !== false && String(row.is_active) !== 'false',
+          quantity: parseQuantity(row.quantity),
+          is_active: parseActive(row.is_active),
         }
-        const rowId = row.id ? Number(row.id) : 0
-        if (rowId > 0) {
-          const { error } = await supabase.from('good_deeds').update(payload).eq('id', rowId)
+
+        // Determine the target row: explicit id wins, else match by name.
+        const explicitId = row.id ? Number(row.id) : 0
+        const matchedId = explicitId > 0 ? explicitId : (idByText.get(text.toLowerCase()) ?? 0)
+
+        if (matchedId > 0) {
+          const { error } = await supabase.from('good_deeds').update(payload).eq('id', matchedId)
           if (!error) updated++; else skipped++
         } else {
-          const { error } = await supabase.from('good_deeds').insert(payload)
-          if (!error) created++; else skipped++
+          const { data: inserted, error } = await supabase.from('good_deeds').insert(payload).select('id').single()
+          if (!error) {
+            created++
+            // Track the new deed so duplicate rows within the same file update it.
+            if (inserted) idByText.set(text.toLowerCase(), inserted.id)
+          } else {
+            skipped++
+          }
         }
       }
       return jsonResponse({ success: true, updated, created, skipped, total: updated + created })
@@ -690,11 +726,12 @@ Deno.serve(async (req: Request) => {
       if ('category' in body) updates.category = body.category
       if ('is_active' in body) updates.is_active = body.is_active
       if ('complexity' in body) updates.complexity = body.complexity != null ? Number(body.complexity) : null
+      if ('quantity' in body) updates.quantity = body.quantity != null ? Math.min(4, Math.max(1, Math.round(Number(body.quantity)))) : 1
       const { data, error } = await supabase.from('good_deeds')
         .update(updates).eq('id', parseInt(deedPutMatch.id)).select().maybeSingle()
       if (error) throw error
       if (!data) return errorResponse('Deed not found', 404)
-      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active, complexity: data.complexity ?? null })
+      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active, complexity: data.complexity ?? null, quantity: data.quantity ?? 1 })
     }
 
     // ── DELETE /admin/deeds/:id ───────────────────────────────────────────────

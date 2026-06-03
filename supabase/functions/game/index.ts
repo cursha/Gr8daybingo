@@ -2,6 +2,7 @@ import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { getAuthUser, requireAuth } from '../_shared/auth.ts'
 import { getSupabase, getSubPath, matchPath } from '../_shared/db.ts'
 import { sendEmail, passwordResetEmail, referralInviteEmail } from '../_shared/email.ts'
+import bcrypt from 'npm:bcryptjs@2'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface Cell {
@@ -1009,9 +1010,9 @@ Deno.serve(async (req: Request) => {
       const email = String(body.email ?? '').trim().toLowerCase()
       if (!email) return errorResponse('Email is required', 400)
 
-      // Look up user by email in auth_users table
+      // Look up user by email in the users table (custom auth lives here)
       const { data: userRow } = await supabase
-        .from('auth_users').select('id, email').eq('email', email).maybeSingle()
+        .from('users').select('id, email').eq('email', email).maybeSingle()
 
       if (userRow) {
         // Generate secure random token
@@ -1052,17 +1053,13 @@ Deno.serve(async (req: Request) => {
       if (tokenRow.used_at) return errorResponse('This reset link has already been used', 400)
       if (new Date(tokenRow.expires_at) < new Date()) return errorResponse('Reset link has expired. Please request a new one.', 400)
 
-      // Hash the new password
-      const encoder = new TextEncoder()
-      const saltBytes = new Uint8Array(16)
-      crypto.getRandomValues(saltBytes)
-      const salt = Array.from(saltBytes).map(b => b.toString(16).padStart(2, '0')).join('')
-      const passwordData = encoder.encode(newPassword + salt)
-      const hashBuffer = await crypto.subtle.digest('SHA-256', passwordData)
-      const hashHex = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('')
-      const passwordHash = `sha256:${salt}:${hashHex}`
+      // Hash the new password with bcrypt to match the login check (auth-custom uses bcrypt).
+      const passwordHash = await bcrypt.hash(newPassword, 10)
 
-      await supabase.from('auth_users').update({ password_hash: passwordHash }).eq('id', tokenRow.user_id)
+      const { data: updated, error: updErr } = await supabase
+        .from('users').update({ password_hash: passwordHash }).eq('id', tokenRow.user_id).select('id').maybeSingle()
+      if (updErr || !updated) return errorResponse('Could not update password. Please try again.', 400)
+
       await supabase.from('password_reset_tokens').update({ used_at: new Date().toISOString() }).eq('id', tokenRow.id)
 
       return jsonResponse({ success: true, message: 'Password updated successfully' })

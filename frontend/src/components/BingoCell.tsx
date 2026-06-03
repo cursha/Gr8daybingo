@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CellData, isCellCompleted } from '@/lib/game-utils';
 import { Check, Lock, Gift, Star, ShoppingCart, Users } from 'lucide-react';
 import {
@@ -35,6 +36,7 @@ const BingoCell: React.FC<BingoCellProps> = ({
   onUnmark,
 }) => {
   const [pendingConfirm, setPendingConfirm] = useState(false);
+  const [pendingPurchase, setPendingPurchase] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   const isCompleted = isCellCompleted(
@@ -47,29 +49,17 @@ const BingoCell: React.FC<BingoCellProps> = ({
   const isPurchased = purchasedCells.includes(cell.index);
   const isReferralFree = referralCells.includes(cell.index);
 
-  // Cancel on Escape key
+  const anyOverlay = pendingConfirm || pendingPurchase;
+  const closeOverlays = () => { setPendingConfirm(false); setPendingPurchase(false); };
+
+  // Cancel on Escape key. The popups are full-screen modals (portaled to body),
+  // so tapping their dark backdrop handles outside-clicks — no document listener needed.
   useEffect(() => {
-    if (!pendingConfirm) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setPendingConfirm(false); };
+    if (!anyOverlay) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') closeOverlays(); };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [pendingConfirm]);
-
-  // Cancel when user clicks/touches outside this cell
-  useEffect(() => {
-    if (!pendingConfirm) return;
-    const handler = (e: MouseEvent | TouchEvent) => {
-      if (buttonRef.current && !buttonRef.current.contains(e.target as Node)) {
-        setPendingConfirm(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    document.addEventListener('touchstart', handler);
-    return () => {
-      document.removeEventListener('mousedown', handler);
-      document.removeEventListener('touchstart', handler);
-    };
-  }, [pendingConfirm]);
+  }, [anyOverlay]);
 
   const qty = cell.quantity ?? 1;
 
@@ -94,11 +84,16 @@ const BingoCell: React.FC<BingoCellProps> = ({
   // Show the undo button when a multi-action cell has progress but isn't complete.
   const canUndoStep = !isCompleted && qty > 1 && progress > 0;
 
+  const handlePurchaseConfirm = () => {
+    onPurchase(cell.index);
+    setPendingPurchase(false);
+  };
+
   const handleClick = () => {
     if (locked) return;
     if (cell.is_free_space) return;
     if (cell.is_purchasable && !isPurchased) {
-      onPurchase(cell.index);
+      setPendingPurchase(true);
       return;
     }
     if (cell.is_purchasable && isPurchased) return;
@@ -158,61 +153,110 @@ const BingoCell: React.FC<BingoCellProps> = ({
         }
       `}
     >
-      {/* ===== CONFIRMATION OVERLAY ===== */}
-      {pendingConfirm && (
+      {/* ===== CONFIRMATION POPUP (screen-centered so it is never clipped on mobile) ===== */}
+      {pendingConfirm && createPortal((
         <div
-          className="absolute inset-0 z-10 bg-indigo-950/95 flex flex-col items-center justify-center gap-1.5 p-1 rounded"
+          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+          onClick={(e) => { e.stopPropagation(); setPendingConfirm(false); }}
           onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
         >
-          <p className="text-[7px] sm:text-[9px] font-black text-white uppercase tracking-wide text-center leading-tight">
-            {isCompleted ? 'UNMARK?' : qty > 1 ? 'DID IT?' : 'MARK SQUARE?'}
-          </p>
-          {!isCompleted && qty > 1 && (
-            <p className="text-[7px] sm:text-[9px] text-amber-300 font-bold leading-none">
-              {progress} / {qty}
+          <div
+            className="bg-indigo-950 rounded-2xl shadow-2xl p-5 flex flex-col items-center gap-3 w-full max-w-[280px]"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            <p className="text-base font-black text-white text-center leading-tight">
+              {isCompleted ? 'Unmark this square?' : qty > 1 ? 'Did it?' : 'Mark this square?'}
             </p>
-          )}
-          <div className="flex gap-1.5 items-center">
-            <div
-              role="button"
-              tabIndex={0}
-              title={isCompleted ? 'Unmark' : qty > 1 ? 'Did it once more' : 'Mark complete'}
-              className="flex items-center justify-center w-8 sm:w-10 h-7 sm:h-8 bg-emerald-500 active:bg-emerald-400 rounded-md text-white font-black text-sm sm:text-base cursor-pointer select-none"
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); handleConfirm(); }}
-              onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleConfirm(); }}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleConfirm(); }}
-            >
-              ✓
-            </div>
-            {canUndoStep && (
+            <p className="text-xs text-indigo-200 text-center leading-snug line-clamp-2">{cell.deed_text}</p>
+            {!isCompleted && qty > 1 && (
+              <p className="text-sm text-amber-300 font-bold">{progress} / {qty} done</p>
+            )}
+            <div className="flex flex-wrap gap-2 items-center justify-center mt-1 w-full">
               <div
                 role="button"
                 tabIndex={0}
-                title="Undo one"
-                className="flex items-center justify-center w-8 sm:w-10 h-7 sm:h-8 bg-amber-500 active:bg-amber-400 rounded-md text-white font-black text-xs sm:text-sm cursor-pointer select-none"
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); handleUndoStep(); }}
-                onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleUndoStep(); }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleUndoStep(); }}
+                className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-emerald-500 active:bg-emerald-400 rounded-xl text-white font-bold text-base cursor-pointer select-none"
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); handleConfirm(); }}
+                onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleConfirm(); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleConfirm(); }}
               >
-                −1
+                ✓ Yes
               </div>
-            )}
-            <div
-              role="button"
-              tabIndex={0}
-              title="Cancel"
-              className="flex items-center justify-center w-8 sm:w-10 h-7 sm:h-8 bg-rose-600/80 active:bg-rose-500 rounded-md text-white font-black text-sm sm:text-base cursor-pointer select-none"
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingConfirm(false); }}
-              onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingConfirm(false); }}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setPendingConfirm(false); }}
-            >
-              ✕
+              {canUndoStep && (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-3 bg-amber-500 active:bg-amber-400 rounded-xl text-white font-bold text-sm cursor-pointer select-none"
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); handleUndoStep(); }}
+                  onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleUndoStep(); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleUndoStep(); }}
+                >
+                  −1 Undo
+                </div>
+              )}
+              <div
+                role="button"
+                tabIndex={0}
+                className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-rose-600 active:bg-rose-500 rounded-xl text-white font-bold text-base cursor-pointer select-none"
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingConfirm(false); }}
+                onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingConfirm(false); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setPendingConfirm(false); }}
+              >
+                ✕ No
+              </div>
             </div>
           </div>
         </div>
-      )}
+      ), document.body)}
+
+      {/* ===== PURCHASE CONFIRMATION POPUP (screen-centered) ===== */}
+      {pendingPurchase && createPortal((
+        <div
+          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+          onClick={(e) => { e.stopPropagation(); setPendingPurchase(false); }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
+          <div
+            className="bg-amber-950 rounded-2xl shadow-2xl p-5 flex flex-col items-center gap-3 w-full max-w-[280px]"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            <p className="text-base font-black text-white text-center leading-tight">
+              Buy this square for ${cell.purchase_price}?
+            </p>
+            <p className="text-xs text-amber-200 text-center leading-snug">
+              This will use your wallet balance.
+            </p>
+            <div className="flex gap-2 items-center justify-center mt-1 w-full">
+              <div
+                role="button"
+                tabIndex={0}
+                className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-emerald-500 active:bg-emerald-400 rounded-xl text-white font-bold text-base cursor-pointer select-none"
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); handlePurchaseConfirm(); }}
+                onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handlePurchaseConfirm(); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handlePurchaseConfirm(); }}
+              >
+                ✓ Buy
+              </div>
+              <div
+                role="button"
+                tabIndex={0}
+                className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-rose-600 active:bg-rose-500 rounded-xl text-white font-bold text-base cursor-pointer select-none"
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingPurchase(false); }}
+                onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingPurchase(false); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setPendingPurchase(false); }}
+              >
+                ✕ No
+              </div>
+            </div>
+          </div>
+        </div>
+      ), document.body)}
 
       {/* ===== FREE SPACE ===== */}
       {isFree && (

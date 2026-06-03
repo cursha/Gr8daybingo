@@ -948,7 +948,12 @@ Deno.serve(async (req: Request) => {
       const walletAmount = parseFloat(pi.metadata?.wallet_amount ?? '0')
       if (!walletAmount || walletAmount <= 0) return errorResponse('Invalid wallet amount', 400)
 
-      // Credit the wallet
+      // Idempotency: if this payment was already credited, don't credit again.
+      // Return the current balance so the UI still updates correctly.
+      const { data: existingTxn } = await supabase
+        .from('wallet_transactions').select('id')
+        .eq('payment_intent_id', payment_intent_id).maybeSingle()
+
       let { data: wallet } = await supabase
         .from('player_wallets').select('*').eq('user_id', user.sub).maybeSingle()
       if (!wallet) {
@@ -956,15 +961,29 @@ Deno.serve(async (req: Request) => {
           .from('player_wallets').insert({ user_id: user.sub, balance: 0 }).select().single()
         wallet = w
       }
-      const newBalance = parseFloat(wallet.balance) + walletAmount
-      await supabase.from('player_wallets')
-        .update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
-      await supabase.from('wallet_transactions').insert({
+
+      if (existingTxn) {
+        return jsonResponse({ success: true, new_balance: parseFloat(wallet.balance), already_credited: true })
+      }
+
+      // Record the transaction FIRST with the payment_intent_id. The unique index
+      // on payment_intent_id guarantees a concurrent duplicate insert fails, so the
+      // wallet can never be credited twice for the same payment.
+      const { error: txnError } = await supabase.from('wallet_transactions').insert({
         user_id: user.sub,
         amount: walletAmount,
         transaction_type: 'deposit',
         item_description: `Added $${walletAmount.toFixed(2)} to wallet`,
+        payment_intent_id,
       })
+      if (txnError) {
+        // Likely a duplicate (unique violation) from a concurrent request — already credited.
+        return jsonResponse({ success: true, new_balance: parseFloat(wallet.balance), already_credited: true })
+      }
+
+      const newBalance = parseFloat(wallet.balance) + walletAmount
+      await supabase.from('player_wallets')
+        .update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
 
       return jsonResponse({ success: true, new_balance: newBalance })
     }

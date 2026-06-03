@@ -480,11 +480,26 @@ const AdminPanel: React.FC = () => {
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-sm border-b border-slate-200 sticky top-0 z-40">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/')}>
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
           <Heart className="w-6 h-6 text-indigo-600 fill-indigo-600" />
           <span className="text-lg font-bold text-slate-800">Gr8Day Admin Panel</span>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate('/game')}
+              className="text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+            >
+              <ArrowLeft className="w-4 h-4 mr-1" /> Back to My Card
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/')}
+              className="text-slate-500"
+            >
+              Home
+            </Button>
+          </div>
         </div>
       </header>
 

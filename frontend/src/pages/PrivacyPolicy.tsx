@@ -18,123 +18,241 @@ const PrivacyPolicy: React.FC = () => {
         </div>
       </header>
 
-      <div className="max-w-3xl mx-auto px-4 py-10">
-        <h1 className="text-3xl font-bold text-slate-900 mb-2">Privacy Policy</h1>
-        <p className="text-sm text-slate-400 mb-8">Last updated: June 2026</p>
+      <div className="max-w-3xl mx-auto px-4 py-10 space-y-6 text-slate-700">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 mb-1">HavaGr8Day Bingo Privacy Policy</h1>
+          <p className="text-sm text-slate-400">Last Updated: June 1, 2026</p>
+        </div>
 
-        <p className="text-slate-600 mb-6">
-          Havagr8day Bingo ("we", "us", or "our") is committed to protecting your personal
-          information. This Privacy Policy explains what information we collect, how we use it, and
-          your rights regarding it.
+        <p>
+          At HavaGr8Day Bingo, we believe kindness starts with trust. This Privacy Policy explains
+          what information we collect, how we use it, and the choices you have regarding your personal
+          information.
         </p>
+        <p>By using HavaGr8Day Bingo, you agree to the practices described in this Privacy Policy.</p>
 
-        <h2 className="text-xl font-bold text-slate-800 mt-8 mb-3">1. Information We Collect</h2>
-        <ul className="text-slate-600 space-y-3 list-disc pl-6">
-          <li>
-            <strong>Account information:</strong> When you register, we collect your first name, last
-            name, and email address.
-          </li>
-          <li>
-            <strong>Game activity:</strong> We store your bingo card progress, completed deeds,
-            purchased squares, referrals submitted, and win history.
-          </li>
-          <li>
-            <strong>Payment information:</strong> When you add funds to your wallet, your payment is
-            processed by Stripe. We do not store your credit card number or payment details — Stripe
-            handles all payment data securely.
-          </li>
-          <li>
-            <strong>Wallet transactions:</strong> We record the amount and type of each wallet
-            transaction (deposits, purchases, rewards) to maintain your account balance.
-          </li>
-          <li>
-            <strong>Prize claims:</strong> If you win and submit a prize claim, we collect the contact
-            details you provide (name, address, or phone) solely for the purpose of delivering your
-            prize.
-          </li>
-        </ul>
+        <section>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">1. Information We Collect</h2>
+          <p className="mb-2">We may collect the following information:</p>
 
-        <h2 className="text-xl font-bold text-slate-800 mt-8 mb-3">2. How We Use Your Information</h2>
-        <ul className="text-slate-600 space-y-2 list-disc pl-6">
-          <li>To create and maintain your account</li>
-          <li>To operate the bingo game and track your progress</li>
-          <li>To process wallet transactions through Stripe</li>
-          <li>To deliver prizes to winners</li>
-          <li>To send game-related notifications (win alerts, referral confirmations, password resets)</li>
-          <li>To prevent fraud and enforce our Terms of Service</li>
-        </ul>
+          <h3 className="font-semibold text-slate-800 mt-3 mb-1">Information You Provide</h3>
+          <ul className="list-disc pl-6 space-y-1">
+            <li>Name</li>
+            <li>Email address</li>
+            <li>Username</li>
+            <li>Profile information</li>
+            <li>Photos or images you upload</li>
+            <li>Comments, stories, testimonials, or messages you submit</li>
+            <li>Information submitted when claiming prizes or rewards</li>
+          </ul>
 
-        <h2 className="text-xl font-bold text-slate-800 mt-8 mb-3">3. Information Sharing</h2>
-        <p className="text-slate-600">
-          We do not sell, rent, or share your personal information with third parties for marketing
-          purposes. We share your data only in the following limited circumstances:
-        </p>
-        <ul className="text-slate-600 space-y-2 list-disc pl-6 mt-3">
-          <li>
-            <strong>Stripe:</strong> Payment processing only. Stripe's privacy policy governs how
-            they handle your payment data.
-          </li>
-          <li>
-            <strong>Supabase:</strong> Our database and authentication provider. Your data is stored
-            on Supabase's infrastructure.
-          </li>
-          <li>
-            <strong>Legal requirements:</strong> We may disclose your information if required by law
-            or to protect our rights.
-          </li>
-        </ul>
+          <h3 className="font-semibold text-slate-800 mt-3 mb-1">Information Collected Automatically</h3>
+          <p className="mb-2">When you visit our website, we may automatically collect:</p>
+          <ul className="list-disc pl-6 space-y-1">
+            <li>IP address</li>
+            <li>Browser type</li>
+            <li>Device type</li>
+            <li>Operating system</li>
+            <li>Pages viewed</li>
+            <li>Time spent on the website</li>
+            <li>Referring websites</li>
+            <li>General geographic location</li>
+          </ul>
 
-        <h2 className="text-xl font-bold text-slate-800 mt-8 mb-3">4. Data Security</h2>
-        <p className="text-slate-600">
-          We use industry-standard security measures to protect your data, including encrypted
-          connections (HTTPS) and secure token-based authentication. Passwords are never stored in
-          plain text.
-        </p>
+          <h3 className="font-semibold text-slate-800 mt-3 mb-1">Cookies and Similar Technologies</h3>
+          <p className="mb-2">We may use cookies and similar technologies to:</p>
+          <ul className="list-disc pl-6 space-y-1">
+            <li>Keep you logged in</li>
+            <li>Remember preferences</li>
+            <li>Improve site performance</li>
+            <li>Measure usage and engagement</li>
+            <li>Enhance user experience</li>
+          </ul>
+          <p className="mt-2">
+            You may disable cookies through your browser settings, although some features may not
+            function properly.
+          </p>
+        </section>
 
-        <h2 className="text-xl font-bold text-slate-800 mt-8 mb-3">5. Data Retention</h2>
-        <p className="text-slate-600">
-          We retain your account information for as long as your account is active. If you request
-          account deletion, we will delete your personal information within 30 days, except where
-          retention is required for legal or financial compliance purposes.
-        </p>
+        <section>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">2. How We Use Information</h2>
+          <p className="mb-2">We may use your information to:</p>
+          <ul className="list-disc pl-6 space-y-1">
+            <li>Create and manage your account</li>
+            <li>Operate the HavaGr8Day Bingo platform</li>
+            <li>Track game participation and achievements</li>
+            <li>Award prizes and rewards</li>
+            <li>Respond to inquiries and support requests</li>
+            <li>Improve our services and user experience</li>
+            <li>Communicate updates, promotions, and announcements</li>
+            <li>Protect the safety and security of our community</li>
+            <li>Comply with legal obligations</li>
+          </ul>
+        </section>
 
-        <h2 className="text-xl font-bold text-slate-800 mt-8 mb-3">6. Your Rights</h2>
-        <p className="text-slate-600">You have the right to:</p>
-        <ul className="text-slate-600 space-y-2 list-disc pl-6 mt-3">
-          <li>Access the personal information we hold about you</li>
-          <li>Correct inaccurate information</li>
-          <li>Request deletion of your account and data</li>
-          <li>Opt out of non-essential communications</li>
-        </ul>
-        <p className="text-slate-600 mt-3">
-          To exercise any of these rights, contact us at{' '}
-          <a href="mailto:support@havagr8day.com" className="text-indigo-600 underline">
-            support@havagr8day.com
-          </a>
-          .
-        </p>
+        <section>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">3. Sharing of Information</h2>
+          <p>We do not sell your personal information.</p>
+          <p className="mt-2">We may share information:</p>
 
-        <h2 className="text-xl font-bold text-slate-800 mt-8 mb-3">7. Cookies</h2>
-        <p className="text-slate-600">
-          We use local storage (not cookies) to store your authentication token on your device. This
-          is necessary for the Game to function and keep you logged in. We do not use tracking or
-          advertising cookies.
-        </p>
+          <h3 className="font-semibold text-slate-800 mt-3 mb-1">With Service Providers</h3>
+          <p className="mb-2">Trusted third-party providers may assist with:</p>
+          <ul className="list-disc pl-6 space-y-1">
+            <li>Website hosting</li>
+            <li>Email delivery</li>
+            <li>Analytics</li>
+            <li>Payment processing</li>
+            <li>Customer support</li>
+            <li>Prize fulfillment</li>
+          </ul>
+          <p className="mt-2">
+            These providers may only use information as necessary to perform services on our behalf.
+          </p>
 
-        <h2 className="text-xl font-bold text-slate-800 mt-8 mb-3">8. Changes to This Policy</h2>
-        <p className="text-slate-600">
-          We may update this Privacy Policy from time to time. We will notify you of significant
-          changes by email or by posting a notice in the Game. Continued use of the Game after changes
-          are posted constitutes your acceptance of the updated Policy.
-        </p>
+          <h3 className="font-semibold text-slate-800 mt-3 mb-1">For Legal Reasons</h3>
+          <p className="mb-2">We may disclose information if required by law or when necessary to:</p>
+          <ul className="list-disc pl-6 space-y-1">
+            <li>Comply with legal obligations</li>
+            <li>Protect our rights</li>
+            <li>Investigate fraud or abuse</li>
+            <li>Protect the safety of users or the public</li>
+          </ul>
 
-        <h2 className="text-xl font-bold text-slate-800 mt-8 mb-3">9. Contact</h2>
-        <p className="text-slate-600">
-          For privacy questions or requests, contact us at{' '}
-          <a href="mailto:support@havagr8day.com" className="text-indigo-600 underline">
-            support@havagr8day.com
-          </a>
-          .
+          <h3 className="font-semibold text-slate-800 mt-3 mb-1">Business Transfers</h3>
+          <p>
+            If HavaGr8Day Bingo is sold, merged, reorganized, or transferred, user information may be
+            included as part of that transaction.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">4. User Content</h2>
+          <p className="mb-2">
+            If you choose to submit stories, photos, comments, testimonials, or descriptions of
+            completed deeds:
+          </p>
+          <ul className="list-disc pl-6 space-y-1">
+            <li>You control what you choose to share.</li>
+            <li>Avoid posting sensitive personal information.</li>
+            <li>Content you make public may be visible to other users.</li>
+          </ul>
+          <p className="mt-2">
+            Please be respectful of the privacy of others and obtain permission before posting
+            identifiable photos or information about another person.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">5. Prize Winners</h2>
+          <p>
+            If you win a prize, we may request information necessary to verify eligibility and deliver
+            the prize.
+          </p>
+          <p className="mt-2">
+            With your consent, we may also publish your first name, city, province/state, photo,
+            testimonial, or winning story for promotional purposes.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">6. Children's Privacy</h2>
+          <p>HavaGr8Day Bingo is not directed toward children under the age of 13.</p>
+          <p className="mt-2">
+            We do not knowingly collect personal information from children under 13. If we become
+            aware that such information has been collected, we will take reasonable steps to remove it.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">7. Data Security</h2>
+          <p>
+            We take reasonable administrative, technical, and organizational measures to protect
+            personal information.
+          </p>
+          <p className="mt-2">
+            However, no website, platform, or transmission method can be guaranteed to be completely
+            secure. Users provide information at their own risk.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">8. Data Retention</h2>
+          <p className="mb-2">We retain personal information only as long as reasonably necessary to:</p>
+          <ul className="list-disc pl-6 space-y-1">
+            <li>Provide our services</li>
+            <li>Meet legal obligations</li>
+            <li>Resolve disputes</li>
+            <li>Enforce agreements</li>
+          </ul>
+          <p className="mt-2">
+            When information is no longer required, we will take reasonable steps to securely delete or
+            anonymize it.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">9. Your Rights</h2>
+          <p className="mb-2">
+            Depending on your location, you may have rights regarding your personal information,
+            including:
+          </p>
+          <ul className="list-disc pl-6 space-y-1">
+            <li>Accessing your information</li>
+            <li>Correcting inaccurate information</li>
+            <li>Requesting deletion of your information</li>
+            <li>Withdrawing consent where applicable</li>
+            <li>Requesting information about how your data is used</li>
+          </ul>
+          <p className="mt-2">
+            To exercise these rights, please contact us using the information below.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">10. Third-Party Links</h2>
+          <p>The website may contain links to third-party websites or services.</p>
+          <p className="mt-2">
+            We are not responsible for the privacy practices, content, or security of those
+            third-party sites.
+          </p>
+          <p className="mt-2">
+            Users should review the privacy policies of any third-party websites they visit.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">11. Changes to This Policy</h2>
+          <p>We may update this Privacy Policy from time to time.</p>
+          <p className="mt-2">
+            Any updates will be posted on this page with a revised "Last Updated" date.
+          </p>
+          <p className="mt-2">
+            Continued use of the Service after changes are posted constitutes acceptance of the updated
+            policy.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">12. Contact Us</h2>
+          <p>
+            If you have questions about this Privacy Policy or your personal information, please
+            contact:
+          </p>
+          <address className="mt-2 not-italic text-slate-600">
+            HavaGr8Day Bingo<br />
+            Ontario, Canada<br />
+            <a href="mailto:support@havagr8day.com" className="text-indigo-600 underline underline-offset-2">
+              support@havagr8day.com
+            </a>
+            <br />
+            <a href="https://www.havagr8day.com" className="text-indigo-600 underline underline-offset-2">
+              www.havagr8day.com
+            </a>
+          </address>
+        </section>
+
+        <p className="pt-4 pb-8 text-slate-500 italic text-center">
+          Thank you for being part of a community dedicated to making every day a little brighter.
         </p>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { getAuthUser, requireAuth } from '../_shared/auth.ts'
 import { getSupabase, getSubPath, matchPath } from '../_shared/db.ts'
+import { sendEmail, passwordResetEmail, referralInviteEmail } from '../_shared/email.ts'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface Cell {
@@ -500,6 +501,16 @@ Deno.serve(async (req: Request) => {
         }).eq('id', card.id)
       }
 
+      // Send the invitation email to the referred friend (best-effort).
+      const referrerName = (user.name as string | undefined) ?? null
+      const invite = referralInviteEmail(referrerName)
+      const emailResult = await sendEmail({
+        to: referredEmail,
+        subject: invite.subject,
+        html: invite.html,
+        replyTo: user.email ?? undefined,
+      })
+
       // Optional GetResponse integration
       const grApiKey = Deno.env.get('GETRESPONSE_API_KEY')
       if (grApiKey) {
@@ -510,7 +521,11 @@ Deno.serve(async (req: Request) => {
         }).catch(() => { /* best effort */ })
       }
 
-      return jsonResponse({ success: true, message: 'Referral submitted successfully' })
+      return jsonResponse({
+        success: true,
+        message: 'Referral submitted successfully',
+        email_sent: emailResult.sent,
+      })
     }
 
     // ── GET /wallet ───────────────────────────────────────────────────────────
@@ -1012,30 +1027,8 @@ Deno.serve(async (req: Request) => {
         })
 
         const resetUrl = `https://havagr8day.com/reset-password?token=${token}`
-        const resendKey = Deno.env.get('RESEND_API_KEY')
-
-        if (resendKey) {
-          await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              from: 'Havagr8day Bingo <noreply@havagr8day.com>',
-              to: [email],
-              subject: 'Reset your Havagr8day Bingo password',
-              html: `
-                <div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:24px">
-                  <h2 style="color:#4F46E5">Reset your password</h2>
-                  <p>We received a request to reset your Havagr8day Bingo password.</p>
-                  <p>Click the button below to choose a new password. This link expires in 1 hour.</p>
-                  <a href="${resetUrl}" style="display:inline-block;background:#DC2626;color:#fff;font-weight:bold;padding:12px 28px;border-radius:8px;text-decoration:none;margin:16px 0">
-                    Reset Password
-                  </a>
-                  <p style="color:#64748B;font-size:13px">If you didn't request this, you can safely ignore this email.</p>
-                </div>
-              `,
-            }),
-          }).catch(() => { /* best effort */ })
-        }
+        const tpl = passwordResetEmail(resetUrl)
+        await sendEmail({ to: email, subject: tpl.subject, html: tpl.html })
       }
 
       // Always return success to prevent email enumeration

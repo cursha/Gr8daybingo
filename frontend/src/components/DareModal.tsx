@@ -9,7 +9,23 @@ interface DareModalProps {
   onReferralFlow?: () => void;
 }
 
-const SLOT_LABELS = ['+$2.00', '+$1.00', '+$0.50', '-$0.50', 'Refer a Player!', 'Surprise Deed!', 'No Effect'];
+const SLOT_IMAGES = [
+  '/dare-win.png',
+  '/dare-lose.png',
+  '/dare-refer.png',
+  '/dare-centre.png',
+  '/dare-win.png',
+  '/dare-lose.png',
+  '/dare-refer.png',
+];
+
+const outcomeImage: Record<string, string> = {
+  add_funds:    '/dare-win.png',
+  remove_funds: '/dare-lose.png',
+  refer_player: '/dare-refer.png',
+  swap_square:  '/dare-centre.png',
+  nothing:      '/dare-centre.png',
+};
 
 const outcomeStyle: Record<string, { bg: string; text: string; border: string; emoji: string }> = {
   add_funds:    { bg: 'bg-emerald-900', text: 'text-emerald-300', border: 'border-emerald-400', emoji: '💰' },
@@ -76,18 +92,22 @@ const DareModal: React.FC<DareModalProps> = ({ result, onClose, onReferralFlow }
           <p className="text-2xl font-black text-white drop-shadow">Click &amp; Commit</p>
         </div>
 
-        {/* Slot display */}
-        <div className={`z-10 w-full rounded-2xl border-2 ${style.border} px-4 py-5 flex items-center justify-center min-h-[80px] overflow-hidden`}
-          style={{ background: 'rgba(0,0,0,0.4)' }}>
+        {/* Slot display — images spin then land */}
+        <div className="z-10 w-full flex items-center justify-center overflow-hidden rounded-2xl" style={{ minHeight: '180px' }}>
           {phase === 'spin' ? (
-            <span className={`text-2xl font-black ${style.text} transition-none select-none`}>
-              {SLOT_LABELS[slotIdx]}
-            </span>
+            <img
+              src={SLOT_IMAGES[slotIdx % SLOT_IMAGES.length]}
+              alt="spinning…"
+              className="w-48 h-48 object-contain select-none pointer-events-none"
+              style={{ imageRendering: 'auto' }}
+            />
           ) : (
-            <div className="flex flex-col items-center gap-1 animate-bounce-once">
-              <span className="text-4xl">{style.emoji}</span>
-              <span className={`text-2xl font-black ${style.text}`}>{result.label}</span>
-            </div>
+            <img
+              src={outcomeImage[result.outcome] ?? '/dare-centre.png'}
+              alt={result.label}
+              className="w-56 h-56 object-contain select-none drop-shadow-2xl"
+              style={{ animation: 'dare-pop 0.35s cubic-bezier(0.34,1.56,0.64,1) both' }}
+            />
           )}
         </div>
 

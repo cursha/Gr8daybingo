@@ -7,7 +7,6 @@ import { ArrowLeft, Heart } from 'lucide-react';
 const HERO_BG = 'linear-gradient(135deg, #312e81 0%, #1e3a5f 50%, #064e3b 100%)';
 
 const BADGE_IMAGES: Record<string, string> = {
-  Newcomer: '/badge-newcomer.png',
   Starter:  '/badge-starter.png',
   Builder:  '/badge-builder.png',
   Champion: '/badge-champion.png',

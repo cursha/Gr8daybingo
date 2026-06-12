@@ -4,6 +4,7 @@ import {
   DeedItem,
   PendingDeed,
   PrizeClaim,
+  CellMarkLogEntry,
   adminVerify,
   getAdminConfig,
   updateAdminConfig,
@@ -20,6 +21,8 @@ import {
   updatePrizeClaimStatus,
   getAdminMembers,
   MemberItem,
+  adminGetCellMarkLog,
+  adminVoidCell,
 } from '@/lib/game-utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -71,6 +74,13 @@ const AdminPanel: React.FC = () => {
   // Member list state
   const [members, setMembers] = useState<MemberItem[]>([]);
   const [memberChallengeFilter, setMemberChallengeFilter] = useState('all');
+
+  // Void cell state
+  const [markLogs, setMarkLogs] = useState<CellMarkLogEntry[]>([]);
+  const [voidCardId, setVoidCardId] = useState('');
+  const [voidCellIndex, setVoidCellIndex] = useState('');
+  const [voidReason, setVoidReason] = useState('');
+  const [voidLoading, setVoidLoading] = useState(false);
 
   const handleLogin = async () => {
     setAuthLoading(true);
@@ -145,12 +155,22 @@ const AdminPanel: React.FC = () => {
     }
   };
 
+  const loadMarkLogs = async () => {
+    try {
+      const logs = await adminGetCellMarkLog(100);
+      setMarkLogs(logs);
+    } catch {
+      // silent
+    }
+  };
+
   useEffect(() => {
     if (authenticated) {
       loadData();
       loadPendingDeeds('pending');
       loadPrizeClaims();
       loadMembers();
+      loadMarkLogs();
     }
   }, [authenticated]);
 
@@ -159,6 +179,32 @@ const AdminPanel: React.FC = () => {
       loadPendingDeeds(pendingFilter);
     }
   }, [pendingFilter]);
+
+  const handleVoidCell = async () => {
+    const cardId = parseInt(voidCardId.trim());
+    const cellIndex = parseInt(voidCellIndex.trim());
+    if (isNaN(cardId) || isNaN(cellIndex)) {
+      toast.error('Card ID and cell index must be numbers.');
+      return;
+    }
+    if (!voidReason.trim()) {
+      toast.error('Please enter a reason for voiding this cell.');
+      return;
+    }
+    setVoidLoading(true);
+    try {
+      await adminVoidCell(cardId, cellIndex, voidReason.trim());
+      toast.success(`Cell ${cellIndex} on card ${cardId} voided.`);
+      setVoidCardId('');
+      setVoidCellIndex('');
+      setVoidReason('');
+      loadMarkLogs();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to void cell.');
+    } finally {
+      setVoidLoading(false);
+    }
+  };
 
   const handleApprove = async (id: number) => {
     try {
@@ -647,6 +693,90 @@ const AdminPanel: React.FC = () => {
                               <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-semibold">{m.challenge_level}</span>
                             ) : <span className="text-slate-300">—</span>}
                           </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Void Cell */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <XCircle className="w-5 h-5 text-red-500" />
+              Void a Cell
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-slate-500">
+              Remove a marked cell from a player's card. This cannot be undone and is logged for audit purposes.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">Card ID</label>
+                <Input
+                  placeholder="e.g. 42"
+                  value={voidCardId}
+                  onChange={(e) => setVoidCardId(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">Cell Index (0–24)</label>
+                <Input
+                  placeholder="e.g. 12"
+                  value={voidCellIndex}
+                  onChange={(e) => setVoidCellIndex(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-600">Reason (required)</label>
+              <Input
+                placeholder="e.g. Player admitted they didn't complete the deed"
+                value={voidReason}
+                onChange={(e) => setVoidReason(e.target.value)}
+              />
+            </div>
+            <Button
+              onClick={handleVoidCell}
+              disabled={voidLoading}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold"
+            >
+              {voidLoading ? 'Voiding…' : 'Void Cell'}
+            </Button>
+
+            {markLogs.length > 0 && (
+              <div className="mt-4">
+                <p className="text-xs font-semibold text-slate-500 mb-2">Recent mark activity (last 100)</p>
+                <div className="max-h-64 overflow-y-auto border rounded-lg">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 sticky top-0">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left">When</th>
+                        <th className="px-2 py-1.5 text-left">Player</th>
+                        <th className="px-2 py-1.5 text-left">Card</th>
+                        <th className="px-2 py-1.5 text-left">Cell</th>
+                        <th className="px-2 py-1.5 text-left">Action</th>
+                        <th className="px-2 py-1.5 text-left">Note / Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {markLogs.map((log) => (
+                        <tr key={log.id} className={log.action === 'void' ? 'bg-red-50' : 'hover:bg-slate-50'}>
+                          <td className="px-2 py-1.5 text-slate-500">{new Date(log.created_at).toLocaleString()}</td>
+                          <td className="px-2 py-1.5">{log.users?.username ?? log.user_id.slice(0, 8)}</td>
+                          <td className="px-2 py-1.5">{log.card_id}</td>
+                          <td className="px-2 py-1.5">{log.cell_index}</td>
+                          <td className="px-2 py-1.5">
+                            <span className={`font-semibold ${log.action === 'void' ? 'text-red-600' : 'text-emerald-600'}`}>
+                              {log.action}
+                            </span>
+                          </td>
+                          <td className="px-2 py-1.5 text-slate-500">{log.note ?? log.void_reason ?? '—'}</td>
                         </tr>
                       ))}
                     </tbody>

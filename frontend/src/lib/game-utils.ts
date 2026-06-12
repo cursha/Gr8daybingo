@@ -106,10 +106,37 @@ export async function resetCard(): Promise<CardData> {
   return apiClient.post<CardData>('/game/reset-card', {});
 }
 
-export async function markCell(cardId: number, cellIndex: number): Promise<MarkCellResult> {
+export async function markCell(cardId: number, cellIndex: number, note?: string): Promise<MarkCellResult> {
   return apiClient.post<MarkCellResult>('/game/mark-cell', {
     card_id: cardId,
     cell_index: cellIndex,
+    ...(note ? { note } : {}),
+  });
+}
+
+export interface CellMarkLogEntry {
+  id: number;
+  user_id: string;
+  card_id: number;
+  cell_index: number;
+  action: 'mark' | 'void';
+  note: string | null;
+  voided_by: string | null;
+  void_reason: string | null;
+  created_at: string;
+  users?: { username: string; email: string } | null;
+}
+
+export async function adminGetCellMarkLog(limit = 100): Promise<CellMarkLogEntry[]> {
+  const data = await apiClient.get<{ logs: CellMarkLogEntry[] }>(`/game/admin/cell-mark-log?limit=${limit}`);
+  return data.logs;
+}
+
+export async function adminVoidCell(cardId: number, cellIndex: number, reason: string): Promise<MarkCellResult> {
+  return apiClient.post<MarkCellResult>('/game/admin/void-cell', {
+    card_id: cardId,
+    cell_index: cellIndex,
+    reason,
   });
 }
 

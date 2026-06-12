@@ -331,6 +331,7 @@ Deno.serve(async (req: Request) => {
       const user = requireAuth(authUser)
       const body = await req.json()
       const { card_id, cell_index } = body
+      const markNote: string | null = body.note ? String(body.note).trim().slice(0, 500) || null : null
 
       const { data: card } = await supabase
         .from('player_cards').select('*')
@@ -385,6 +386,15 @@ Deno.serve(async (req: Request) => {
         is_bingo: isBingo,
         updated_at: new Date().toISOString(),
       }).eq('id', card_id)
+
+      // Log the mark action
+      await supabase.from('cell_mark_log').insert({
+        user_id: user.sub,
+        card_id,
+        cell_index,
+        action: 'mark',
+        note: markNote,
+      })
 
       // First time the card reaches Bingo: congratulate by email (best-effort).
       if (isBingo && !card.is_bingo && user.email) {
@@ -929,6 +939,59 @@ Deno.serve(async (req: Request) => {
       }).eq('id', card_id)
 
       return jsonResponse({ success: true, completed_cells: updatedCompleted, is_bingo: isBingo })
+    }
+
+    // ── POST /admin/void-cell ─────────────────────────────────────────────────
+    if (method === 'POST' && path === '/admin/void-cell') {
+      requireAdmin(authUser)
+      const body = await req.json()
+      const { card_id, cell_index, reason } = body
+      if (card_id == null || cell_index == null) return errorResponse('card_id and cell_index are required', 400)
+      const voidReason = reason ? String(reason).trim().slice(0, 500) : null
+
+      const { data: card } = await supabase
+        .from('player_cards').select('*').eq('id', card_id).maybeSingle()
+      if (!card) return errorResponse('Card not found', 404)
+
+      const completed = parseJsonArr(card.completed_cells)
+      if (!completed.includes(cell_index)) return errorResponse('Cell is not marked', 400)
+
+      const updatedCompleted = completed.filter((i: number) => i !== cell_index)
+      const purchased = parseJsonArr(card.purchased_cells)
+      const referral = parseJsonArr(card.referral_cells)
+      const allCompleted = [...new Set([...updatedCompleted, ...purchased, ...referral])]
+      const isBingo = checkBingo(allCompleted, card.win_condition)
+
+      await supabase.from('player_cards').update({
+        completed_cells: JSON.stringify(updatedCompleted),
+        is_bingo: isBingo,
+        updated_at: new Date().toISOString(),
+      }).eq('id', card_id)
+
+      await supabase.from('cell_mark_log').insert({
+        user_id: card.user_id,
+        card_id,
+        cell_index,
+        action: 'void',
+        voided_by: authUser!.sub,
+        void_reason: voidReason,
+      })
+
+      return jsonResponse({ success: true, completed_cells: updatedCompleted, is_bingo: isBingo })
+    }
+
+    // ── GET /admin/cell-mark-log ──────────────────────────────────────────────
+    if (method === 'GET' && path === '/admin/cell-mark-log') {
+      requireAdmin(authUser)
+      const limitParam = parseInt(url.searchParams.get('limit') ?? '100')
+      const limit = Math.min(Math.max(1, limitParam), 500)
+      const { data, error } = await supabase
+        .from('cell_mark_log')
+        .select('*, users(username, email)')
+        .order('created_at', { ascending: false })
+        .limit(limit)
+      if (error) throw error
+      return jsonResponse({ logs: data ?? [] })
     }
 
     // ── POST /wallet/create-payment-intent ───────────────────────────────────

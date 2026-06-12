@@ -75,6 +75,8 @@ const AdminPanel: React.FC = () => {
   // Member list state
   const [members, setMembers] = useState<MemberItem[]>([]);
   const [memberChallengeFilter, setMemberChallengeFilter] = useState('all');
+  const [memberCountryFilter, setMemberCountryFilter] = useState('all');
+  const [memberStateFilter, setMemberStateFilter] = useState('all');
 
   // Void cell state
   const [markLogs, setMarkLogs] = useState<CellMarkLogEntry[]>([]);
@@ -507,17 +509,33 @@ const AdminPanel: React.FC = () => {
       const lvl = parseInt(memberChallengeFilter);
       result = result.filter((m) => m.challenge_level === lvl);
     }
+    if (memberCountryFilter !== 'all') {
+      result = result.filter((m) => (m.country ?? '').toLowerCase() === memberCountryFilter.toLowerCase());
+    }
+    if (memberStateFilter !== 'all') {
+      result = result.filter((m) => (m.province_state ?? '').toLowerCase() === memberStateFilter.toLowerCase());
+    }
     return result;
   };
+
+  const memberCountries = [...new Set(members.map((m) => m.country).filter(Boolean))].sort() as string[];
+  const memberStates = [...new Set(
+    members
+      .filter((m) => memberCountryFilter === 'all' || (m.country ?? '').toLowerCase() === memberCountryFilter.toLowerCase())
+      .map((m) => m.province_state)
+      .filter(Boolean)
+  )].sort() as string[];
 
   function handlePrintMembers() {
     const list = getFilteredMembers();
     const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const fmtDate = (d: string | null) => (d ? new Date(d).toLocaleDateString() : '—');
-    const filterDesc =
-      memberChallengeFilter === 'all' ? 'All members'
-      : memberChallengeFilter === 'none' ? 'No challenge level set'
-      : `Challenge level ${memberChallengeFilter}`;
+    const filterParts: string[] = [];
+    if (memberCountryFilter !== 'all') filterParts.push(memberCountryFilter);
+    if (memberStateFilter !== 'all') filterParts.push(memberStateFilter);
+    if (memberChallengeFilter === 'none') filterParts.push('No challenge level set');
+    else if (memberChallengeFilter !== 'all') filterParts.push(`Challenge level ${memberChallengeFilter}`);
+    const filterDesc = filterParts.length > 0 ? filterParts.join(' · ') : 'All members';
     const rows = list.map((m) => `
       <tr>
         <td>${esc(m.name) || '—'}</td>
@@ -649,7 +667,31 @@ const AdminPanel: React.FC = () => {
                 <Users className="w-5 h-5 text-sky-500" />
                 Members ({members.length})
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={memberCountryFilter} onValueChange={(v) => { setMemberCountryFilter(v); setMemberStateFilter('all'); }}>
+                  <SelectTrigger className="w-36 h-8 text-sm">
+                    <SelectValue placeholder="All countries" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All countries</SelectItem>
+                    {memberCountries.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {memberStates.length > 0 && (
+                  <Select value={memberStateFilter} onValueChange={setMemberStateFilter}>
+                    <SelectTrigger className="w-36 h-8 text-sm">
+                      <SelectValue placeholder="All states" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All states</SelectItem>
+                      {memberStates.map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 <Select value={memberChallengeFilter} onValueChange={setMemberChallengeFilter}>
                   <SelectTrigger className="w-44 h-8 text-sm">
                     <SelectValue />

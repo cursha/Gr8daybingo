@@ -43,3 +43,4 @@ error_log
 
 # npm
 frontend/.npmrc
+.claude/

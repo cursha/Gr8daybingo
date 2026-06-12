@@ -140,6 +140,10 @@ export async function adminVoidCell(cardId: number, cellIndex: number, reason: s
   });
 }
 
+export async function adminTriggerWeeklyReset(): Promise<{ sent: number; failed: number; week: string }> {
+  return apiClient.post('/weekly-reset', {});
+}
+
 export async function unmarkCell(cardId: number, cellIndex: number): Promise<MarkCellResult> {
   return apiClient.post<MarkCellResult>('/game/unmark-cell', {
     card_id: cardId,

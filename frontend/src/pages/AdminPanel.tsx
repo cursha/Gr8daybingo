@@ -23,6 +23,7 @@ import {
   MemberItem,
   adminGetCellMarkLog,
   adminVoidCell,
+  adminTriggerWeeklyReset,
 } from '@/lib/game-utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -81,6 +82,9 @@ const AdminPanel: React.FC = () => {
   const [voidCellIndex, setVoidCellIndex] = useState('');
   const [voidReason, setVoidReason] = useState('');
   const [voidLoading, setVoidLoading] = useState(false);
+
+  // Weekly reset state
+  const [weeklyResetLoading, setWeeklyResetLoading] = useState(false);
 
   const handleLogin = async () => {
     setAuthLoading(true);
@@ -203,6 +207,18 @@ const AdminPanel: React.FC = () => {
       toast.error(err?.message || 'Failed to void cell.');
     } finally {
       setVoidLoading(false);
+    }
+  };
+
+  const handleWeeklyReset = async () => {
+    setWeeklyResetLoading(true);
+    try {
+      const res = await adminTriggerWeeklyReset();
+      toast.success(`New week emails sent: ${res.sent} delivered, ${res.failed} failed.`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to send weekly emails.');
+    } finally {
+      setWeeklyResetLoading(false);
     }
   };
 
@@ -823,6 +839,28 @@ const AdminPanel: React.FC = () => {
             )}
             <Button onClick={handleSaveConfig} className="bg-violet-600 hover:bg-violet-700 text-white">
               <Save className="w-4 h-4 mr-1" /> Save Game Mode
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Weekly Reset */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5 text-sky-500" />
+              Weekly New Card Email
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-slate-500">
+              Sends a "your new card is ready" email to all verified players. This runs automatically every Monday at 8am UTC. Use the button below to send it manually at any time.
+            </p>
+            <Button
+              onClick={handleWeeklyReset}
+              disabled={weeklyResetLoading}
+              className="bg-sky-600 hover:bg-sky-700 text-white font-bold"
+            >
+              {weeklyResetLoading ? 'Sending…' : 'Send Now to All Players'}
             </Button>
           </CardContent>
         </Card>

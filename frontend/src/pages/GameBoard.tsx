@@ -394,6 +394,16 @@ const GameBoard: React.FC = () => {
             <Button
               size="sm"
               variant="outline"
+              onClick={() => navigate('/prize-history')}
+              className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
+              title="Prize History"
+            >
+              <Trophy className="w-3.5 h-3.5 mr-0.5" />
+              <span className="hidden sm:inline">My Wins</span>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
               onClick={handlePrintPdf}
               disabled={!card}
               className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"

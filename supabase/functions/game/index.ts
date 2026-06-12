@@ -838,6 +838,38 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: true, message: 'Thanks! Your deed suggestion was submitted and is awaiting admin approval.', id: data.id })
     }
 
+    // ── GET /my-prize-history ─────────────────────────────────────────────────
+    if (method === 'GET' && path === '/my-prize-history') {
+      const user = requireAuth(authUser)
+
+      // All winning cards for this player
+      const { data: winningCards } = await supabase
+        .from('player_cards')
+        .select('id, week_year, win_condition, updated_at')
+        .eq('user_id', user.sub)
+        .eq('is_bingo', true)
+        .order('week_year', { ascending: false })
+
+      // All prize claims for this player
+      const { data: claims } = await supabase
+        .from('prize_claims')
+        .select('id, week_year, status, full_name, email, created_at')
+        .eq('user_id', user.sub)
+        .order('created_at', { ascending: false })
+
+      const claimsByWeek: Record<string, typeof claims[0]> = {}
+      for (const c of (claims ?? [])) claimsByWeek[c.week_year] = c
+
+      const history = (winningCards ?? []).map((card) => ({
+        week_year: card.week_year,
+        win_condition: card.win_condition,
+        won_at: card.updated_at,
+        claim: claimsByWeek[card.week_year] ?? null,
+      }))
+
+      return jsonResponse({ history })
+    }
+
     // ── GET /my-suggestions ───────────────────────────────────────────────────
     if (method === 'GET' && path === '/my-suggestions') {
       const user = requireAuth(authUser)

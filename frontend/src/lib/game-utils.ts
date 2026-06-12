@@ -140,6 +140,25 @@ export async function adminVoidCell(cardId: number, cellIndex: number, reason: s
   });
 }
 
+export interface PrizeHistoryEntry {
+  week_year: string;
+  win_condition: string;
+  won_at: string;
+  claim: {
+    id: number;
+    week_year: string;
+    status: string;
+    full_name: string;
+    email: string;
+    created_at: string;
+  } | null;
+}
+
+export async function getMyPrizeHistory(): Promise<PrizeHistoryEntry[]> {
+  const data = await apiClient.get<{ history: PrizeHistoryEntry[] }>('/game/my-prize-history');
+  return data.history;
+}
+
 export async function adminTriggerWeeklyReset(): Promise<{ sent: number; failed: number; week: string }> {
   return apiClient.post('/weekly-reset', {});
 }

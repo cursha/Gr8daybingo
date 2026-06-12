@@ -9,6 +9,7 @@ import {
   PendingDeed,
   MyTeamData,
   DareSpinResult,
+  PlayerBadge,
   generateCard,
   markCell,
   unmarkCell,
@@ -22,6 +23,7 @@ import {
   getMyTeam,
   getMyTrades,
   spinDare,
+  getMyProfile,
 } from '@/lib/game-utils';
 import BingoCell from '@/components/BingoCell';
 import CelebrationOverlay from '@/components/CelebrationOverlay';
@@ -76,6 +78,7 @@ const GameBoard: React.FC = () => {
   const [suggesting, setSuggesting] = useState(false);
   const [prize, setPrize] = useState<{ prize_image_url: string; prize_title: string } | null>(null);
   const [playerNumber, setPlayerNumber] = useState<number | null>(null);
+  const [playerBadge, setPlayerBadge] = useState<PlayerBadge | null>(null);
   const [myTeam, setMyTeam] = useState<MyTeamData | null>(null);
   const [dareResult, setDareResult] = useState<DareSpinResult | null>(null);
   const [dareSpinning, setDareSpinning] = useState(false);
@@ -91,6 +94,9 @@ const GameBoard: React.FC = () => {
     if (user) {
       getRegistrationStatus()
         .then((s) => setPlayerNumber((s as any)?.player_number ?? null))
+        .catch(() => {});
+      getMyProfile()
+        .then((p) => setPlayerBadge(p))
         .catch(() => {});
       getMyTeam()
         .then((res) => setMyTeam(res.team))
@@ -452,7 +458,13 @@ const GameBoard: React.FC = () => {
               <span className="text-base font-bold text-white hidden sm:inline">Gr8Day Bingo</span>
             </div>
             {playerNumber && (
-              <span className="text-xs text-white/50 font-mono hidden sm:inline">GR8-{playerNumber}</span>
+              <button
+                onClick={() => navigate('/profile')}
+                className="hidden sm:flex items-center gap-1 hover:opacity-80 transition-opacity"
+              >
+                {playerBadge && <span className="text-base leading-none">{playerBadge.badge_emoji}</span>}
+                <span className="text-xs text-white/50 font-mono">GR8-{playerNumber}</span>
+              </button>
             )}
           </div>
           <div className="flex items-center gap-2 sm:gap-3">

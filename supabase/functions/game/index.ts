@@ -20,6 +20,34 @@ interface Cell {
   quantity: number
 }
 
+// ── Badge System ─────────────────────────────────────────────────────────────
+function getBadge(totalDeeds: number): { name: string; emoji: string; next_name: string | null; next_emoji: string | null; deeds_to_next: number | null } {
+  const tiers = [
+    { min: 0,   name: 'Seedling',        emoji: '🌱' },
+    { min: 10,  name: 'Do-Gooder',       emoji: '⭐' },
+    { min: 25,  name: 'Kind Soul',       emoji: '🌟' },
+    { min: 50,  name: 'Gr8 Neighbour',   emoji: '💫' },
+    { min: 100, name: 'Community Hero',  emoji: '🏅' },
+    { min: 200, name: 'Legend',          emoji: '🎖️' },
+    { min: 500, name: 'Gr8Day Champion', emoji: '👑' },
+  ]
+  let current = tiers[0]
+  let nextTier: typeof tiers[0] | null = tiers[1]
+  for (let i = 0; i < tiers.length; i++) {
+    if (totalDeeds >= tiers[i].min) {
+      current = tiers[i]
+      nextTier = tiers[i + 1] ?? null
+    }
+  }
+  return {
+    name: current.name,
+    emoji: current.emoji,
+    next_name: nextTier?.name ?? null,
+    next_emoji: nextTier?.emoji ?? null,
+    deeds_to_next: nextTier ? nextTier.min - totalDeeds : null,
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function getCurrentWeekYear(): string {
   const now = new Date()
@@ -1994,6 +2022,88 @@ Deno.serve(async (req: Request) => {
       result.dare_clicks_used = dareClicks + 1
       result.dare_clicks_remaining = Math.max(0, maxSpins - (dareClicks + 1))
       return jsonResponse({ success: true, ...result })
+    }
+
+    // ── GET /my-profile ───────────────────────────────────────────────────────
+    if (method === 'GET' && path === '/my-profile') {
+      const user = requireAuth(authUser)
+
+      // Fetch all cards for this user
+      const { data: cards } = await supabase
+        .from('player_cards')
+        .select('completed_cells, purchased_cells, referral_cells')
+        .eq('user_id', user.sub)
+
+      let totalDeeds = 0
+      for (const card of (cards ?? [])) {
+        const completed: number[] = Array.isArray(card.completed_cells) ? card.completed_cells : []
+        const purchased: number[] = Array.isArray(card.purchased_cells) ? card.purchased_cells : []
+        const referral: number[] = Array.isArray(card.referral_cells) ? card.referral_cells : []
+        const purchasedSet = new Set(purchased)
+        const referralSet = new Set(referral)
+        for (const idx of completed) {
+          // Exclude purchased cells, referral cells, and free space (index 12)
+          if (!purchasedSet.has(idx) && !referralSet.has(idx) && idx !== 12) {
+            totalDeeds++
+          }
+        }
+      }
+
+      const badge = getBadge(totalDeeds)
+      return jsonResponse({
+        total_deeds: totalDeeds,
+        badge_name: badge.name,
+        badge_emoji: badge.emoji,
+        next_badge_name: badge.next_name,
+        next_badge_emoji: badge.next_emoji,
+        deeds_to_next_badge: badge.deeds_to_next,
+      })
+    }
+
+    // ── GET /admin/player-badges ──────────────────────────────────────────────
+    if (method === 'GET' && path === '/admin/player-badges') {
+      requireAdmin(authUser)
+
+      const { data: allCards } = await supabase
+        .from('player_cards')
+        .select('user_id, completed_cells, purchased_cells, referral_cells')
+
+      const { data: allUsers } = await supabase
+        .from('users')
+        .select('id, first_name, last_name, player_number')
+
+      // Tally deeds per user
+      const deedCounts: Record<string, number> = {}
+      for (const card of (allCards ?? [])) {
+        const completed: number[] = Array.isArray(card.completed_cells) ? card.completed_cells : []
+        const purchased: number[] = Array.isArray(card.purchased_cells) ? card.purchased_cells : []
+        const referral: number[] = Array.isArray(card.referral_cells) ? card.referral_cells : []
+        const purchasedSet = new Set(purchased)
+        const referralSet = new Set(referral)
+        let count = 0
+        for (const idx of completed) {
+          if (!purchasedSet.has(idx) && !referralSet.has(idx) && idx !== 12) {
+            count++
+          }
+        }
+        deedCounts[card.user_id] = (deedCounts[card.user_id] ?? 0) + count
+      }
+
+      const players = (allUsers ?? []).map((u) => {
+        const total = deedCounts[u.id] ?? 0
+        const badge = getBadge(total)
+        return {
+          user_id: u.id,
+          first_name: u.first_name,
+          last_name: u.last_name,
+          player_number: u.player_number,
+          total_deeds: total,
+          badge_name: badge.name,
+          badge_emoji: badge.emoji,
+        }
+      }).sort((a, b) => b.total_deeds - a.total_deeds)
+
+      return jsonResponse({ players })
     }
 
     return errorResponse('Not found', 404)

@@ -192,6 +192,19 @@ export async function getMyPrizeHistory(): Promise<PrizeHistoryEntry[]> {
   return data.history;
 }
 
+export interface PlayerBadge {
+  total_deeds: number;
+  badge_name: string;
+  badge_emoji: string;
+  next_badge_name: string | null;
+  next_badge_emoji: string | null;
+  deeds_to_next_badge: number | null;
+}
+
+export async function getMyProfile(): Promise<PlayerBadge> {
+  return apiClient.get<PlayerBadge>('/game/my-profile');
+}
+
 export interface TeamMember {
   id: number;
   user_id: string;

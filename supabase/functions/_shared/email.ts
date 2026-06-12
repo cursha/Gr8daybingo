@@ -151,6 +151,18 @@ export function bingoWinEmail(name: string | null, winConditionLabel?: string | 
   }
 }
 
+export function newPlayerNotificationEmail(firstName: string, lastName: string, email: string): { subject: string; html: string } {
+  return {
+    subject: `New player signed up: ${firstName} ${lastName}`,
+    html: layout(`
+      <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">New player just registered!</h2>
+      <p><strong>Name:</strong> ${firstName} ${lastName}</p>
+      <p><strong>Email:</strong> ${email}</p>
+      <p style="color:#64748b;font-size:13px">This is an automatic notification from Havagr8day Bingo.</p>
+    `),
+  }
+}
+
 export function prizeClaimConfirmationEmail(name: string | null): { subject: string; html: string } {
   const hi = name && name.trim() ? name.trim() : 'there'
   return {

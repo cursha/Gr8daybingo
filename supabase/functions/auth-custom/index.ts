@@ -209,6 +209,40 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: true, message: 'Email verified! You can now sign in.' })
     }
 
+    // POST /resend-verification
+    if (method === 'POST' && path === '/resend-verification') {
+      const body = await req.json()
+      const email = String(body.email ?? '').trim().toLowerCase()
+      if (!email) return errorResponse('Email is required', 400)
+
+      const { data: user } = await supabase
+        .from('users')
+        .select('id, email, email_verified')
+        .eq('email', email)
+        .maybeSingle()
+
+      // Always return success to avoid revealing whether an email is registered
+      if (!user || user.email_verified) {
+        return jsonResponse({ success: true, message: 'If that email exists and is unverified, a new link has been sent.' })
+      }
+
+      const newToken = crypto.randomUUID()
+      const newExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+
+      await supabase.from('users').update({
+        email_verify_token: newToken,
+        email_verify_token_expires_at: newExpires,
+      }).eq('id', user.id)
+
+      try {
+        const verifyUrl = `${SITE_URL}/verify-email?token=${newToken}`
+        const tpl = verifyEmailEmail(verifyUrl)
+        await sendEmail({ to: user.email, subject: tpl.subject, html: tpl.html })
+      } catch { /* silent */ }
+
+      return jsonResponse({ success: true, message: 'If that email exists and is unverified, a new link has been sent.' })
+    }
+
     // POST /logout
     if (method === 'POST' && path === '/logout') {
       return jsonResponse({ success: true, message: 'Logged out.' })

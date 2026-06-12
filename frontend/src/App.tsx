@@ -16,6 +16,7 @@ import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
+import VerifyEmail from './pages/VerifyEmail';
 import NotFound from './pages/NotFound';
 
 const queryClient = new QueryClient();
@@ -36,6 +37,7 @@ const AppRoutes = () => (
     <Route path="/privacy" element={<PrivacyPolicy />} />
     <Route path="/forgot-password" element={<ForgotPassword />} />
     <Route path="/reset-password" element={<ResetPassword />} />
+    <Route path="/verify-email" element={<VerifyEmail />} />
     <Route path="*" element={<NotFound />} />
   </Routes>
 );

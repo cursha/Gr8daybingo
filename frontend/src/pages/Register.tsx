@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Heart, Loader2 } from 'lucide-react';
+import { Heart, Loader2, MailCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
 const HERO_BG = '#4FB3E8';
@@ -18,6 +18,7 @@ const Register: React.FC = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [registered, setRegistered] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,8 +45,7 @@ const Register: React.FC = () => {
     setSubmitting(true);
     try {
       await register({ username: uname, email: mail, password });
-      toast.success('Account created!');
-      navigate('/game', { replace: true });
+      setRegistered(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Registration failed.';
       toast.error(msg);
@@ -53,6 +53,35 @@ const Register: React.FC = () => {
       setSubmitting(false);
     }
   };
+
+  if (registered) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: HERO_BG }}>
+        <Card className="w-full max-w-md shadow-2xl border-0">
+          <CardContent className="pt-8 pb-8 text-center space-y-5">
+            <button type="button" onClick={() => navigate('/')} className="mx-auto flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors">
+              <Heart className="w-6 h-6 text-rose-500 fill-rose-500" />
+              <span className="font-black tracking-wide">Havagr8day!</span>
+            </button>
+            <div className="flex justify-center">
+              <div className="bg-indigo-100 rounded-full p-4">
+                <MailCheck className="w-8 h-8 text-indigo-600" />
+              </div>
+            </div>
+            <p className="text-slate-800 font-semibold text-lg">Check your email</p>
+            <p className="text-slate-500 text-sm">
+              We sent a verification link to <strong>{email}</strong>.<br />
+              Click the link to activate your account.
+            </p>
+            <p className="text-slate-400 text-xs">The link expires in 24 hours.</p>
+            <Button className="w-full bg-red-600 hover:bg-red-700 text-white font-bold border-2 border-yellow-300" onClick={() => navigate('/login')}>
+              Go to Sign In
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div

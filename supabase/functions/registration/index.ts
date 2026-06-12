@@ -1,9 +1,6 @@
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { getAuthUser, requireAuth } from '../_shared/auth.ts'
 import { getSupabase, getSubPath } from '../_shared/db.ts'
-import { sendEmail, newPlayerNotificationEmail } from '../_shared/email.ts'
-
-const ADMIN_EMAIL = 'curt.skene@curtskene.com'
 
 const DEFAULT_SIGNUP_BONUS = 15.0
 
@@ -145,10 +142,6 @@ Deno.serve(async (req: Request) => {
           .update({ signup_bonus_granted: true })
           .eq('id', user.sub)
       }
-
-      // Notify admin of new signup (best-effort, never blocks the response)
-      const { subject, html } = newPlayerNotificationEmail(firstName, lastName, email)
-      sendEmail({ to: ADMIN_EMAIL, subject, html }).catch(() => {/* silent */})
 
       return jsonResponse({
         success: true,

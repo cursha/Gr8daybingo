@@ -70,6 +70,21 @@ function layout(innerHtml: string): string {
 
 // ── Templates ────────────────────────────────────────────────────────────────
 
+export function verifyEmailEmail(verifyUrl: string): { subject: string; html: string } {
+  return {
+    subject: 'Verify your Havagr8day Bingo email address',
+    html: layout(`
+      <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">Confirm your email</h2>
+      <p>Thanks for signing up! Click the button below to verify your email address and start playing.</p>
+      <p>This link expires in <strong>24 hours</strong>.</p>
+      <p style="text-align:center;margin:24px 0">
+        <a href="${verifyUrl}" style="display:inline-block;background:#DC2626;color:#fff;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none;border:2px solid #FCD34D">Verify My Email</a>
+      </p>
+      <p style="color:#64748b;font-size:13px">If you didn't create this account, you can safely ignore this email.</p>
+    `),
+  }
+}
+
 export function passwordResetEmail(resetUrl: string): { subject: string; html: string } {
   return {
     subject: 'Reset your Havagr8day Bingo password',

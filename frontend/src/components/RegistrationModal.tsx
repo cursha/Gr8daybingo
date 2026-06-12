@@ -3,6 +3,10 @@ import {
   ProfileStatus,
   getRegistrationStatus,
   registerProfile,
+  getCountries,
+  getStates,
+  CountryOption,
+  StateOption,
 } from '@/lib/game-utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,29 +22,40 @@ import { toast } from 'sonner';
 import { Gift, Loader2 } from 'lucide-react';
 
 interface RegistrationModalProps {
-  /** When true, the modal cannot be dismissed until completed. */
   enforce?: boolean;
-  /** Called after a successful completion (or when already completed). */
   onCompleted?: (status: ProfileStatus) => void;
 }
 
-/**
- * Shows a one-time registration form after login to collect first name,
- * last name, and email. The backend grants a wallet bonus (amount is admin-
- * configurable via game_configs, default $15) on the first successful
- * completion.
- */
 const RegistrationModal: React.FC<RegistrationModalProps> = ({ enforce = true, onCompleted }) => {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [provinceState, setProvinceState] = useState('');
-  const [country, setCountry] = useState('');
+  const [city, setCity] = useState('');
+  const [countryId, setCountryId] = useState<number | ''>('');
+  const [stateId, setStateId] = useState<number | ''>('');
   const [challengeLevel, setChallengeLevel] = useState('');
   const [bonusAmount, setBonusAmount] = useState<number>(15);
+
+  const [countries, setCountries] = useState<CountryOption[]>([]);
+  const [states, setStates] = useState<StateOption[]>([]);
+
+  useEffect(() => {
+    getCountries().then(setCountries).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (countryId) {
+      setStateId('');
+      getStates(countryId as number).then(setStates).catch(() => setStates([]));
+    } else {
+      setStates([]);
+      setStateId('');
+    }
+  }, [countryId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,23 +73,23 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({ enforce = true, o
           setEmail(status?.email ?? '');
           setFirstName(status?.first_name ?? '');
           setLastName(status?.last_name ?? '');
-          setProvinceState(status?.province_state ?? '');
-          setCountry(status?.country ?? '');
+          setCity((status as any)?.city ?? '');
+          setCountryId((status as any)?.country_id ?? '');
+          setStateId((status as any)?.state_id ?? '');
           setChallengeLevel(status?.challenge_level != null ? String(status.challenge_level) : '');
           setOpen(true);
         }
       } catch {
-        // Unauthenticated or network error — silently skip.
+        // silent
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
     checkStatus();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [onCompleted]);
 
+  const selectedCountry = countries.find((c) => c.id === countryId);
   const bonusLabel = `$${bonusAmount.toFixed(bonusAmount % 1 === 0 ? 0 : 2)}`;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -83,7 +98,7 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({ enforce = true, o
     const ln = lastName.trim();
     const mail = email.trim();
     if (!fn || !ln || !mail) {
-      toast.error('Please fill in all fields.');
+      toast.error('Please fill in all required fields.');
       return;
     }
     const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -98,10 +113,14 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({ enforce = true, o
         first_name: fn,
         last_name: ln,
         email: mail,
-        province_state: provinceState.trim() || undefined,
-        country: country.trim() || undefined,
+        city: city.trim() || undefined,
+        country_id: countryId || undefined,
+        state_id: stateId || undefined,
+        // Keep legacy text fields in sync
+        province_state: states.find((s) => s.id === stateId)?.name || undefined,
+        country: selectedCountry?.name || undefined,
         challenge_level: challengeLevel ? parseInt(challengeLevel) : null,
-      });
+      } as any);
       if (data?.bonus_granted) {
         toast.success(`🎉 Welcome! ${bonusLabel} has been credited to your wallet.`);
       } else {
@@ -117,8 +136,7 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({ enforce = true, o
         signup_bonus_amount: bonusAmount,
       });
     } catch (err: any) {
-      const msg = err?.message || 'Registration failed. Please try again.';
-      toast.error(msg);
+      toast.error(err?.message || 'Registration failed. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -130,18 +148,14 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({ enforce = true, o
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (enforce && !next) return; // cannot be dismissed when enforced
+        if (enforce && !next) return;
         setOpen(next);
       }}
     >
       <DialogContent
-        className="sm:max-w-md"
-        onInteractOutside={(e) => {
-          if (enforce) e.preventDefault();
-        }}
-        onEscapeKeyDown={(e) => {
-          if (enforce) e.preventDefault();
-        }}
+        className="sm:max-w-md max-h-[90vh] overflow-y-auto"
+        onInteractOutside={(e) => { if (enforce) e.preventDefault(); }}
+        onEscapeKeyDown={(e) => { if (enforce) e.preventDefault(); }}
       >
         <DialogHeader>
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-emerald-500 text-white shadow-md">
@@ -150,11 +164,8 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({ enforce = true, o
           <DialogTitle className="text-center text-xl">Complete Your Registration</DialogTitle>
           <DialogDescription className="text-center">
             {bonusAmount > 0 ? (
-              <>
-                Tell us a little about you and we'll credit{' '}
-                <span className="font-semibold text-emerald-600">{bonusLabel}</span> to your wallet as a
-                welcome gift.
-              </>
+              <>Tell us a little about you and we'll credit{' '}
+                <span className="font-semibold text-emerald-600">{bonusLabel}</span> to your wallet as a welcome gift.</>
             ) : (
               <>Tell us a little about you to finish setting up your account.</>
             )}
@@ -162,66 +173,75 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({ enforce = true, o
         </DialogHeader>
 
         <form className="space-y-4 pt-2" onSubmit={handleSubmit}>
+          {/* Name */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="firstName">First name</Label>
-              <Input
-                id="firstName"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                placeholder="Your first name"
-                autoComplete="given-name"
-                required
-              />
+              <Label htmlFor="firstName">First name <span className="text-red-500">*</span></Label>
+              <Input id="firstName" value={firstName} onChange={(e) => setFirstName(e.target.value)}
+                placeholder="Your first name" autoComplete="given-name" required />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="lastName">Last name</Label>
-              <Input
-                id="lastName"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                placeholder="Your last name"
-                autoComplete="family-name"
-                required
-              />
+              <Label htmlFor="lastName">Last name <span className="text-red-500">*</span></Label>
+              <Input id="lastName" value={lastName} onChange={(e) => setLastName(e.target.value)}
+                placeholder="Your last name" autoComplete="family-name" required />
             </div>
           </div>
+
+          {/* Email */}
           <div className="space-y-1.5">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              autoComplete="email"
-              required
-            />
+            <Label htmlFor="email">Email <span className="text-red-500">*</span></Label>
+            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com" autoComplete="email" required />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="provinceState">Province / State</Label>
-              <Input
-                id="provinceState"
-                value={provinceState}
-                onChange={(e) => setProvinceState(e.target.value)}
-                placeholder="e.g. Ontario"
-                autoComplete="address-level1"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="country">Country</Label>
-              <Input
-                id="country"
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-                placeholder="e.g. Canada"
-                autoComplete="country-name"
-              />
-            </div>
+          {/* Location */}
+          <div className="space-y-1.5">
+            <Label htmlFor="country">Country</Label>
+            <select
+              id="country"
+              value={countryId}
+              onChange={(e) => setCountryId(e.target.value ? parseInt(e.target.value) : '')}
+              className="w-full h-10 border border-input rounded-md bg-background px-3 text-sm"
+            >
+              <option value="">Select country…</option>
+              {countries.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
           </div>
 
+          {countryId !== '' && (
+            <div className="space-y-1.5">
+              <Label htmlFor="state">{selectedCountry?.code === 'CA' ? 'Province / Territory' : 'State / Province'}</Label>
+              {states.length > 0 ? (
+                <select
+                  id="state"
+                  value={stateId}
+                  onChange={(e) => setStateId(e.target.value ? parseInt(e.target.value) : '')}
+                  className="w-full h-10 border border-input rounded-md bg-background px-3 text-sm"
+                >
+                  <option value="">Select…</option>
+                  {states.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  id="state"
+                  placeholder="State / Province / Region"
+                  autoComplete="address-level1"
+                />
+              )}
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <Label htmlFor="city">City</Label>
+            <Input id="city" value={city} onChange={(e) => setCity(e.target.value)}
+              placeholder="Your city" autoComplete="address-level2" />
+          </div>
+
+          {/* Challenge level */}
           <div className="space-y-1.5">
             <Label htmlFor="challengeLevel">Challenge Level</Label>
             <select
@@ -237,18 +257,13 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({ enforce = true, o
               <option value="4">4 - Hard</option>
               <option value="5">5 - Hardest</option>
             </select>
-            <p className="text-xs text-slate-500">How challenging you'd like your deeds to be. You can change this later.</p>
+            <p className="text-xs text-slate-500">How challenging you'd like your deeds to be.</p>
           </div>
 
-          <Button
-            type="submit"
-            disabled={submitting}
-            className="w-full bg-gradient-to-r from-indigo-600 to-emerald-500 text-white hover:opacity-95"
-          >
+          <Button type="submit" disabled={submitting}
+            className="w-full bg-gradient-to-r from-indigo-600 to-emerald-500 text-white hover:opacity-95">
             {submitting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving…
-              </>
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving…</>
             ) : bonusAmount > 0 ? (
               `Claim my ${bonusLabel} welcome bonus`
             ) : (

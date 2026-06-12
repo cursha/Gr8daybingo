@@ -154,6 +154,19 @@ export interface PrizeHistoryEntry {
   } | null;
 }
 
+export interface CountryOption { id: number; name: string; code: string; }
+export interface StateOption { id: number; name: string; code: string; }
+
+export async function getCountries(): Promise<CountryOption[]> {
+  const data = await apiClient.get<{ countries: CountryOption[] }>('/game/public/countries', { skipAuth: true } as any);
+  return data.countries;
+}
+
+export async function getStates(countryId: number): Promise<StateOption[]> {
+  const data = await apiClient.get<{ states: StateOption[] }>(`/game/public/states/${countryId}`, { skipAuth: true } as any);
+  return data.states;
+}
+
 export async function getMyPrizeHistory(): Promise<PrizeHistoryEntry[]> {
   const data = await apiClient.get<{ history: PrizeHistoryEntry[] }>('/game/my-prize-history');
   return data.history;
@@ -370,6 +383,10 @@ export interface MemberItem {
   challenge_level: number | null;
   province_state: string | null;
   country: string | null;
+  city: string | null;
+  country_id: number | null;
+  state_id: number | null;
+  player_number: number | null;
   last_login: string | null;
   profile_completed: boolean;
 }

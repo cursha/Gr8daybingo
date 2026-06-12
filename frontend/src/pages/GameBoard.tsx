@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { APP_VERSION } from '@/lib/version';
+import { getRegistrationStatus } from '@/lib/game-utils';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -68,12 +69,21 @@ const GameBoard: React.FC = () => {
   const [mySuggestions, setMySuggestions] = useState<PendingDeed[]>([]);
   const [suggesting, setSuggesting] = useState(false);
   const [prize, setPrize] = useState<{ prize_image_url: string; prize_title: string } | null>(null);
+  const [playerNumber, setPlayerNumber] = useState<number | null>(null);
 
   useEffect(() => {
     getPublicPrize()
       .then((p) => setPrize(p))
       .catch(() => setPrize(null));
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      getRegistrationStatus()
+        .then((s) => setPlayerNumber((s as any)?.player_number ?? null))
+        .catch(() => {});
+    }
+  }, [user]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -367,6 +377,9 @@ const GameBoard: React.FC = () => {
               <Heart className="w-5 h-5 text-pink-400 fill-pink-400" />
               <span className="text-base font-bold text-white hidden sm:inline">Gr8Day Bingo</span>
             </div>
+            {playerNumber && (
+              <span className="text-xs text-white/50 font-mono hidden sm:inline">GR8-{playerNumber}</span>
+            )}
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="bg-amber-500/20 border border-amber-500/30 text-amber-300 px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1.5">

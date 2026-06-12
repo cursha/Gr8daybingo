@@ -629,6 +629,29 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    // ── GET /public/countries ─────────────────────────────────────────────────
+    if (method === 'GET' && path === '/public/countries') {
+      const { data } = await supabase
+        .from('countries')
+        .select('id, name, code')
+        .order('sort_order', { ascending: true })
+        .order('name', { ascending: true })
+      return jsonResponse({ countries: data ?? [] })
+    }
+
+    // ── GET /public/states/:countryId ─────────────────────────────────────────
+    const statesMatch = matchPath('/public/states/:countryId', path)
+    if (method === 'GET' && statesMatch) {
+      const countryId = parseInt(statesMatch.countryId)
+      if (isNaN(countryId)) return errorResponse('Invalid country id', 400)
+      const { data } = await supabase
+        .from('states')
+        .select('id, name, code')
+        .eq('country_id', countryId)
+        .order('name', { ascending: true })
+      return jsonResponse({ states: data ?? [] })
+    }
+
     // ── GET /public/prize ─────────────────────────────────────────────────────
     if (method === 'GET' && path === '/public/prize') {
       const { data: rows } = await supabase
@@ -681,8 +704,8 @@ Deno.serve(async (req: Request) => {
     if (method === 'GET' && path === '/admin/members') {
       const { data } = await supabase
         .from('users')
-        .select('id, email, username, name, first_name, last_name, role, challenge_level, province_state, country, last_login, profile_completed')
-        .order('last_login', { ascending: false })
+        .select('id, email, username, name, first_name, last_name, role, challenge_level, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed')
+        .order('player_number', { ascending: true })
       return jsonResponse({
         members: (data ?? []).map((u) => ({
           id: u.id,
@@ -695,6 +718,10 @@ Deno.serve(async (req: Request) => {
           challenge_level: u.challenge_level ?? null,
           province_state: u.province_state ?? null,
           country: u.country ?? null,
+          city: u.city ?? null,
+          country_id: u.country_id ?? null,
+          state_id: u.state_id ?? null,
+          player_number: u.player_number ?? null,
           last_login: u.last_login ?? null,
           profile_completed: !!u.profile_completed,
         })),

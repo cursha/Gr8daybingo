@@ -522,6 +522,8 @@ const AdminPanel: React.FC = () => {
       <tr>
         <td>${esc(m.name) || '—'}</td>
         <td>${esc(m.email) || '—'}</td>
+        <td>${m.player_number ? `GR8-${m.player_number}` : '—'}</td>
+        <td>${esc(m.city) || '—'}</td>
         <td>${esc(m.province_state) || '—'}</td>
         <td>${esc(m.country) || '—'}</td>
         <td class="ctr">${m.challenge_level ?? '—'}</td>
@@ -545,7 +547,7 @@ const AdminPanel: React.FC = () => {
   <h1>Gr8Day Members</h1>
   <p class="meta">${list.length} member${list.length !== 1 ? 's' : ''} &nbsp;·&nbsp; ${filterDesc} &nbsp;·&nbsp; ${new Date().toLocaleDateString()}</p>
   <table>
-    <thead><tr><th>Name</th><th>Email</th><th>Province / State</th><th>Country</th><th>Challenge</th><th>Last Active</th></tr></thead>
+    <thead><tr><th>#</th><th>Name</th><th>Email</th><th>City</th><th>Province / State</th><th>Country</th><th>Challenge</th><th>Last Active</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
   <script>window.onload=function(){window.print();}</script>
@@ -683,6 +685,7 @@ const AdminPanel: React.FC = () => {
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50 sticky top-0">
                       <tr className="text-left text-xs text-slate-500 uppercase tracking-wide">
+                        <th className="px-3 py-2">#</th>
                         <th className="px-3 py-2">Name</th>
                         <th className="px-3 py-2">Email</th>
                         <th className="px-3 py-2">Location</th>
@@ -692,6 +695,9 @@ const AdminPanel: React.FC = () => {
                     <tbody className="divide-y">
                       {getFilteredMembers().map((m) => (
                         <tr key={m.id} className="hover:bg-slate-50">
+                          <td className="px-3 py-2 text-xs text-slate-400 font-mono whitespace-nowrap">
+                            {m.player_number ? `GR8-${m.player_number}` : '—'}
+                          </td>
                           <td className="px-3 py-2">
                             <span className="font-medium text-slate-800">{m.name || '—'}</span>
                             {m.role === 'admin' && (
@@ -702,7 +708,7 @@ const AdminPanel: React.FC = () => {
                             {m.email ? <a href={`mailto:${m.email}`} className="text-indigo-600 hover:underline">{m.email}</a> : '—'}
                           </td>
                           <td className="px-3 py-2 text-slate-600">
-                            {[m.province_state, m.country].filter(Boolean).join(', ') || '—'}
+                            {[m.city, m.province_state, m.country].filter(Boolean).join(', ') || '—'}
                           </td>
                           <td className="px-3 py-2 text-center">
                             {m.challenge_level != null ? (

@@ -700,6 +700,130 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: true })
     }
 
+    // ── GET /admin/teams ──────────────────────────────────────────────────────
+    if (method === 'GET' && path === '/admin/teams') {
+      requireAdmin(authUser)
+      const { data, error } = await supabase
+        .from('teams')
+        .select(`
+          id, team_number, team_name, created_at,
+          captain:users!captain_user_id(id, player_number, first_name, last_name, username),
+          team_members(id, user_id, users(id, player_number, first_name, last_name, username))
+        `)
+        .order('team_number', { ascending: true })
+      if (error) throw error
+      return jsonResponse({ teams: data ?? [] })
+    }
+
+    // ── POST /admin/teams ─────────────────────────────────────────────────────
+    if (method === 'POST' && path === '/admin/teams') {
+      requireAdmin(authUser)
+      const body = await req.json()
+      const teamName = String(body.team_name ?? '').trim()
+      if (!teamName) return errorResponse('team_name is required', 400)
+
+      // Resolve captain by player_number if provided
+      let captainUserId: string | null = null
+      if (body.captain_player_number) {
+        const pn = parseInt(body.captain_player_number)
+        const { data: cap } = await supabase.from('users').select('id').eq('player_number', pn).maybeSingle()
+        captainUserId = cap?.id ?? null
+      }
+
+      const { data: team, error } = await supabase
+        .from('teams')
+        .insert({ team_name: teamName, captain_user_id: captainUserId })
+        .select()
+        .single()
+      if (error) throw error
+
+      // Auto-add captain as a member
+      if (captainUserId) {
+        await supabase.from('team_members')
+          .upsert({ team_id: team.id, user_id: captainUserId }, { onConflict: 'user_id' })
+      }
+
+      return jsonResponse({ success: true, team })
+    }
+
+    // ── PUT /admin/teams/:id ──────────────────────────────────────────────────
+    const teamEditMatch = matchPath('/admin/teams/:id', path)
+    if (method === 'PUT' && teamEditMatch) {
+      requireAdmin(authUser)
+      const teamId = parseInt(teamEditMatch.id)
+      const body = await req.json()
+      const teamName = body.team_name != null ? String(body.team_name).trim() : undefined
+
+      let captainUserId: string | null | undefined = undefined
+      if (body.captain_player_number !== undefined) {
+        if (!body.captain_player_number) {
+          captainUserId = null
+        } else {
+          const pn = parseInt(body.captain_player_number)
+          const { data: cap } = await supabase.from('users').select('id').eq('player_number', pn).maybeSingle()
+          captainUserId = cap?.id ?? null
+        }
+      }
+
+      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+      if (teamName !== undefined) updates.team_name = teamName
+      if (captainUserId !== undefined) {
+        updates.captain_user_id = captainUserId
+        if (captainUserId) {
+          await supabase.from('team_members')
+            .upsert({ team_id: teamId, user_id: captainUserId }, { onConflict: 'user_id' })
+        }
+      }
+
+      await supabase.from('teams').update(updates).eq('id', teamId)
+      return jsonResponse({ success: true })
+    }
+
+    // ── DELETE /admin/teams/:id ───────────────────────────────────────────────
+    const teamDeleteMatch = matchPath('/admin/teams/:id', path)
+    if (method === 'DELETE' && teamDeleteMatch) {
+      requireAdmin(authUser)
+      const teamId = parseInt(teamDeleteMatch.id)
+      await supabase.from('teams').delete().eq('id', teamId)
+      return jsonResponse({ success: true })
+    }
+
+    // ── POST /admin/teams/:id/members ─────────────────────────────────────────
+    const teamMemberMatch = matchPath('/admin/teams/:id/members', path)
+    if (method === 'POST' && teamMemberMatch) {
+      requireAdmin(authUser)
+      const teamId = parseInt(teamMemberMatch.id)
+      const body = await req.json()
+      const pn = parseInt(body.player_number)
+      if (isNaN(pn)) return errorResponse('player_number is required', 400)
+
+      const { data: player } = await supabase.from('users').select('id').eq('player_number', pn).maybeSingle()
+      if (!player) return errorResponse(`No player found with number ${pn}`, 404)
+
+      // Check team size limit
+      const { count } = await supabase.from('team_members')
+        .select('id', { count: 'exact', head: true }).eq('team_id', teamId)
+      if ((count ?? 0) >= 4) return errorResponse('Teams are limited to 4 players.', 400)
+
+      // Check player isn't already on a team
+      const { data: existing } = await supabase.from('team_members')
+        .select('team_id').eq('user_id', player.id).maybeSingle()
+      if (existing) return errorResponse('This player is already on a team.', 400)
+
+      await supabase.from('team_members').insert({ team_id: teamId, user_id: player.id })
+      return jsonResponse({ success: true })
+    }
+
+    // ── DELETE /admin/teams/:id/members/:userId ───────────────────────────────
+    const teamMemberDeleteMatch = matchPath('/admin/teams/:id/members/:userId', path)
+    if (method === 'DELETE' && teamMemberDeleteMatch) {
+      requireAdmin(authUser)
+      const teamId = parseInt(teamMemberDeleteMatch.id)
+      const userId = teamMemberDeleteMatch.userId
+      await supabase.from('team_members').delete().eq('team_id', teamId).eq('user_id', userId)
+      return jsonResponse({ success: true })
+    }
+
     // ── GET /admin/members ────────────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/members') {
       const { data } = await supabase

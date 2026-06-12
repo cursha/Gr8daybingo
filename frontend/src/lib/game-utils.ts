@@ -172,6 +172,46 @@ export async function getMyPrizeHistory(): Promise<PrizeHistoryEntry[]> {
   return data.history;
 }
 
+export interface TeamMember {
+  id: number;
+  user_id: string;
+  users: { id: string; player_number: number | null; first_name: string | null; last_name: string | null; username: string | null } | null;
+}
+
+export interface TeamItem {
+  id: number;
+  team_number: number;
+  team_name: string;
+  created_at: string;
+  captain: { id: string; player_number: number | null; first_name: string | null; last_name: string | null; username: string | null } | null;
+  team_members: TeamMember[];
+}
+
+export async function adminGetTeams(): Promise<TeamItem[]> {
+  const data = await apiClient.get<{ teams: TeamItem[] }>('/game/admin/teams');
+  return data.teams;
+}
+
+export async function adminCreateTeam(teamName: string, captainPlayerNumber?: number): Promise<void> {
+  await apiClient.post('/game/admin/teams', { team_name: teamName, captain_player_number: captainPlayerNumber });
+}
+
+export async function adminUpdateTeam(teamId: number, teamName?: string, captainPlayerNumber?: number | null): Promise<void> {
+  await apiClient.put(`/game/admin/teams/${teamId}`, { team_name: teamName, captain_player_number: captainPlayerNumber });
+}
+
+export async function adminDeleteTeam(teamId: number): Promise<void> {
+  await apiClient.delete(`/game/admin/teams/${teamId}`);
+}
+
+export async function adminAddTeamMember(teamId: number, playerNumber: number): Promise<void> {
+  await apiClient.post(`/game/admin/teams/${teamId}/members`, { player_number: playerNumber });
+}
+
+export async function adminRemoveTeamMember(teamId: number, userId: string): Promise<void> {
+  await apiClient.delete(`/game/admin/teams/${teamId}/members/${userId}`);
+}
+
 export async function adminTriggerWeeklyReset(): Promise<{ sent: number; failed: number; week: string }> {
   return apiClient.post('/weekly-reset', {});
 }

@@ -34,9 +34,9 @@ jobs:
             echo "  FAILED: $(basename "$f")"; return 1
           }
           FAILS=0
-          echo "== root files =="
-          for f in index.html robots.txt sitemap.xml favicon.svg; do
-            [ -f "frontend/dist/$f" ] && { up "frontend/dist/$f" "$ROOT" || FAILS=$((FAILS+1)); sleep 3; }
+          echo "== root files (index.html, robots, sitemap, favicon, AND dare-*.png / badge-*.png) =="
+          for f in frontend/dist/*; do
+            [ -f "$f" ] && { up "$f" "$ROOT" || FAILS=$((FAILS+1)); sleep 3; }
           done
           echo "== assets =="
           for f in frontend/dist/assets/*; do

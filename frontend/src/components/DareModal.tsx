@@ -53,7 +53,7 @@ const DareModal: React.FC<DareModalProps> = ({ result, onClose, onReferralFlow }
     let i = 0;
 
     const step = () => {
-      setSlotIdx((prev) => (prev + 1) % SLOT_LABELS.length);
+      setSlotIdx((prev) => (prev + 1) % SLOT_IMAGES.length);
       tick++;
       if (i < delays.length) {
         intervalRef.current = setTimeout(step, delays[i++]);

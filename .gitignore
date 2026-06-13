@@ -44,3 +44,4 @@ error_log
 # npm
 frontend/.npmrc
 .claude/
+.env.staging

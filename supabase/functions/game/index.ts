@@ -1,7 +1,7 @@
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { getAuthUser, requireAuth, requireAdmin } from '../_shared/auth.ts'
 import { getSupabase, getSubPath, matchPath } from '../_shared/db.ts'
-import { sendEmail, passwordResetEmail, referralInviteEmail, bingoWinEmail, prizeClaimConfirmationEmail } from '../_shared/email.ts'
+import { sendEmail, passwordResetEmail, referralInviteEmail, bingoWinEmail, prizeClaimConfirmationEmail, gameAnnouncementEmail } from '../_shared/email.ts'
 import bcrypt from 'npm:bcryptjs@2'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -1172,6 +1172,44 @@ Deno.serve(async (req: Request) => {
       }).eq('id', card_id)
 
       return jsonResponse({ success: true, completed_cells: updatedCompleted, is_bingo: isBingo })
+    }
+
+    // ── POST /admin/announce-game ─────────────────────────────────────────────
+    if (method === 'POST' && path === '/admin/announce-game') {
+      requireAdmin(authUser)
+      const body = await req.json()
+      const { prize, game_type, theme, extra_message } = body as {
+        prize: string
+        game_type: string
+        theme: string
+        extra_message?: string
+      }
+      if (!prize || !game_type) {
+        return errorResponse('prize and game_type are required', 400)
+      }
+
+      const { data: players, error: playersErr } = await supabase
+        .from('users')
+        .select('email, first_name, name, username')
+        .eq('email_verified', true)
+        .eq('role', 'user')
+
+      if (playersErr) throw playersErr
+      if (!players || players.length === 0) {
+        return jsonResponse({ success: true, sent: 0, failed: 0, message: 'No players to notify.' })
+      }
+
+      let sent = 0
+      let failed = 0
+      for (const player of players) {
+        const displayName = player.first_name ?? player.name ?? player.username ?? null
+        const tpl = gameAnnouncementEmail({ name: displayName, prize, gameType: game_type, theme, extraMessage: extra_message })
+        const result = await sendEmail({ to: player.email, subject: tpl.subject, html: tpl.html })
+        if (result.sent) sent++
+        else failed++
+      }
+
+      return jsonResponse({ success: true, sent, failed })
     }
 
     // ── POST /admin/void-cell ─────────────────────────────────────────────────

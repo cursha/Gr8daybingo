@@ -271,6 +271,15 @@ export async function adminTriggerWeeklyReset(): Promise<{ sent: number; failed:
   return apiClient.post('/weekly-reset', {});
 }
 
+export async function adminAnnounceGame(params: {
+  prize: string
+  game_type: string
+  theme: string
+  extra_message?: string
+}): Promise<{ sent: number; failed: number }> {
+  return apiClient.post('/game/admin/announce-game', params);
+}
+
 export async function unmarkCell(cardId: number, cellIndex: number): Promise<MarkCellResult> {
   return apiClient.post<MarkCellResult>('/game/unmark-cell', {
     card_id: cardId,

@@ -72,6 +72,56 @@ function layout(innerHtml: string): string {
 
 // ── Templates ────────────────────────────────────────────────────────────────
 
+export function gameAnnouncementEmail(opts: {
+  name: string | null
+  prize: string
+  gameType: string
+  theme: string
+  extraMessage?: string
+}): { subject: string; html: string } {
+  const hi = opts.name && opts.name.trim() ? opts.name.trim() : 'there'
+  const themeLine = opts.theme ? `<p><strong>🎨 Theme:</strong> ${opts.theme}</p>` : ''
+  const extraLine = opts.extraMessage ? `<p style="margin-top:12px">${opts.extraMessage}</p>` : ''
+  return {
+    subject: `🎯 A new Havagr8day Bingo game has started!`,
+    html: layout(`
+      <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">A new game has started, ${hi}!</h2>
+      <p>Here's what you need to know about this week's game:</p>
+      <div style="background:#f8fafc;border-radius:10px;padding:16px 20px;margin:16px 0;border-left:4px solid #4FB3E8">
+        <p style="margin:0 0 8px"><strong>🏆 Prize:</strong> ${opts.prize}</p>
+        <p style="margin:0 0 8px"><strong>🎮 Game Type:</strong> ${opts.gameType}</p>
+        ${themeLine}
+      </div>
+      ${extraLine}
+      <p style="text-align:center;margin:24px 0">
+        <a href="${SITE_URL}/game" style="display:inline-block;background:#DC2626;color:#fff;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none;border:2px solid #FCD34D">Play Now</a>
+      </p>
+      <div style="margin-top:24px;border-top:1px solid #e2e8f0;padding-top:16px">
+        <p style="margin:0 0 10px;font-weight:bold;color:#1e293b">Quick Guide to Game Panel Buttons:</p>
+        <table style="width:100%;border-collapse:collapse;font-size:14px">
+          <tr style="background:#f1f5f9">
+            <td style="padding:8px 10px;border-radius:6px 0 0 6px;font-weight:bold;color:#4F46E5">Pick Three</td>
+            <td style="padding:8px 10px;border-radius:0 6px 6px 0;color:#475569">Spend a little to mark up to 3 squares instantly — no deed required.</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 10px;font-weight:bold;color:#DC2626">💣 Bomb Button<br/><span style="font-size:12px;color:#94a3b8">(Hidden Square)</span></td>
+            <td style="padding:8px 10px;color:#475569">A surprise hidden square — could be good or bad. Tap to reveal!</td>
+          </tr>
+          <tr style="background:#f1f5f9">
+            <td style="padding:8px 10px;font-weight:bold;color:#7C3AED">I Dare Ya<br/><span style="font-size:12px;color:#94a3b8">(Centre Square)</span></td>
+            <td style="padding:8px 10px;color:#475569">Spin the centre square for a random challenge or reward.</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 10px;font-weight:bold;color:#059669">👛 Watch Your Wallet<br/><span style="font-size:12px;color:#94a3b8">(Hidden Square)</span></td>
+            <td style="padding:8px 10px;color:#475569">Another hidden square that adds or takes away a few dollars from your wallet.</td>
+          </tr>
+        </table>
+      </div>
+      <p style="color:#64748b;font-size:13px;margin-top:20px">Have a gr8 day — and make someone else's gr8 too.</p>
+    `),
+  }
+}
+
 export function verifyEmailEmail(verifyUrl: string): { subject: string; html: string } {
   return {
     subject: 'Verify your Havagr8day Bingo email address',

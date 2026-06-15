@@ -702,6 +702,115 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ states: data ?? [] })
     }
 
+    // ── GET /public/world-deeds ───────────────────────────────────────────────
+    // Returns deed counts grouped by country (no user data exposed).
+    // Optional ?country=CA query param drills into deed breakdown for that country.
+    if (method === 'GET' && path === '/public/world-deeds') {
+      const countryCode = url.searchParams.get('country')
+
+      // Fetch all mark logs (action='mark' only, not voids)
+      const { data: logs } = await supabase
+        .from('cell_mark_log')
+        .select('card_id, cell_index, user_id')
+        .eq('action', 'mark')
+
+      if (!logs || logs.length === 0) {
+        if (countryCode) return jsonResponse({ country_code: countryCode, deeds: [], total: 0 })
+        return jsonResponse({ countries: [], grand_total: 0 })
+      }
+
+      // Fetch cards referenced by logs (card_data has deed info per cell index)
+      const cardIds = [...new Set(logs.map((l) => l.card_id))]
+      const { data: cards } = await supabase
+        .from('player_cards')
+        .select('id, user_id, card_data')
+        .in('id', cardIds)
+
+      const cardMap = new Map<number, { user_id: string; cells: Cell[] }>()
+      for (const card of cards ?? []) {
+        try {
+          cardMap.set(card.id, { user_id: card.user_id, cells: JSON.parse(card.card_data) })
+        } catch { /* skip malformed */ }
+      }
+
+      // Gather all user_ids from logs to look up country
+      const userIds = [...new Set(logs.map((l) => l.user_id).filter(Boolean))]
+      const { data: users } = await supabase
+        .from('users')
+        .select('id, country_id')
+        .in('id', userIds)
+
+      const userCountryMap = new Map<string, number | null>()
+      for (const u of users ?? []) userCountryMap.set(u.id, u.country_id ?? null)
+
+      // Fetch countries for code lookup
+      const { data: countriesData } = await supabase
+        .from('countries')
+        .select('id, name, code')
+
+      const countryById = new Map<number, { name: string; code: string }>()
+      for (const c of countriesData ?? []) countryById.set(c.id, { name: c.name, code: c.code })
+
+      // Fetch deeds for deed text lookup
+      const { data: deedsData } = await supabase
+        .from('good_deeds')
+        .select('id, deed_text')
+
+      const deedById = new Map<number, string>()
+      for (const d of deedsData ?? []) deedById.set(d.id, d.deed_text)
+
+      // Aggregate: for each log entry resolve country + deed
+      // country_code → deed_id → count
+      const byCountry = new Map<string, { name: string; deeds: Map<number, { text: string; count: number }> }>()
+
+      for (const log of logs) {
+        const card = cardMap.get(log.card_id)
+        if (!card) continue
+        const cell = card.cells[log.cell_index]
+        if (!cell || cell.is_free_space || !cell.deed_id) continue
+
+        const countryId = userCountryMap.get(log.user_id) ?? null
+        const country = countryId ? countryById.get(countryId) : null
+        const code = country?.code ?? 'XX'
+        const name = country?.name ?? 'Unknown'
+
+        if (!byCountry.has(code)) byCountry.set(code, { name, deeds: new Map() })
+        const entry = byCountry.get(code)!
+        const deedText = deedById.get(cell.deed_id) ?? 'Unknown deed'
+        if (!entry.deeds.has(cell.deed_id)) entry.deeds.set(cell.deed_id, { text: deedText, count: 0 })
+        entry.deeds.get(cell.deed_id)!.count++
+      }
+
+      if (countryCode) {
+        // Drill-down: return deed breakdown for one country
+        const entry = byCountry.get(countryCode.toUpperCase())
+        if (!entry) return jsonResponse({ country_code: countryCode, deeds: [], total: 0 })
+        const deeds = [...entry.deeds.entries()]
+          .map(([id, d]) => ({ deed_id: id, deed_text: d.text, count: d.count }))
+          .sort((a, b) => b.count - a.count)
+        return jsonResponse({ country_code: countryCode, country_name: entry.name, deeds, total: deeds.reduce((s, d) => s + d.count, 0) })
+      }
+
+      // Summary: one row per country with total deed count
+      const grand_total = logs.filter((l) => {
+        const card = cardMap.get(l.card_id)
+        if (!card) return false
+        const cell = card.cells[l.cell_index]
+        return cell && !cell.is_free_space && cell.deed_id
+      }).length
+
+      const countries = [...byCountry.entries()]
+        .map(([code, entry]) => ({
+          country_code: code,
+          country_name: entry.name,
+          total_deeds: [...entry.deeds.values()].reduce((s, d) => s + d.count, 0),
+        }))
+        .filter((c) => c.country_code !== 'XX')
+        .sort((a, b) => b.total_deeds - a.total_deeds)
+
+      return jsonResponse({ countries, grand_total })
+    }
+
     // ── GET /public/prize ─────────────────────────────────────────────────────
     if (method === 'GET' && path === '/public/prize') {
       const { data: rows } = await supabase

@@ -337,6 +337,38 @@ export async function getLeaderboard(): Promise<LeaderboardData> {
   return withRetry(() => apiClient.get<LeaderboardData>('/game/leaderboard'));
 }
 
+export interface WorldDeedsCountry {
+  country_code: string;
+  country_name: string;
+  total_deeds: number;
+}
+
+export interface WorldDeedsData {
+  countries: WorldDeedsCountry[];
+  grand_total: number;
+}
+
+export interface CountryDeedEntry {
+  deed_id: number;
+  deed_text: string;
+  count: number;
+}
+
+export interface CountryDrillData {
+  country_code: string;
+  country_name: string;
+  deeds: CountryDeedEntry[];
+  total: number;
+}
+
+export async function getWorldDeeds(): Promise<WorldDeedsData> {
+  return apiClient.get<WorldDeedsData>('/game/public/world-deeds', { skipAuth: true });
+}
+
+export async function getCountryDrillDown(countryCode: string): Promise<CountryDrillData> {
+  return apiClient.get<CountryDrillData>(`/game/public/world-deeds?country=${countryCode}`, { skipAuth: true });
+}
+
 export async function getPublicPrize(): Promise<PrizeInfo> {
   return apiClient.get<PrizeInfo>('/game/public/prize', { skipAuth: true });
 }

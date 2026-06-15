@@ -20,6 +20,7 @@ import {
 } from '@/lib/game-utils';
 import { toast } from 'sonner';
 import Footer from '@/components/Footer';
+import WorldDeedsMap from '@/components/WorldDeedsMap';
 
 /**
  * Convert an ISO week-year string like "2026-W17" into a human-friendly label
@@ -245,6 +246,9 @@ const Leaderboard: React.FC = () => {
             )}
           </CardContent>
         </Card>
+
+        {/* World map */}
+        <WorldDeedsMap />
 
         {/* How it works */}
         <Card className="mt-6 border-slate-200 bg-gradient-to-br from-indigo-50 to-purple-50">

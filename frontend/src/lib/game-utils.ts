@@ -364,6 +364,7 @@ export interface PlayerRankEntry {
   country_name: string | null;
   country_code: string | null;
   deeds: number;
+  referrals: number;
   badge_name: string;
   badge_emoji: string;
 }
@@ -395,6 +396,9 @@ export interface PlayerLeaderboardData {
   week_trend: number;
   unique_countries: number;
   top_country_flags: string[];
+  new_players_this_week: number;
+  new_players_last_week: number;
+  total_referrals: number;
 }
 
 export async function getPlayerLeaderboard(): Promise<PlayerLeaderboardData> {

@@ -61,9 +61,16 @@ const PodiumCard: React.FC<{ entry: PlayerRankEntry; rank: 1 | 2 | 3 }> = ({ ent
       <BadgeImg name={entry.badge_name} emoji={entry.badge_emoji} size="w-12 h-12" />
       <p className={`font-black text-white ${s.textSize} text-center leading-tight max-w-[90px] truncate`}>{entry.display_name}</p>
       <p className="text-white/70 text-xs font-mono">GR8-{entry.player_number}</p>
-      <div className="flex items-center gap-1">
-        <Heart className="w-3.5 h-3.5 text-rose-300 fill-rose-300" />
-        <span className="text-white font-black text-lg">{entry.deeds}</span>
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
+          <Heart className="w-3.5 h-3.5 text-rose-300 fill-rose-300" />
+          <span className="text-white font-black text-lg">{entry.deeds}</span>
+        </div>
+        {entry.referrals > 0 && (
+          <div className="flex items-center gap-0.5">
+            <span className="text-xs text-emerald-300 font-bold">+{entry.referrals} 🤝</span>
+          </div>
+        )}
       </div>
       <div className={`w-full ${s.height} bg-gradient-to-b ${s.bg} rounded-t-xl ring-2 ${s.ring} flex items-start justify-center pt-2`}>
         <span className="text-white/80 font-bold text-sm">{s.label}</span>
@@ -85,9 +92,14 @@ const RankRow: React.FC<{ entry: PlayerRankEntry; rank: number }> = ({ entry, ra
         {entry.country_code && (COUNTRY_FLAG[entry.country_code] ?? entry.country_name ?? '')}
       </p>
     </div>
-    <div className="flex items-center gap-1 flex-shrink-0">
-      <Heart className="w-3.5 h-3.5 text-rose-400 fill-rose-400" />
-      <span className="text-white font-black">{entry.deeds}</span>
+    <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+      <div className="flex items-center gap-1">
+        <Heart className="w-3.5 h-3.5 text-rose-400 fill-rose-400" />
+        <span className="text-white font-black">{entry.deeds}</span>
+      </div>
+      {entry.referrals > 0 && (
+        <span className="text-[10px] text-emerald-300 font-bold">🤝 {entry.referrals} referred</span>
+      )}
     </div>
   </div>
 );
@@ -171,26 +183,25 @@ const Leaderboard: React.FC = () => {
             </div>
           )}
 
-          {/* Impact stats row */}
+          {/* Impact stats grid */}
           {playerData && (
-            <div className="grid grid-cols-3 gap-3 mt-2">
+            <div className="grid grid-cols-3 gap-2 mt-2">
               {/* This week's deeds + trend */}
               <div className="bg-white/5 border border-white/10 rounded-2xl p-3 text-center">
                 <p className="text-2xl font-black text-emerald-300">{playerData.this_week_deeds}</p>
                 <p className="text-white/50 text-xs mt-0.5">This week</p>
                 <div className={`flex items-center justify-center gap-0.5 mt-1 text-xs font-bold ${playerData.week_trend > 0 ? 'text-emerald-400' : playerData.week_trend < 0 ? 'text-red-400' : 'text-white/30'}`}>
                   {playerData.week_trend > 0 ? <TrendingUp className="w-3 h-3" /> : playerData.week_trend < 0 ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
-                  {playerData.week_trend > 0 ? `+${playerData.week_trend}` : playerData.week_trend < 0 ? playerData.week_trend : '—'} vs last week
+                  {playerData.week_trend > 0 ? `+${playerData.week_trend}` : playerData.week_trend < 0 ? playerData.week_trend : '—'} vs last
                 </div>
               </div>
               {/* Players */}
               <div className="bg-white/5 border border-white/10 rounded-2xl p-3 text-center">
-                <p className="text-2xl font-black text-indigo-300">{playerData.all_time.length + (playerData.all_time.length === 0 ? 0 : 0)}</p>
+                <p className="text-2xl font-black text-indigo-300">{playerData.all_time.length}</p>
                 <p className="text-white/50 text-xs mt-0.5">Players</p>
-                <div className="flex items-center justify-center gap-1 mt-1">
-                  <Sparkles className="w-3 h-3 text-amber-300" />
-                  <span className="text-white/40 text-xs">{gameData?.total_games ?? 0} games</span>
-                </div>
+                {(playerData.new_players_this_week ?? 0) > 0 && (
+                  <p className="text-emerald-400 text-xs font-bold mt-1">+{playerData.new_players_this_week} new</p>
+                )}
               </div>
               {/* Countries */}
               <div className="bg-white/5 border border-white/10 rounded-2xl p-3 text-center">
@@ -200,6 +211,21 @@ const Leaderboard: React.FC = () => {
                   {(playerData.top_country_flags ?? []).slice(0, 5).map((f, i) => (
                     <span key={i} className="text-sm leading-none">{f}</span>
                   ))}
+                </div>
+              </div>
+              {/* Referrals */}
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-3 text-center">
+                <p className="text-2xl font-black text-teal-300">{playerData.total_referrals ?? 0}</p>
+                <p className="text-white/50 text-xs mt-0.5">Referrals</p>
+                <p className="text-teal-400/60 text-xs mt-1">🤝 players invited</p>
+              </div>
+              {/* All-time deeds */}
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-3 text-center col-span-2">
+                <p className="text-2xl font-black text-rose-300">{playerData.all_time.reduce((s, p) => s + p.deeds, 0).toLocaleString()}</p>
+                <p className="text-white/50 text-xs mt-0.5">Total deeds all time</p>
+                <div className="flex items-center justify-center gap-1 mt-1">
+                  <Sparkles className="w-3 h-3 text-amber-300" />
+                  <span className="text-white/40 text-xs">{gameData?.total_games ?? 0} games played</span>
                 </div>
               </div>
             </div>

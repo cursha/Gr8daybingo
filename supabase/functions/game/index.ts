@@ -858,9 +858,17 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      // Count referrals per user (all-time)
+      const { data: allReferrals } = await supabase.from('referrals').select('user_id')
+      const referralCounts: Record<string, number> = {}
+      for (const r of (allReferrals ?? [])) {
+        referralCounts[r.user_id] = (referralCounts[r.user_id] ?? 0) + 1
+      }
+
       const makeEntry = (u: typeof allUsers[0], deeds: number) => {
         const country = u.country_id ? countryMap[u.country_id] : null
         const badge = getBadge(allTime[u.id] ?? 0)
+        const referrals = referralCounts[u.id] ?? 0
         return {
           user_id: u.id,
           display_name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || `GR8-${u.player_number}`,
@@ -869,6 +877,7 @@ Deno.serve(async (req: Request) => {
           country_name: country?.name ?? null,
           country_code: country?.code ?? null,
           deeds,
+          referrals,
           badge_name: badge.name,
           badge_emoji: badge.emoji,
         }
@@ -1010,6 +1019,21 @@ Deno.serve(async (req: Request) => {
           return flagMap[code] ?? '🌐'
         })
 
+      // ── New players this week vs last week ───────────────────────────────────
+      const weekStartDate = getWeekStart(currentWy)
+      const lastWeekStartDate = getWeekStart(lastWy)
+      const { data: allUsersWithCreated } = await supabase.from('users').select('id, created_at')
+      let newPlayersThisWeek = 0
+      let newPlayersLastWeek = 0
+      for (const u of (allUsersWithCreated ?? [])) {
+        const created = new Date(u.created_at)
+        if (created >= weekStartDate) newPlayersThisWeek++
+        else if (created >= lastWeekStartDate) newPlayersLastWeek++
+      }
+
+      // ── Total referrals ──────────────────────────────────────────────────────
+      const totalReferrals = (allReferrals ?? []).length
+
       return jsonResponse({
         all_time: allTimeRanked,
         this_week: thisWeekRanked,
@@ -1023,6 +1047,9 @@ Deno.serve(async (req: Request) => {
         week_trend: weekTrend,
         unique_countries: uniqueCountries,
         top_country_flags: topCountryFlags,
+        new_players_this_week: newPlayersThisWeek,
+        new_players_last_week: newPlayersLastWeek,
+        total_referrals: totalReferrals,
       })
     }
 

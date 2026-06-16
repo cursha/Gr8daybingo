@@ -199,6 +199,8 @@ export interface PlayerBadge {
   next_badge_name: string | null;
   next_badge_emoji: string | null;
   deeds_to_next_badge: number | null;
+  is_captain: boolean;
+  captain_of_team: { id: string; name: string } | null;
 }
 
 export async function getMyProfile(): Promise<PlayerBadge> {

@@ -2349,6 +2349,14 @@ Deno.serve(async (req: Request) => {
       }
 
       const badge = getBadge(totalDeeds)
+
+      // Check if this player is a captain of any team
+      const { data: captainTeam } = await supabase
+        .from('teams')
+        .select('id, team_name')
+        .eq('captain_user_id', user.sub)
+        .maybeSingle()
+
       return jsonResponse({
         total_deeds: totalDeeds,
         badge_name: badge.name,
@@ -2356,6 +2364,8 @@ Deno.serve(async (req: Request) => {
         next_badge_name: badge.next_name,
         next_badge_emoji: badge.next_emoji,
         deeds_to_next_badge: badge.deeds_to_next,
+        is_captain: captainTeam !== null,
+        captain_of_team: captainTeam ? { id: captainTeam.id, name: captainTeam.team_name } : null,
       })
     }
 

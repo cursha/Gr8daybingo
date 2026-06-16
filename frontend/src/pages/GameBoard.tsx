@@ -537,6 +537,18 @@ const GameBoard: React.FC = () => {
               <Trophy className="w-3.5 h-3.5 mr-0.5" />
               <span className="hidden sm:inline">My Wins</span>
             </Button>
+            {myTeam && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => navigate('/team')}
+                className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
+                title="My Team"
+              >
+                <Users className="w-3.5 h-3.5 mr-0.5" />
+                <span className="hidden sm:inline">My Team</span>
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"

@@ -76,6 +76,19 @@ function getCurrentWeekYear(): string {
   return `${year}-W${String(week).padStart(2, '0')}`
 }
 
+function getWeekStart(weekYear: string): Date {
+  const [year, weekStr] = weekYear.split('-W')
+  const week = parseInt(weekStr)
+  const jan1 = new Date(parseInt(year), 0, 1)
+  const jan1Day = jan1.getDay() || 7 // Mon=1..Sun=7
+  const daysToMonday = (8 - jan1Day) % 7
+  const firstMonday = new Date(jan1)
+  firstMonday.setDate(jan1.getDate() + daysToMonday)
+  const weekStart = new Date(firstMonday)
+  weekStart.setDate(firstMonday.getDate() + (week - 1) * 7)
+  return weekStart
+}
+
 async function sha256Hex(str: string): Promise<string> {
   const data = new TextEncoder().encode(str)
   const buf = await crypto.subtle.digest('SHA-256', data)
@@ -679,6 +692,91 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    // ── GET /quick-deeds ─────────────────────────────────────────────────────
+    if (method === 'GET' && path === '/quick-deeds') {
+      const { data } = await supabase
+        .from('quick_deeds')
+        .select('id, label, emoji, display_order')
+        .eq('is_active', true)
+        .order('display_order')
+      return jsonResponse({ quick_deeds: data ?? [] })
+    }
+
+    // ── POST /quick-deeds/:id/tap ─────────────────────────────────────────────
+    const quickDeedTapMatch = path.match(/^\/quick-deeds\/(\d+)\/tap$/)
+    if (method === 'POST' && quickDeedTapMatch) {
+      const user = requireAuth(authUser)
+      const deedId = parseInt(quickDeedTapMatch[1])
+      const { error } = await supabase
+        .from('quick_deed_logs')
+        .insert({ user_id: user.sub, quick_deed_id: deedId })
+      if (error) throw error
+      return jsonResponse({ success: true })
+    }
+
+    // ── GET /quick-deeds/my-stats ─────────────────────────────────────────────
+    if (method === 'GET' && path === '/quick-deeds/my-stats') {
+      const user = requireAuth(authUser)
+      const { data } = await supabase
+        .from('quick_deed_logs')
+        .select('quick_deed_id, quick_deeds(label, emoji)')
+        .eq('user_id', user.sub)
+      // Count per deed
+      const counts: Record<number, { label: string; emoji: string; count: number }> = {}
+      for (const row of (data ?? [])) {
+        const id = row.quick_deed_id
+        const deed = row.quick_deeds as { label: string; emoji: string } | null
+        if (!counts[id]) counts[id] = { label: deed?.label ?? '', emoji: deed?.emoji ?? '', count: 0 }
+        counts[id].count++
+      }
+      return jsonResponse({ stats: Object.values(counts) })
+    }
+
+    // ── Admin: GET /admin/quick-deeds ────────────────────────────────────────
+    if (method === 'GET' && path === '/admin/quick-deeds') {
+      requireAdmin(authUser)
+      const { data } = await supabase.from('quick_deeds').select('*').order('display_order')
+      return jsonResponse({ quick_deeds: data ?? [] })
+    }
+
+    // ── Admin: POST /admin/quick-deeds ───────────────────────────────────────
+    if (method === 'POST' && path === '/admin/quick-deeds') {
+      requireAdmin(authUser)
+      const body = await req.json()
+      const { label, emoji, display_order } = body
+      if (!label) return errorResponse('label is required', 400)
+      const { data, error } = await supabase
+        .from('quick_deeds')
+        .insert({ label: String(label).trim(), emoji: emoji ?? '❤️', display_order: display_order ?? 0 })
+        .select().single()
+      if (error) throw error
+      return jsonResponse({ success: true, quick_deed: data })
+    }
+
+    // ── Admin: PUT /admin/quick-deeds/:id ────────────────────────────────────
+    const adminQdEditMatch = path.match(/^\/admin\/quick-deeds\/(\d+)$/)
+    if (method === 'PUT' && adminQdEditMatch) {
+      requireAdmin(authUser)
+      const id = parseInt(adminQdEditMatch[1])
+      const body = await req.json()
+      const updates: Record<string, unknown> = {}
+      if (body.label !== undefined) updates.label = String(body.label).trim()
+      if (body.emoji !== undefined) updates.emoji = body.emoji
+      if (body.display_order !== undefined) updates.display_order = body.display_order
+      if (body.is_active !== undefined) updates.is_active = body.is_active
+      await supabase.from('quick_deeds').update(updates).eq('id', id)
+      return jsonResponse({ success: true })
+    }
+
+    // ── Admin: DELETE /admin/quick-deeds/:id ─────────────────────────────────
+    const adminQdDeleteMatch = path.match(/^\/admin\/quick-deeds\/(\d+)$/)
+    if (method === 'DELETE' && adminQdDeleteMatch) {
+      requireAdmin(authUser)
+      const id = parseInt(adminQdDeleteMatch[1])
+      await supabase.from('quick_deeds').delete().eq('id', id)
+      return jsonResponse({ success: true })
+    }
+
     // ── GET /leaderboard/players ──────────────────────────────────────────────
     if (method === 'GET' && path === '/leaderboard/players') {
       const currentWy = getCurrentWeekYear()
@@ -695,7 +793,7 @@ Deno.serve(async (req: Request) => {
       const countryMap: Record<number, { name: string; code: string }> = {}
       for (const c of countries ?? []) countryMap[c.id] = { name: c.name, code: c.code }
 
-      // Count deeds per user: all-time and this week
+      // Count deeds per user: all-time and this week (bingo cards)
       const allTime: Record<string, number> = {}
       const thisWeek: Record<string, number> = {}
 
@@ -712,6 +810,18 @@ Deno.serve(async (req: Request) => {
         allTime[card.user_id] = (allTime[card.user_id] ?? 0) + count
         if (card.week_year === currentWy) {
           thisWeek[card.user_id] = (thisWeek[card.user_id] ?? 0) + count
+        }
+      }
+
+      // Add quick deed taps to deed counts
+      const weekStart = getWeekStart(currentWy)
+      const { data: quickLogs } = await supabase
+        .from('quick_deed_logs')
+        .select('user_id, tapped_at')
+      for (const log of (quickLogs ?? [])) {
+        allTime[log.user_id] = (allTime[log.user_id] ?? 0) + 1
+        if (new Date(log.tapped_at) >= weekStart) {
+          thisWeek[log.user_id] = (thisWeek[log.user_id] ?? 0) + 1
         }
       }
 

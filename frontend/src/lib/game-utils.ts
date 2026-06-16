@@ -207,6 +207,22 @@ export async function getMyProfile(): Promise<PlayerBadge> {
   return apiClient.get<PlayerBadge>('/game/my-profile');
 }
 
+export interface QuickDeed {
+  id: number;
+  label: string;
+  emoji: string;
+  display_order: number;
+}
+
+export async function getQuickDeeds(): Promise<QuickDeed[]> {
+  const res = await apiClient.get<{ quick_deeds: QuickDeed[] }>('/game/quick-deeds');
+  return res.quick_deeds;
+}
+
+export async function tapQuickDeed(id: number): Promise<void> {
+  await apiClient.post(`/game/quick-deeds/${id}/tap`, {});
+}
+
 export interface TeamMember {
   id: number;
   user_id: string;

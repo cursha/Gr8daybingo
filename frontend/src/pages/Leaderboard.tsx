@@ -7,6 +7,7 @@ import {
   LeaderboardData,
   PlayerLeaderboardData,
   PlayerRankEntry,
+  TopDeedEntry,
   GameLeaderboardEntry,
 } from '@/lib/game-utils';
 import Footer from '@/components/Footer';
@@ -227,6 +228,46 @@ const Leaderboard: React.FC = () => {
                 )}
               </>
             )}
+          </div>
+        )}
+
+        {/* Top 10 Most Popular Deeds */}
+        {!loading && playerData && playerData.top_deeds && playerData.top_deeds.length > 0 && (
+          <div className="space-y-3">
+            <h2 className="text-white font-black text-xl flex items-center gap-2">
+              <Heart className="w-5 h-5 text-rose-400 fill-rose-400" /> Top 10 Most Popular Deeds
+            </h2>
+            <p className="text-white/50 text-sm">The acts of kindness this community loves most</p>
+            <div className="space-y-2">
+              {playerData.top_deeds.map((deed, i) => {
+                const max = playerData.top_deeds[0].count;
+                const pct = Math.round((deed.count / max) * 100);
+                return (
+                  <div key={deed.deed_id} className="bg-white/5 rounded-xl px-4 py-3 space-y-1.5">
+                    <div className="flex items-start gap-3">
+                      <span className={`text-sm font-black flex-shrink-0 mt-0.5 ${i === 0 ? 'text-yellow-300' : i === 1 ? 'text-slate-300' : i === 2 ? 'text-amber-500' : 'text-white/30'}`}>
+                        {i + 1}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-medium leading-snug">{deed.deed_text}</p>
+                        <div className="flex items-center justify-between mt-1.5">
+                          <div className="flex-1 bg-white/10 rounded-full h-1.5 mr-3 overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-rose-400 to-pink-400 rounded-full transition-all duration-700"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-white/50 flex-shrink-0 flex items-center gap-1">
+                            <Heart className="w-3 h-3 fill-rose-400 text-rose-400" />
+                            {deed.count}×
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 

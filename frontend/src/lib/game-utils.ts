@@ -349,10 +349,18 @@ export interface PlayerRankEntry {
   badge_emoji: string;
 }
 
+export interface TopDeedEntry {
+  deed_id: number;
+  deed_text: string;
+  category: string;
+  count: number;
+}
+
 export interface PlayerLeaderboardData {
   all_time: PlayerRankEntry[];
   this_week: PlayerRankEntry[];
   current_week_year: string;
+  top_deeds: TopDeedEntry[];
 }
 
 export async function getPlayerLeaderboard(): Promise<PlayerLeaderboardData> {

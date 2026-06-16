@@ -741,7 +741,42 @@ Deno.serve(async (req: Request) => {
         .filter(u => u.deeds > 0)
         .sort((a, b) => b.deeds - a.deeds)
 
-      return jsonResponse({ all_time: allTimeRanked, this_week: thisWeekRanked, current_week_year: currentWy })
+      // ── Top 10 most-completed deeds ──────────────────────────────────────────
+      // Fetch all cards with their cell data and tally deed completions
+      const { data: allCardsWithCells } = await supabase
+        .from('player_cards')
+        .select('card_data, completed_cells, purchased_cells, referral_cells')
+
+      const deedCounts: Record<number, number> = {}  // deed_id → count
+
+      for (const card of (allCardsWithCells ?? [])) {
+        const cells: Cell[] = (() => { try { return JSON.parse(card.card_data ?? '[]') } catch { return [] } })()
+        const completed: number[] = Array.isArray(card.completed_cells) ? card.completed_cells : []
+        const purchased: number[] = Array.isArray(card.purchased_cells) ? card.purchased_cells : []
+        const referral: number[] = Array.isArray(card.referral_cells) ? card.referral_cells : []
+        const purchasedSet = new Set(purchased)
+        const referralSet = new Set(referral)
+
+        for (const idx of completed) {
+          if (purchasedSet.has(idx) || referralSet.has(idx) || idx === 12) continue
+          const cell = cells.find(c => c.index === idx)
+          if (cell?.deed_id) {
+            deedCounts[cell.deed_id] = (deedCounts[cell.deed_id] ?? 0) + 1
+          }
+        }
+      }
+
+      const { data: allDeeds } = await supabase.from('good_deeds').select('id, deed_text, category')
+      const topDeeds = Object.entries(deedCounts)
+        .map(([id, count]) => {
+          const deed = (allDeeds ?? []).find(d => d.id === parseInt(id))
+          return { deed_id: parseInt(id), deed_text: deed?.deed_text ?? '', category: deed?.category ?? '', count }
+        })
+        .filter(d => d.deed_text)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10)
+
+      return jsonResponse({ all_time: allTimeRanked, this_week: thisWeekRanked, current_week_year: currentWy, top_deeds: topDeeds })
     }
 
     // ── GET /public/countries ─────────────────────────────────────────────────

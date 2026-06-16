@@ -11,7 +11,13 @@ import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-
 import { apiClient } from '@/lib/apiClient';
 import Footer from '@/components/Footer';
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
+// Only initialize Stripe when a real publishable key is present.
+// Calling loadStripe('') throws an IntegrationError ("Please call Stripe()
+// with your publishable key. You used an empty string.") which can
+// white-screen the whole app. Guarding it means a build made without the
+// key degrades to "payments unavailable" instead of crashing the game.
+const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '';
+const stripePromise = STRIPE_PUBLISHABLE_KEY ? loadStripe(STRIPE_PUBLISHABLE_KEY) : null;
 
 const FUND_OPTIONS = [5, 10, 20];
 
@@ -177,7 +183,11 @@ const WalletPage: React.FC = () => {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {clientSecret && selectedAmount ? (
+            {!stripePromise ? (
+              <p className="text-sm text-slate-500">
+                Adding funds is temporarily unavailable. Please check back soon.
+              </p>
+            ) : clientSecret && selectedAmount ? (
               <div className="space-y-3">
                 <p className="text-sm font-semibold text-slate-700">
                   Adding <span className="text-emerald-600">${selectedAmount}</span> to your wallet

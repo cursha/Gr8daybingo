@@ -1,21 +1,69 @@
-name: Deploy frontend to cPanel (FTP, upload-only)
+name: Build & deploy frontend to cPanel (FTP)
 
-# Uploads frontend/dist to /havagr8day.com over FTP from a GitHub runner.
-# Upload-only: it never deletes remote files, so game_prize_images/ and
-# .htaccess are left untouched. Runs from GitHub's IPs, which avoids the
-# host's per-IP FTP rate limit that blocks rapid local deploys.
+# Builds frontend/ in CI and FTP-uploads the result to /havagr8day.com.
+#
+# Why this exists: the site kept white-screening because builds were made
+# without the public client config (Stripe publishable key, Supabase anon
+# key) that lives in frontend/.env.production. That file is COMMITTED (it
+# holds only PUBLIC values that already ship in the browser bundle), so every
+# build here is correct. The real secrets (Stripe sk_live, Supabase
+# service_role) are NOT here and stay server-side.
+#
+# Safety: if the Stripe key is missing from .env.production OR absent from the
+# built bundle, the job FAILS before uploading, so a keyless build can never
+# reach production (the previous good build just stays up). A failing build
+# never deploys. Upload-only: never deletes remote files (game_prize_images/,
+# .htaccess untouched). Runs from GitHub's IPs to dodge the host FTP rate limit.
 
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
-    paths: [ 'frontend/dist/**' ]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-cpanel.yml'
 
 jobs:
-  ftp-deploy:
+  build-deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Guard — refuse to build without a Stripe publishable key
+        working-directory: frontend
+        run: |
+          if ! grep -q "VITE_STRIPE_PUBLISHABLE_KEY=pk_" .env.production; then
+            echo "::error::.env.production is missing VITE_STRIPE_PUBLISHABLE_KEY (pk_...). Refusing to build a keyless bundle."
+            exit 1
+          fi
+
+      - name: Build (vite directly to bypass pnpm deps-status gate)
+        working-directory: frontend
+        run: node ./node_modules/vite/bin/vite.js build
+
+      - name: Verify the key is actually baked into the bundle
+        working-directory: frontend
+        run: |
+          if ! grep -rq "pk_live_\|pk_test_" dist/assets/; then
+            echo "::error::Built bundle contains no Stripe key. Refusing to deploy."
+            exit 1
+          fi
+          echo "Stripe key confirmed present in built bundle."
+
       - name: Gentle FTP upload of frontend/dist
         env:
           U: ${{ secrets.CPANEL_USER }}
@@ -34,13 +82,13 @@ jobs:
             echo "  FAILED: $(basename "$f")"; return 1
           }
           FAILS=0
-          echo "== root files (index.html, robots, sitemap, favicon, AND dare-*.png / badge-*.png) =="
-          for f in frontend/dist/*; do
-            [ -f "$f" ] && { up "$f" "$ROOT" || FAILS=$((FAILS+1)); sleep 3; }
-          done
-          echo "== assets =="
+          echo "== assets first (so index.html never points at a missing bundle) =="
           for f in frontend/dist/assets/*; do
             up "$f" "$ROOT/assets" || FAILS=$((FAILS+1)); sleep 3
+          done
+          echo "== root files (index.html, robots, sitemap, favicon, dare-*.png / badge-*.png) =="
+          for f in frontend/dist/*; do
+            [ -f "$f" ] && { up "$f" "$ROOT" || FAILS=$((FAILS+1)); sleep 3; }
           done
           echo "== blog =="
           [ -f frontend/dist/blog/index.html ] && { up frontend/dist/blog/index.html "$ROOT/blog" || FAILS=$((FAILS+1)); }

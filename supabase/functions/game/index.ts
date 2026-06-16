@@ -991,10 +991,11 @@ Deno.serve(async (req: Request) => {
         .single()
       if (error) throw error
 
-      // Auto-add captain as a member
+      // Auto-add captain as a member and mark them as captain on their profile
       if (captainUserId) {
         await supabase.from('team_members')
           .upsert({ team_id: team.id, user_id: captainUserId }, { onConflict: 'user_id' })
+        await supabase.from('users').update({ captain_team_id: team.id }).eq('id', captainUserId)
       }
 
       return jsonResponse({ success: true, team })
@@ -1022,10 +1023,13 @@ Deno.serve(async (req: Request) => {
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
       if (teamName !== undefined) updates.team_name = teamName
       if (captainUserId !== undefined) {
+        // Clear captain_team_id from the old captain first
+        await supabase.from('users').update({ captain_team_id: null }).eq('captain_team_id', teamId)
         updates.captain_user_id = captainUserId
         if (captainUserId) {
           await supabase.from('team_members')
             .upsert({ team_id: teamId, user_id: captainUserId }, { onConflict: 'user_id' })
+          await supabase.from('users').update({ captain_team_id: teamId }).eq('id', captainUserId)
         }
       }
 
@@ -1038,6 +1042,8 @@ Deno.serve(async (req: Request) => {
     if (method === 'DELETE' && teamDeleteMatch) {
       requireAdmin(authUser)
       const teamId = parseInt(teamDeleteMatch.id)
+      // Clear captain_team_id from the captain before deleting
+      await supabase.from('users').update({ captain_team_id: null }).eq('captain_team_id', teamId)
       await supabase.from('teams').delete().eq('id', teamId)
       return jsonResponse({ success: true })
     }
@@ -2350,12 +2356,19 @@ Deno.serve(async (req: Request) => {
 
       const badge = getBadge(totalDeeds)
 
-      // Check if this player is a captain of any team
-      const { data: captainTeam } = await supabase
-        .from('teams')
-        .select('id, team_name')
-        .eq('captain_user_id', user.sub)
+      // Pull captain_team_id directly from the user record
+      const { data: userRecord } = await supabase
+        .from('users')
+        .select('captain_team_id')
+        .eq('id', user.sub)
         .maybeSingle()
+
+      const captainTeamId = userRecord?.captain_team_id ?? null
+      let captainTeamName: string | null = null
+      if (captainTeamId) {
+        const { data: t } = await supabase.from('teams').select('team_name').eq('id', captainTeamId).maybeSingle()
+        captainTeamName = t?.team_name ?? null
+      }
 
       return jsonResponse({
         total_deeds: totalDeeds,
@@ -2364,8 +2377,8 @@ Deno.serve(async (req: Request) => {
         next_badge_name: badge.next_name,
         next_badge_emoji: badge.next_emoji,
         deeds_to_next_badge: badge.deeds_to_next,
-        is_captain: captainTeam !== null,
-        captain_of_team: captainTeam ? { id: captainTeam.id, name: captainTeam.team_name } : null,
+        is_captain: captainTeamId !== null,
+        captain_of_team: captainTeamId ? { id: captainTeamId, name: captainTeamName } : null,
       })
     }
 

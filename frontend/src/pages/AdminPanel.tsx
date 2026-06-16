@@ -1024,10 +1024,10 @@ const AdminPanel: React.FC = () => {
                   <input placeholder="Email *" type="email" className="border rounded px-2 py-1.5 text-sm" value={playerForm.email} onChange={e => setPlayerForm(f => ({ ...f, email: e.target.value }))} />
                   <input placeholder="Username" className="border rounded px-2 py-1.5 text-sm" value={playerForm.username} onChange={e => setPlayerForm(f => ({ ...f, username: e.target.value }))} />
                   <input placeholder="Password *" type="password" className="border rounded px-2 py-1.5 text-sm" value={playerForm.password} onChange={e => setPlayerForm(f => ({ ...f, password: e.target.value }))} />
-                  <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.role} onChange={e => setPlayerForm(f => ({ ...f, role: e.target.value }))}>
-                    <option value="user">Player</option>
-                    <option value="admin">Admin</option>
-                  </select>
+                  <label className="flex items-center gap-2 text-sm text-slate-700 col-span-2">
+                    <input type="checkbox" checked={playerForm.role === 'admin'} onChange={e => setPlayerForm(f => ({ ...f, role: e.target.checked ? 'admin' : 'user' }))} />
+                    Admin
+                  </label>
                   <input placeholder="City" className="border rounded px-2 py-1.5 text-sm" value={playerForm.city} onChange={e => setPlayerForm(f => ({ ...f, city: e.target.value }))} />
                   <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.country_id} onChange={e => handlePlayerCountryChange(e.target.value)}>
                     <option value="">Country…</option>
@@ -1107,10 +1107,10 @@ const AdminPanel: React.FC = () => {
                                   <input placeholder="Email" type="email" className="border rounded px-2 py-1.5 text-sm" value={playerForm.email} onChange={e => setPlayerForm(f => ({ ...f, email: e.target.value }))} />
                                   <input placeholder="Username" className="border rounded px-2 py-1.5 text-sm" value={playerForm.username} onChange={e => setPlayerForm(f => ({ ...f, username: e.target.value }))} />
                                   <input placeholder="City" className="border rounded px-2 py-1.5 text-sm" value={playerForm.city} onChange={e => setPlayerForm(f => ({ ...f, city: e.target.value }))} />
-                                  <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.role} onChange={e => setPlayerForm(f => ({ ...f, role: e.target.value }))}>
-                                    <option value="user">Player</option>
-                                    <option value="admin">Admin</option>
-                                  </select>
+                                  <label className="flex items-center gap-2 text-sm text-slate-700 col-span-2">
+                                    <input type="checkbox" checked={playerForm.role === 'admin'} onChange={e => setPlayerForm(f => ({ ...f, role: e.target.checked ? 'admin' : 'user' }))} />
+                                    Admin
+                                  </label>
                                   <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.country_id} onChange={e => handlePlayerCountryChange(e.target.value)}>
                                     <option value="">Country…</option>
                                     {countries.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}

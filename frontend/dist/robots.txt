@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://havagr8day.com/sitemap.xml

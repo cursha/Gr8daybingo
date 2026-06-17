@@ -22,6 +22,13 @@ import {
   updatePrizeClaimStatus,
   getAdminMembers,
   MemberItem,
+  adminCreatePlayer,
+  adminUpdatePlayer,
+  adminDeletePlayer,
+  getCountries,
+  getStates,
+  CountryOption,
+  StateOption,
   adminGetCellMarkLog,
   adminVoidCell,
   adminTriggerWeeklyReset,
@@ -32,6 +39,9 @@ import {
   adminDeleteTeam,
   adminAddTeamMember,
   adminRemoveTeamMember,
+  DeedCategory,
+  getAdminDeedCategories,
+  updateAdminDeedCategory,
 } from '@/lib/game-utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -91,6 +101,14 @@ const AdminPanel: React.FC = () => {
   const [memberCountryFilter, setMemberCountryFilter] = useState('all');
   const [memberStateFilter, setMemberStateFilter] = useState('all');
 
+  // Player management state
+  const [countries, setCountries] = useState<CountryOption[]>([]);
+  const [playerStates, setPlayerStates] = useState<StateOption[]>([]);
+  const [showAddPlayer, setShowAddPlayer] = useState(false);
+  const [editingPlayer, setEditingPlayer] = useState<string | null>(null);
+  const [playerForm, setPlayerForm] = useState({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '' as string | number, state_id: '' as string | number, challenge_level: '' as string | number });
+  const [playerFormLoading, setPlayerFormLoading] = useState(false);
+
   // Void cell state
   const [markLogs, setMarkLogs] = useState<CellMarkLogEntry[]>([]);
   const [voidCardId, setVoidCardId] = useState('');
@@ -107,6 +125,9 @@ const AdminPanel: React.FC = () => {
   const [announceGameType, setAnnounceGameType] = useState('');
   const [announceTheme, setAnnounceTheme] = useState('');
   const [announceExtra, setAnnounceExtra] = useState('');
+
+  // Deed categories state
+  const [deedCategories, setDeedCategories] = useState<DeedCategory[]>([]);
 
   // Teams state
   const [teams, setTeams] = useState<TeamItem[]>([]);
@@ -151,6 +172,12 @@ const AdminPanel: React.FC = () => {
       }
       setEditConfigs(initial);
       setDeeds(deedsData.deeds || []);
+
+      // Load deed categories
+      try {
+        const catRes = await getAdminDeedCategories();
+        setDeedCategories(catRes.categories || []);
+      } catch { /* silent */ }
     } catch (err: any) {
       toast.error('Failed to load admin data');
     }
@@ -219,8 +246,61 @@ const AdminPanel: React.FC = () => {
       loadMembers();
       loadMarkLogs();
       loadTeams();
+      getCountries().then(setCountries).catch(() => {});
     }
   }, [authenticated]);
+
+  const handlePlayerCountryChange = (countryId: string | number) => {
+    setPlayerForm(f => ({ ...f, country_id: countryId, state_id: '' }));
+    if (countryId) getStates(Number(countryId)).then(setPlayerStates).catch(() => setPlayerStates([]));
+    else setPlayerStates([]);
+  };
+
+  const handleAddPlayer = async () => {
+    setPlayerFormLoading(true);
+    try {
+      await adminCreatePlayer({ ...playerForm, country_id: playerForm.country_id ? Number(playerForm.country_id) : undefined, state_id: playerForm.state_id ? Number(playerForm.state_id) : undefined, challenge_level: playerForm.challenge_level ? Number(playerForm.challenge_level) : undefined, admin_password: password } as any);
+      toast.success('Player created');
+      setShowAddPlayer(false);
+      setPlayerForm({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '', state_id: '', challenge_level: '' });
+      await loadMembers();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to create player');
+    } finally {
+      setPlayerFormLoading(false);
+    }
+  };
+
+  const handleEditPlayer = async (id: string) => {
+    setPlayerFormLoading(true);
+    try {
+      await adminUpdatePlayer(id, { ...playerForm, country_id: playerForm.country_id ? Number(playerForm.country_id) : null, state_id: playerForm.state_id ? Number(playerForm.state_id) : null, challenge_level: playerForm.challenge_level ? Number(playerForm.challenge_level) : null, admin_password: password });
+      toast.success('Player updated');
+      setEditingPlayer(null);
+      await loadMembers();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to update player');
+    } finally {
+      setPlayerFormLoading(false);
+    }
+  };
+
+  const handleDeletePlayer = async (id: string, name: string) => {
+    if (!window.confirm(`Delete player ${name}? This cannot be undone.`)) return;
+    try {
+      await adminDeletePlayer(id, password);
+      toast.success('Player deleted');
+      await loadMembers();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete player');
+    }
+  };
+
+  const startEditPlayer = (m: MemberItem) => {
+    setPlayerForm({ first_name: m.first_name ?? '', last_name: m.last_name ?? '', email: m.email ?? '', username: m.username ?? '', password: '', role: m.role ?? 'user', city: (m as any).city ?? '', country_id: (m as any).country_id ?? '', state_id: (m as any).state_id ?? '', challenge_level: (m as any).challenge_level ?? '' });
+    setEditingPlayer(m.id);
+    if ((m as any).country_id) getStates(Number((m as any).country_id)).then(setPlayerStates).catch(() => {});
+  };
 
   useEffect(() => {
     if (authenticated) {
@@ -941,9 +1021,47 @@ const AdminPanel: React.FC = () => {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-slate-500 mb-3">
-              Every registered player. {getFilteredMembers().length} shown with the current filter.
-            </p>
+            <div className="flex justify-between items-center mb-3">
+              <p className="text-xs text-slate-500">Every registered player. {getFilteredMembers().length} shown with the current filter.</p>
+              <button onClick={() => { setShowAddPlayer(!showAddPlayer); setEditingPlayer(null); }} className="flex items-center gap-1 text-xs bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-lg font-medium">
+                <Plus className="w-3.5 h-3.5" /> Add Player
+              </button>
+            </div>
+            {showAddPlayer && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-4 space-y-3">
+                <p className="text-sm font-semibold text-emerald-800">New Player</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <input placeholder="First name" className="border rounded px-2 py-1.5 text-sm" value={playerForm.first_name} onChange={e => setPlayerForm(f => ({ ...f, first_name: e.target.value }))} />
+                  <input placeholder="Last name" className="border rounded px-2 py-1.5 text-sm" value={playerForm.last_name} onChange={e => setPlayerForm(f => ({ ...f, last_name: e.target.value }))} />
+                  <input placeholder="Email *" type="email" className="border rounded px-2 py-1.5 text-sm" value={playerForm.email} onChange={e => setPlayerForm(f => ({ ...f, email: e.target.value }))} />
+                  <input placeholder="Username" className="border rounded px-2 py-1.5 text-sm" value={playerForm.username} onChange={e => setPlayerForm(f => ({ ...f, username: e.target.value }))} />
+                  <input placeholder="Password *" type="password" className="border rounded px-2 py-1.5 text-sm" value={playerForm.password} onChange={e => setPlayerForm(f => ({ ...f, password: e.target.value }))} />
+                  <label className="flex items-center gap-2 text-sm text-slate-700 col-span-2">
+                    <input type="checkbox" checked={playerForm.role === 'admin'} onChange={e => setPlayerForm(f => ({ ...f, role: e.target.checked ? 'admin' : 'user' }))} />
+                    Admin
+                  </label>
+                  <input placeholder="City" className="border rounded px-2 py-1.5 text-sm" value={playerForm.city} onChange={e => setPlayerForm(f => ({ ...f, city: e.target.value }))} />
+                  <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.country_id} onChange={e => handlePlayerCountryChange(e.target.value)}>
+                    <option value="">Country…</option>
+                    {countries.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                  {playerStates.length > 0 && (
+                    <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.state_id} onChange={e => setPlayerForm(f => ({ ...f, state_id: e.target.value }))}>
+                      <option value="">Province/State…</option>
+                      {playerStates.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  )}
+                  <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.challenge_level} onChange={e => setPlayerForm(f => ({ ...f, challenge_level: e.target.value }))}>
+                    <option value="">Challenge level…</option>
+                    {[1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={handleAddPlayer} disabled={playerFormLoading} className="bg-emerald-600 text-white text-xs px-4 py-1.5 rounded font-medium disabled:opacity-50">{playerFormLoading ? 'Creating…' : 'Create Player'}</button>
+                  <button onClick={() => setShowAddPlayer(false)} className="text-xs px-4 py-1.5 rounded border font-medium">Cancel</button>
+                </div>
+              </div>
+            )}
             {members.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2">
                 <Users className="w-8 h-8 text-slate-300" />
@@ -960,32 +1078,72 @@ const AdminPanel: React.FC = () => {
                         <th className="px-3 py-2">Email</th>
                         <th className="px-3 py-2">Location</th>
                         <th className="px-3 py-2 text-center">Challenge</th>
+                        <th className="px-3 py-2 text-center">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {getFilteredMembers().map((m) => (
-                        <tr key={m.id} className="hover:bg-slate-50">
-                          <td className="px-3 py-2 text-xs text-slate-400 font-mono whitespace-nowrap">
-                            {m.player_number ? `GR8-${m.player_number}` : '—'}
-                          </td>
-                          <td className="px-3 py-2">
-                            <span className="font-medium text-slate-800">{m.name || '—'}</span>
-                            {m.role === 'admin' && (
-                              <span className="ml-1.5 text-[10px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded">admin</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600">
-                            {m.email ? <a href={`mailto:${m.email}`} className="text-indigo-600 hover:underline">{m.email}</a> : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600">
-                            {[m.city, m.province_state, m.country].filter(Boolean).join(', ') || '—'}
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            {m.challenge_level != null ? (
-                              <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-semibold">{m.challenge_level}</span>
-                            ) : <span className="text-slate-300">—</span>}
-                          </td>
-                        </tr>
+                        <React.Fragment key={m.id}>
+                          <tr className="hover:bg-slate-50">
+                            <td className="px-3 py-2 text-xs text-slate-400 font-mono whitespace-nowrap">
+                              {m.player_number ? `GR8-${m.player_number}` : '—'}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className="font-medium text-slate-800">{m.name || '—'}</span>
+                              {m.role === 'admin' && (
+                                <span className="ml-1.5 text-[10px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded">admin</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600">
+                              {m.email ? <a href={`mailto:${m.email}`} className="text-indigo-600 hover:underline">{m.email}</a> : '—'}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600">
+                              {[m.city, m.province_state, m.country].filter(Boolean).join(', ') || '—'}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {m.challenge_level != null ? (
+                                <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-semibold">{m.challenge_level}</span>
+                              ) : <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className="px-3 py-2 text-center whitespace-nowrap">
+                              <button onClick={() => editingPlayer === m.id ? setEditingPlayer(null) : startEditPlayer(m)} className="text-indigo-600 hover:text-indigo-800 text-xs mr-2 font-medium">{editingPlayer === m.id ? 'Cancel' : 'Edit'}</button>
+                              <button onClick={() => handleDeletePlayer(m.id, m.name || m.email || '')} className="text-red-500 hover:text-red-700 text-xs font-medium">Delete</button>
+                            </td>
+                          </tr>
+                          {editingPlayer === m.id && (
+                            <tr className="bg-indigo-50">
+                              <td colSpan={6} className="px-4 py-4">
+                                <div className="grid grid-cols-2 gap-3 text-sm">
+                                  <input placeholder="First name" className="border rounded px-2 py-1.5 text-sm" value={playerForm.first_name} onChange={e => setPlayerForm(f => ({ ...f, first_name: e.target.value }))} />
+                                  <input placeholder="Last name" className="border rounded px-2 py-1.5 text-sm" value={playerForm.last_name} onChange={e => setPlayerForm(f => ({ ...f, last_name: e.target.value }))} />
+                                  <input placeholder="Email" type="email" className="border rounded px-2 py-1.5 text-sm" value={playerForm.email} onChange={e => setPlayerForm(f => ({ ...f, email: e.target.value }))} />
+                                  <input placeholder="Username" className="border rounded px-2 py-1.5 text-sm" value={playerForm.username} onChange={e => setPlayerForm(f => ({ ...f, username: e.target.value }))} />
+                                  <input placeholder="City" className="border rounded px-2 py-1.5 text-sm" value={playerForm.city} onChange={e => setPlayerForm(f => ({ ...f, city: e.target.value }))} />
+                                  <label className="flex items-center gap-2 text-sm text-slate-700 col-span-2">
+                                    <input type="checkbox" checked={playerForm.role === 'admin'} onChange={e => setPlayerForm(f => ({ ...f, role: e.target.checked ? 'admin' : 'user' }))} />
+                                    Admin
+                                  </label>
+                                  <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.country_id} onChange={e => handlePlayerCountryChange(e.target.value)}>
+                                    <option value="">Country…</option>
+                                    {countries.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                  </select>
+                                  <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.state_id} onChange={e => setPlayerForm(f => ({ ...f, state_id: e.target.value }))} disabled={playerStates.length === 0}>
+                                    <option value="">Province/State…</option>
+                                    {playerStates.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                  </select>
+                                  <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.challenge_level} onChange={e => setPlayerForm(f => ({ ...f, challenge_level: e.target.value }))}>
+                                    <option value="">Challenge level…</option>
+                                    {[1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
+                                  </select>
+                                </div>
+                                <div className="mt-3 flex gap-2">
+                                  <button onClick={() => handleEditPlayer(m.id)} disabled={playerFormLoading} className="bg-indigo-600 text-white text-xs px-4 py-1.5 rounded font-medium disabled:opacity-50">{playerFormLoading ? 'Saving…' : 'Save'}</button>
+                                  <button onClick={() => setEditingPlayer(null)} className="text-xs px-4 py-1.5 rounded border font-medium">Cancel</button>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
                       ))}
                     </tbody>
                   </table>
@@ -1317,6 +1475,50 @@ const AdminPanel: React.FC = () => {
             <Button onClick={handleSaveConfig} className="bg-indigo-600 hover:bg-indigo-700 text-white">
               <Save className="w-4 h-4 mr-1" /> Save Configuration
             </Button>
+          </CardContent>
+        </Card>
+
+        {/* Deed Categories */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="w-5 h-5 text-emerald-500" />
+              Deed Categories
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-slate-500 mb-3">
+              Turn categories on or off to control which deed types appear on new cards next week. Cards already in play are not affected.
+            </p>
+            <div className="space-y-2">
+              {deedCategories.map(cat => (
+                <div key={cat.name} className="flex items-center justify-between p-3 border rounded-lg bg-slate-50">
+                  <div>
+                    <span className="font-black text-sm tracking-widest text-slate-800">{cat.name}</span>
+                    <p className="text-xs text-slate-500 mt-0.5">{cat.description}</p>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <span className="text-xs text-slate-500">{cat.is_active ? 'Active' : 'Off'}</span>
+                    <input
+                      type="checkbox"
+                      checked={cat.is_active}
+                      onChange={async (e) => {
+                        const newVal = e.target.checked;
+                        setDeedCategories(prev => prev.map(c => c.name === cat.name ? { ...c, is_active: newVal } : c));
+                        try {
+                          await updateAdminDeedCategory(cat.name, { is_active: newVal });
+                          toast.success(`${cat.name} ${newVal ? 'activated' : 'deactivated'}`);
+                        } catch {
+                          toast.error('Failed to update category');
+                          setDeedCategories(prev => prev.map(c => c.name === cat.name ? { ...c, is_active: !newVal } : c));
+                        }
+                      }}
+                      className="w-4 h-4 accent-emerald-500"
+                    />
+                  </label>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
 

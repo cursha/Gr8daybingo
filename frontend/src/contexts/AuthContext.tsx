@@ -50,8 +50,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const userData = await authApi.getCurrentUser();
       setUser(userData);
     } catch (err) {
+      const status = (err as { status?: number })?.status;
+      // Only clear the user on a confirmed auth rejection (401).
+      // Network errors, cold-start 500s, etc. should not log the player out —
+      // the token is still valid, the request just failed transiently.
+      if (status === 401) {
+        setUser(null);
+      }
       setError(err instanceof Error ? err.message : 'An error occurred');
-      setUser(null);
     } finally {
       setLoading(false);
     }

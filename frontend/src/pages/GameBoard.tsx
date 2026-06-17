@@ -24,11 +24,15 @@ import {
   getMyTrades,
   spinDare,
   getMyProfile,
+  getQuickDeeds,
+  tapQuickDeed,
+  QuickDeed,
 } from '@/lib/game-utils';
 import BingoCell from '@/components/BingoCell';
 import CelebrationOverlay from '@/components/CelebrationOverlay';
 import RegistrationModal from '@/components/RegistrationModal';
 import DareModal from '@/components/DareModal';
+import EditProfileModal from '@/components/EditProfileModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -84,6 +88,10 @@ const GameBoard: React.FC = () => {
   const [dareResult, setDareResult] = useState<DareSpinResult | null>(null);
   const [dareSpinning, setDareSpinning] = useState(false);
   const [pendingTradeCount, setPendingTradeCount] = useState(0);
+  const [quickDeeds, setQuickDeeds] = useState<QuickDeed[]>([]);
+  const [quickDeedTapping, setQuickDeedTapping] = useState<number | null>(null);
+  const [quickDeedCounts, setQuickDeedCounts] = useState<Record<number, number>>({});
+  const [showEditProfile, setShowEditProfile] = useState(false);
 
   useEffect(() => {
     getPublicPrize()
@@ -98,6 +106,9 @@ const GameBoard: React.FC = () => {
         .catch(() => {});
       getMyProfile()
         .then((p) => setPlayerBadge(p))
+        .catch(() => {});
+      getQuickDeeds()
+        .then((deeds) => setQuickDeeds(deeds))
         .catch(() => {});
       getMyTeam()
         .then((res) => setMyTeam(res.team))
@@ -310,6 +321,20 @@ const GameBoard: React.FC = () => {
     }
   }, [user, loadMySuggestions]);
 
+  const handleQuickDeedTap = async (deed: QuickDeed) => {
+    if (quickDeedTapping) return;
+    setQuickDeedTapping(deed.id);
+    try {
+      await tapQuickDeed(deed.id);
+      setQuickDeedCounts(prev => ({ ...prev, [deed.id]: (prev[deed.id] ?? 0) + 1 }));
+      toast.success(`${deed.emoji} ${deed.label} — thank you for the kindness!`);
+    } catch {
+      toast.error('Could not record your deed. Please try again.');
+    } finally {
+      setQuickDeedTapping(null);
+    }
+  };
+
   const handlePrintPdf = () => {
     if (!card) {
       toast.error('Your card is not loaded yet. Please wait a moment and try again.');
@@ -463,8 +488,9 @@ const GameBoard: React.FC = () => {
             </div>
             {playerNumber && (
               <button
-                onClick={() => navigate('/profile')}
+                onClick={() => setShowEditProfile(true)}
                 className="hidden sm:flex items-center gap-1 hover:opacity-80 transition-opacity"
+                title="Edit profile"
               >
                 {playerBadge && (
                   <img
@@ -511,6 +537,18 @@ const GameBoard: React.FC = () => {
               <Trophy className="w-3.5 h-3.5 mr-0.5" />
               <span className="hidden sm:inline">My Wins</span>
             </Button>
+            {myTeam && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => navigate('/team')}
+                className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
+                title="My Team"
+              >
+                <Users className="w-3.5 h-3.5 mr-0.5" />
+                <span className="hidden sm:inline">My Team</span>
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -743,6 +781,29 @@ const GameBoard: React.FC = () => {
           </div>
         )}
 
+        {/* Quick Deed Buttons */}
+        {user && quickDeeds.length > 0 && (
+          <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-4 mb-4">
+            <h3 className="font-bold text-white/80 mb-3 text-xs uppercase tracking-wider">Quick Kindness — tap when you do it</h3>
+            <div className="flex flex-wrap gap-3 justify-center">
+              {quickDeeds.map(deed => (
+                <button
+                  key={deed.id}
+                  onClick={() => handleQuickDeedTap(deed)}
+                  disabled={quickDeedTapping === deed.id}
+                  className="flex flex-col items-center gap-1.5 bg-white/10 hover:bg-emerald-500/20 active:scale-95 border border-white/20 hover:border-emerald-400/50 rounded-2xl px-5 py-3 transition-all duration-150 disabled:opacity-50"
+                >
+                  <span className="text-2xl">{deed.emoji}</span>
+                  <span className="text-xs font-semibold text-white/80">{deed.label}</span>
+                  {(quickDeedCounts[deed.id] ?? 0) > 0 && (
+                    <span className="text-[10px] text-emerald-400 font-bold">+{quickDeedCounts[deed.id]} today</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Legend */}
         <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-4 mb-4">
           <h3 className="font-bold text-white/80 mb-3 text-xs uppercase tracking-wider">How to Play</h3>
@@ -904,6 +965,12 @@ const GameBoard: React.FC = () => {
             // Scroll to referral section
             document.getElementById('referral-section')?.scrollIntoView({ behavior: 'smooth' });
           }}
+        />
+      )}
+      {showEditProfile && (
+        <EditProfileModal
+          onClose={() => setShowEditProfile(false)}
+          onDeleted={() => { logout(); navigate('/'); }}
         />
       )}
       <Footer tone="dark" />

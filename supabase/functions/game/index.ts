@@ -18,6 +18,7 @@ interface Cell {
   secret_reward: number | null
   secret_revealed?: boolean
   quantity: number
+  category: string | null
 }
 
 // ── Security: strip secret fields before sending cells to client ─────────────
@@ -74,6 +75,19 @@ function getCurrentWeekYear(): string {
     ((thursday.getTime() - jan1.getTime()) / 86_400_000 + 1) / 7,
   )
   return `${year}-W${String(week).padStart(2, '0')}`
+}
+
+function getWeekStart(weekYear: string): Date {
+  const [year, weekStr] = weekYear.split('-W')
+  const week = parseInt(weekStr)
+  const jan1 = new Date(parseInt(year), 0, 1)
+  const jan1Day = jan1.getDay() || 7 // Mon=1..Sun=7
+  const daysToMonday = (8 - jan1Day) % 7
+  const firstMonday = new Date(jan1)
+  firstMonday.setDate(jan1.getDate() + daysToMonday)
+  const weekStart = new Date(firstMonday)
+  weekStart.setDate(firstMonday.getDate() + (week - 1) * 7)
+  return weekStart
 }
 
 async function sha256Hex(str: string): Promise<string> {
@@ -201,9 +215,13 @@ Deno.serve(async (req: Request) => {
         const deedIds = cells.map((c) => c.deed_id).filter((id): id is number => id != null)
         if (deedIds.length > 0) {
           const { data: freshDeeds } = await supabase
-            .from('good_deeds').select('id, quantity').in('id', deedIds)
+            .from('good_deeds').select('id, quantity, category').in('id', deedIds)
           const qtyById = new Map<number, number>()
-          for (const d of freshDeeds ?? []) qtyById.set(d.id, d.quantity ?? 1)
+          const catById = new Map<number, string | null>()
+          for (const d of freshDeeds ?? []) {
+            qtyById.set(d.id, d.quantity ?? 1)
+            catById.set(d.id, d.category ?? null)
+          }
           for (const c of cells) {
             if (c.deed_id != null && qtyById.has(c.deed_id)) {
               const freshQty = qtyById.get(c.deed_id)!
@@ -211,6 +229,7 @@ Deno.serve(async (req: Request) => {
                 c.quantity = freshQty
                 needsSave = true
               }
+              c.category = catById.get(c.deed_id) ?? null
             }
           }
         }
@@ -259,11 +278,18 @@ Deno.serve(async (req: Request) => {
         })
       }
 
-      // Build a new card
-      const { data: deeds } = await supabase
-        .from('good_deeds').select('*').eq('is_active', true)
+      // Build a new card — only use deeds from active categories
+      const { data: activeCategories } = await supabase
+        .from('deed_categories').select('name').eq('is_active', true)
+      const activeCategoryNames = (activeCategories ?? []).map(c => c.name)
+
+      let deedQuery = supabase.from('good_deeds').select('*').eq('is_active', true)
+      if (activeCategoryNames.length > 0) {
+        deedQuery = deedQuery.in('category', activeCategoryNames)
+      }
+      const { data: deeds } = await deedQuery
       if (!deeds || deeds.length < 24) {
-        return errorResponse('Not enough active deeds to generate a card', 400)
+        return errorResponse('Not enough active deeds in the selected categories to generate a card', 400)
       }
 
       const { data: cfgRows } = await supabase.from('game_configs').select('config_key, config_value')
@@ -679,6 +705,354 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    // ── GET /quick-deeds ─────────────────────────────────────────────────────
+    if (method === 'GET' && path === '/quick-deeds') {
+      const { data } = await supabase
+        .from('quick_deeds')
+        .select('id, label, emoji, display_order')
+        .eq('is_active', true)
+        .order('display_order')
+      return jsonResponse({ quick_deeds: data ?? [] })
+    }
+
+    // ── POST /quick-deeds/:id/tap ─────────────────────────────────────────────
+    const quickDeedTapMatch = path.match(/^\/quick-deeds\/(\d+)\/tap$/)
+    if (method === 'POST' && quickDeedTapMatch) {
+      const user = requireAuth(authUser)
+      const deedId = parseInt(quickDeedTapMatch[1])
+      const { error } = await supabase
+        .from('quick_deed_logs')
+        .insert({ user_id: user.sub, quick_deed_id: deedId })
+      if (error) throw error
+      return jsonResponse({ success: true })
+    }
+
+    // ── GET /quick-deeds/my-stats ─────────────────────────────────────────────
+    if (method === 'GET' && path === '/quick-deeds/my-stats') {
+      const user = requireAuth(authUser)
+      const { data } = await supabase
+        .from('quick_deed_logs')
+        .select('quick_deed_id, quick_deeds(label, emoji)')
+        .eq('user_id', user.sub)
+      // Count per deed
+      const counts: Record<number, { label: string; emoji: string; count: number }> = {}
+      for (const row of (data ?? [])) {
+        const id = row.quick_deed_id
+        const deed = row.quick_deeds as { label: string; emoji: string } | null
+        if (!counts[id]) counts[id] = { label: deed?.label ?? '', emoji: deed?.emoji ?? '', count: 0 }
+        counts[id].count++
+      }
+      return jsonResponse({ stats: Object.values(counts) })
+    }
+
+    // ── Admin: GET /admin/deed-categories ────────────────────────────────────
+    if (method === 'GET' && path === '/admin/deed-categories') {
+      requireAdmin(authUser)
+      const { data } = await supabase.from('deed_categories').select('*').order('name')
+      return jsonResponse({ categories: data ?? [] })
+    }
+
+    // ── Admin: PUT /admin/deed-categories/:name ───────────────────────────────
+    const catEditMatch = path.match(/^\/admin\/deed-categories\/([A-Z]+)$/)
+    if (method === 'PUT' && catEditMatch) {
+      requireAdmin(authUser)
+      const name = catEditMatch[1]
+      const body = await req.json()
+      const updates: Record<string, unknown> = {}
+      if (body.is_active !== undefined) updates.is_active = body.is_active
+      if (body.description !== undefined) updates.description = body.description
+      await supabase.from('deed_categories').update(updates).eq('name', name)
+      return jsonResponse({ success: true })
+    }
+
+    // ── Admin: GET /admin/quick-deeds ────────────────────────────────────────
+    if (method === 'GET' && path === '/admin/quick-deeds') {
+      requireAdmin(authUser)
+      const { data } = await supabase.from('quick_deeds').select('*').order('display_order')
+      return jsonResponse({ quick_deeds: data ?? [] })
+    }
+
+    // ── Admin: POST /admin/quick-deeds ───────────────────────────────────────
+    if (method === 'POST' && path === '/admin/quick-deeds') {
+      requireAdmin(authUser)
+      const body = await req.json()
+      const { label, emoji, display_order } = body
+      if (!label) return errorResponse('label is required', 400)
+      const { data, error } = await supabase
+        .from('quick_deeds')
+        .insert({ label: String(label).trim(), emoji: emoji ?? '❤️', display_order: display_order ?? 0 })
+        .select().single()
+      if (error) throw error
+      return jsonResponse({ success: true, quick_deed: data })
+    }
+
+    // ── Admin: PUT /admin/quick-deeds/:id ────────────────────────────────────
+    const adminQdEditMatch = path.match(/^\/admin\/quick-deeds\/(\d+)$/)
+    if (method === 'PUT' && adminQdEditMatch) {
+      requireAdmin(authUser)
+      const id = parseInt(adminQdEditMatch[1])
+      const body = await req.json()
+      const updates: Record<string, unknown> = {}
+      if (body.label !== undefined) updates.label = String(body.label).trim()
+      if (body.emoji !== undefined) updates.emoji = body.emoji
+      if (body.display_order !== undefined) updates.display_order = body.display_order
+      if (body.is_active !== undefined) updates.is_active = body.is_active
+      await supabase.from('quick_deeds').update(updates).eq('id', id)
+      return jsonResponse({ success: true })
+    }
+
+    // ── Admin: DELETE /admin/quick-deeds/:id ─────────────────────────────────
+    const adminQdDeleteMatch = path.match(/^\/admin\/quick-deeds\/(\d+)$/)
+    if (method === 'DELETE' && adminQdDeleteMatch) {
+      requireAdmin(authUser)
+      const id = parseInt(adminQdDeleteMatch[1])
+      await supabase.from('quick_deeds').delete().eq('id', id)
+      return jsonResponse({ success: true })
+    }
+
+    // ── GET /leaderboard/players ──────────────────────────────────────────────
+    if (method === 'GET' && path === '/leaderboard/players') {
+      const currentWy = getCurrentWeekYear()
+
+      const { data: allCards } = await supabase
+        .from('player_cards')
+        .select('user_id, week_year, completed_cells, purchased_cells, referral_cells')
+
+      const { data: allUsers } = await supabase
+        .from('users')
+        .select('id, first_name, last_name, username, player_number, city, country_id, challenge_level')
+
+      const { data: countries } = await supabase.from('countries').select('id, name, code')
+      const countryMap: Record<number, { name: string; code: string }> = {}
+      for (const c of countries ?? []) countryMap[c.id] = { name: c.name, code: c.code }
+
+      // Count deeds per user: all-time and this week (bingo cards)
+      const allTime: Record<string, number> = {}
+      const thisWeek: Record<string, number> = {}
+
+      for (const card of (allCards ?? [])) {
+        const completed: number[] = Array.isArray(card.completed_cells) ? card.completed_cells : []
+        const purchased: number[] = Array.isArray(card.purchased_cells) ? card.purchased_cells : []
+        const referral: number[] = Array.isArray(card.referral_cells) ? card.referral_cells : []
+        const purchasedSet = new Set(purchased)
+        const referralSet = new Set(referral)
+        let count = 0
+        for (const idx of completed) {
+          if (!purchasedSet.has(idx) && !referralSet.has(idx) && idx !== 12) count++
+        }
+        allTime[card.user_id] = (allTime[card.user_id] ?? 0) + count
+        if (card.week_year === currentWy) {
+          thisWeek[card.user_id] = (thisWeek[card.user_id] ?? 0) + count
+        }
+      }
+
+      // Add quick deed taps to deed counts
+      const weekStart = getWeekStart(currentWy)
+      const { data: quickLogs } = await supabase
+        .from('quick_deed_logs')
+        .select('user_id, tapped_at')
+      for (const log of (quickLogs ?? [])) {
+        allTime[log.user_id] = (allTime[log.user_id] ?? 0) + 1
+        if (new Date(log.tapped_at) >= weekStart) {
+          thisWeek[log.user_id] = (thisWeek[log.user_id] ?? 0) + 1
+        }
+      }
+
+      // Count referrals per user (all-time)
+      const { data: allReferrals } = await supabase.from('referrals').select('user_id')
+      const referralCounts: Record<string, number> = {}
+      for (const r of (allReferrals ?? [])) {
+        referralCounts[r.user_id] = (referralCounts[r.user_id] ?? 0) + 1
+      }
+
+      const makeEntry = (u: typeof allUsers[0], deeds: number) => {
+        const country = u.country_id ? countryMap[u.country_id] : null
+        const badge = getBadge(allTime[u.id] ?? 0)
+        const referrals = referralCounts[u.id] ?? 0
+        return {
+          user_id: u.id,
+          display_name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || `GR8-${u.player_number}`,
+          player_number: u.player_number,
+          city: u.city ?? null,
+          country_name: country?.name ?? null,
+          country_code: country?.code ?? null,
+          deeds,
+          referrals,
+          badge_name: badge.name,
+          badge_emoji: badge.emoji,
+        }
+      }
+
+      const allTimeRanked = (allUsers ?? [])
+        .map(u => makeEntry(u, allTime[u.id] ?? 0))
+        .filter(u => u.deeds > 0)
+        .sort((a, b) => b.deeds - a.deeds)
+
+      const thisWeekRanked = (allUsers ?? [])
+        .map(u => makeEntry(u, thisWeek[u.id] ?? 0))
+        .filter(u => u.deeds > 0)
+        .sort((a, b) => b.deeds - a.deeds)
+
+      // ── Top 10 most-completed deeds ──────────────────────────────────────────
+      // Fetch all cards with their cell data and tally deed completions
+      const { data: allCardsWithCells } = await supabase
+        .from('player_cards')
+        .select('card_data, completed_cells, purchased_cells, referral_cells')
+
+      const deedCounts: Record<number, number> = {}  // deed_id → count
+
+      for (const card of (allCardsWithCells ?? [])) {
+        const cells: Cell[] = (() => { try { return JSON.parse(card.card_data ?? '[]') } catch { return [] } })()
+        const completed: number[] = Array.isArray(card.completed_cells) ? card.completed_cells : []
+        const purchased: number[] = Array.isArray(card.purchased_cells) ? card.purchased_cells : []
+        const referral: number[] = Array.isArray(card.referral_cells) ? card.referral_cells : []
+        const purchasedSet = new Set(purchased)
+        const referralSet = new Set(referral)
+
+        for (const idx of completed) {
+          if (purchasedSet.has(idx) || referralSet.has(idx) || idx === 12) continue
+          const cell = cells.find(c => c.index === idx)
+          if (cell?.deed_id) {
+            deedCounts[cell.deed_id] = (deedCounts[cell.deed_id] ?? 0) + 1
+          }
+        }
+      }
+
+      const { data: allDeeds } = await supabase.from('good_deeds').select('id, deed_text, category')
+      const topDeeds = Object.entries(deedCounts)
+        .map(([id, count]) => {
+          const deed = (allDeeds ?? []).find(d => d.id === parseInt(id))
+          return { deed_id: parseInt(id), deed_text: deed?.deed_text ?? '', category: deed?.category ?? '', count }
+        })
+        .filter(d => d.deed_text)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10)
+
+      // ── Regional grouping ──────────────────────────────────────────────────
+      const { data: thresholdCfg } = await supabase
+        .from('game_configs').select('config_value').eq('config_key', 'country_promotion_threshold').maybeSingle()
+      const promotionThreshold = parseInt(thresholdCfg?.config_value ?? '100')
+
+      // Count players per country (all-time, any deeds)
+      const playersByCountry: Record<string, number> = {}
+      for (const u of (allUsers ?? [])) {
+        const code = u.country_id ? (countryMap[u.country_id]?.code ?? null) : null
+        if (!code) continue
+        playersByCountry[code] = (playersByCountry[code] ?? 0) + 1
+      }
+
+      // Determine promoted countries (>= threshold, not CA or US)
+      const ALWAYS_SHOWN = new Set(['CA', 'US'])
+      const promotedCodes = new Set(
+        Object.entries(playersByCountry)
+          .filter(([code, count]) => !ALWAYS_SHOWN.has(code) && count >= promotionThreshold)
+          .map(([code]) => code)
+      )
+
+      const regionOrder = ['CA', 'US', ...Array.from(promotedCodes).sort(), 'ROW']
+
+      const getRegionCode = (countryCode: string | null): string => {
+        if (!countryCode) return 'ROW'
+        if (countryCode === 'CA' || countryCode === 'US') return countryCode
+        if (promotedCodes.has(countryCode)) return countryCode
+        return 'ROW'
+      }
+
+      const regionLabel = (code: string) => {
+        if (code === 'ROW') return 'Rest of World'
+        return countryMap[Object.keys(countryMap).find(id => countryMap[Number(id)]?.code === code) as any]?.name ?? code
+      }
+
+      // Group all-time and this-week into regions
+      const buildRegions = (ranked: ReturnType<typeof makeEntry>[]) => {
+        const buckets: Record<string, ReturnType<typeof makeEntry>[]> = {}
+        for (const code of regionOrder) buckets[code] = []
+        for (const entry of ranked) {
+          const rc = getRegionCode(entry.country_code)
+          if (!buckets[rc]) buckets[rc] = []
+          buckets[rc].push(entry)
+        }
+        return regionOrder
+          .filter(code => buckets[code]?.length > 0)
+          .map(code => ({
+            code,
+            name: regionLabel(code),
+            flag: code === 'CA' ? '🍁' : code === 'US' ? '🇺🇸' : code === 'ROW' ? '🌍' : '',
+            players: buckets[code],
+          }))
+      }
+
+      const regionsAllTime = buildRegions(allTimeRanked)
+      const regionsThisWeek = buildRegions(thisWeekRanked)
+
+      // ── Weekly trend (this week vs last week) ────────────────────────────────
+      const lastWy = (() => {
+        const [yr, wk] = currentWy.split('-W').map(Number)
+        if (wk === 1) return `${yr - 1}-W52`
+        return `${yr}-W${String(wk - 1).padStart(2, '0')}`
+      })()
+
+      let thisWeekDeeds = 0
+      let lastWeekDeeds = 0
+      for (const card of (allCards ?? [])) {
+        const completed: number[] = Array.isArray(card.completed_cells) ? card.completed_cells : []
+        const purchased: number[] = Array.isArray(card.purchased_cells) ? card.purchased_cells : []
+        const referral: number[] = Array.isArray(card.referral_cells) ? card.referral_cells : []
+        const ps = new Set(purchased); const rs = new Set(referral)
+        const count = completed.filter(idx => !ps.has(idx) && !rs.has(idx) && idx !== 12).length
+        if (card.week_year === currentWy) thisWeekDeeds += count
+        if (card.week_year === lastWy) lastWeekDeeds += count
+      }
+      const weekTrend = thisWeekDeeds - lastWeekDeeds
+
+      // ── Country count (breadth) ───────────────────────────────────────────────
+      const uniqueCountries = new Set(
+        (allUsers ?? []).filter(u => u.country_id).map(u => u.country_id)
+      ).size
+
+      // ── Country flag cluster (top countries by player count) ─────────────────
+      const topCountryFlags = Object.entries(playersByCountry)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
+        .map(([code]) => {
+          const flagMap: Record<string, string> = { CA:'🍁',US:'🇺🇸',GB:'🇬🇧',AU:'🇦🇺',NZ:'🇳🇿',IE:'🇮🇪',IN:'🇮🇳',NG:'🇳🇬',ZA:'🇿🇦',PH:'🇵🇭',MX:'🇲🇽',BR:'🇧🇷',FR:'🇫🇷',DE:'🇩🇪',JP:'🇯🇵' }
+          return flagMap[code] ?? '🌐'
+        })
+
+      // ── New players this week vs last week ───────────────────────────────────
+      const weekStartDate = getWeekStart(currentWy)
+      const lastWeekStartDate = getWeekStart(lastWy)
+      const { data: allUsersWithCreated } = await supabase.from('users').select('id, created_at')
+      let newPlayersThisWeek = 0
+      let newPlayersLastWeek = 0
+      for (const u of (allUsersWithCreated ?? [])) {
+        const created = new Date(u.created_at)
+        if (created >= weekStartDate) newPlayersThisWeek++
+        else if (created >= lastWeekStartDate) newPlayersLastWeek++
+      }
+
+      // ── Total referrals ──────────────────────────────────────────────────────
+      const totalReferrals = (allReferrals ?? []).length
+
+      return jsonResponse({
+        all_time: allTimeRanked,
+        this_week: thisWeekRanked,
+        regions_all_time: regionsAllTime,
+        regions_this_week: regionsThisWeek,
+        current_week_year: currentWy,
+        top_deeds: topDeeds,
+        promotion_threshold: promotionThreshold,
+        this_week_deeds: thisWeekDeeds,
+        last_week_deeds: lastWeekDeeds,
+        week_trend: weekTrend,
+        unique_countries: uniqueCountries,
+        top_country_flags: topCountryFlags,
+        new_players_this_week: newPlayersThisWeek,
+        new_players_last_week: newPlayersLastWeek,
+        total_referrals: totalReferrals,
+      })
+    }
+
     // ── GET /public/countries ─────────────────────────────────────────────────
     if (method === 'GET' && path === '/public/countries') {
       const { data } = await supabase
@@ -896,10 +1270,11 @@ Deno.serve(async (req: Request) => {
         .single()
       if (error) throw error
 
-      // Auto-add captain as a member
+      // Auto-add captain as a member and mark them as captain on their profile
       if (captainUserId) {
         await supabase.from('team_members')
           .upsert({ team_id: team.id, user_id: captainUserId }, { onConflict: 'user_id' })
+        await supabase.from('users').update({ captain_team_id: team.id }).eq('id', captainUserId)
       }
 
       return jsonResponse({ success: true, team })
@@ -927,10 +1302,13 @@ Deno.serve(async (req: Request) => {
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
       if (teamName !== undefined) updates.team_name = teamName
       if (captainUserId !== undefined) {
+        // Clear captain_team_id from the old captain first
+        await supabase.from('users').update({ captain_team_id: null }).eq('captain_team_id', teamId)
         updates.captain_user_id = captainUserId
         if (captainUserId) {
           await supabase.from('team_members')
             .upsert({ team_id: teamId, user_id: captainUserId }, { onConflict: 'user_id' })
+          await supabase.from('users').update({ captain_team_id: teamId }).eq('id', captainUserId)
         }
       }
 
@@ -943,6 +1321,8 @@ Deno.serve(async (req: Request) => {
     if (method === 'DELETE' && teamDeleteMatch) {
       requireAdmin(authUser)
       const teamId = parseInt(teamDeleteMatch.id)
+      // Clear captain_team_id from the captain before deleting
+      await supabase.from('users').update({ captain_team_id: null }).eq('captain_team_id', teamId)
       await supabase.from('teams').delete().eq('id', teamId)
       return jsonResponse({ success: true })
     }
@@ -2254,6 +2634,21 @@ Deno.serve(async (req: Request) => {
       }
 
       const badge = getBadge(totalDeeds)
+
+      // Pull captain_team_id directly from the user record
+      const { data: userRecord } = await supabase
+        .from('users')
+        .select('captain_team_id')
+        .eq('id', user.sub)
+        .maybeSingle()
+
+      const captainTeamId = userRecord?.captain_team_id ?? null
+      let captainTeamName: string | null = null
+      if (captainTeamId) {
+        const { data: t } = await supabase.from('teams').select('team_name').eq('id', captainTeamId).maybeSingle()
+        captainTeamName = t?.team_name ?? null
+      }
+
       return jsonResponse({
         total_deeds: totalDeeds,
         badge_name: badge.name,
@@ -2261,6 +2656,8 @@ Deno.serve(async (req: Request) => {
         next_badge_name: badge.next_name,
         next_badge_emoji: badge.next_emoji,
         deeds_to_next_badge: badge.deeds_to_next,
+        is_captain: captainTeamId !== null,
+        captain_of_team: captainTeamId ? { id: captainTeamId, name: captainTeamName } : null,
       })
     }
 
@@ -2308,6 +2705,150 @@ Deno.serve(async (req: Request) => {
       }).sort((a, b) => b.total_deeds - a.total_deeds)
 
       return jsonResponse({ players })
+    }
+
+    // ── GET /my-profile/details ───────────────────────────────────────────────
+    if (method === 'GET' && path === '/my-profile/details') {
+      const user = requireAuth(authUser)
+      const { data: u } = await supabase
+        .from('users')
+        .select('first_name, last_name, username, email, city, country_id, state_id, challenge_level, player_number')
+        .eq('id', user.sub)
+        .maybeSingle()
+      if (!u) return errorResponse('User not found', 404)
+      return jsonResponse(u)
+    }
+
+    // ── PUT /my-profile ───────────────────────────────────────────────────────
+    if (method === 'PUT' && path === '/my-profile') {
+      const user = requireAuth(authUser)
+      const body = await req.json()
+      const { first_name, last_name, username, city, country_id, state_id, challenge_level } = body
+
+      if (username) {
+        const { data: existing } = await supabase
+          .from('users').select('id').eq('username', username).neq('id', user.sub).maybeSingle()
+        if (existing) return errorResponse('Username is already taken', 409)
+      }
+      if (challenge_level != null && (challenge_level < 1 || challenge_level > 5)) {
+        return errorResponse('challenge_level must be between 1 and 5', 400)
+      }
+
+      await supabase.from('users').update({
+        ...(first_name !== undefined && { first_name }),
+        ...(last_name !== undefined && { last_name }),
+        ...(username !== undefined && { username }),
+        ...(city !== undefined && { city }),
+        ...(country_id !== undefined && { country_id }),
+        ...(state_id !== undefined && { state_id }),
+        ...(challenge_level !== undefined && { challenge_level }),
+      }).eq('id', user.sub)
+
+      return jsonResponse({ success: true })
+    }
+
+    // ── DELETE /my-profile ────────────────────────────────────────────────────
+    if (method === 'DELETE' && path === '/my-profile') {
+      const user = requireAuth(authUser)
+      await supabase.from('square_trades').delete().eq('from_user_id', user.sub)
+      await supabase.from('square_trades').delete().eq('to_user_id', user.sub)
+      await supabase.from('team_members').delete().eq('user_id', user.sub)
+      await supabase.from('pending_deeds').delete().eq('user_id', user.sub)
+      await supabase.from('player_cards').delete().eq('user_id', user.sub)
+      await supabase.from('wallet_transactions').delete().eq('user_id', user.sub)
+      await supabase.from('player_wallets').delete().eq('user_id', user.sub)
+      await supabase.from('users').delete().eq('id', user.sub)
+      return jsonResponse({ success: true })
+    }
+
+    // ── POST /admin/players ───────────────────────────────────────────────────
+    if (method === 'POST' && path === '/admin/players') {
+      const body = await req.json()
+      const { data: cfg } = await supabase
+        .from('game_configs').select('config_value').eq('config_key', 'admin_password').maybeSingle()
+      if (!cfg || cfg.config_value !== body.admin_password) return errorResponse('Invalid admin password', 403)
+
+      const email = String(body.email ?? '').trim().toLowerCase()
+      const username = String(body.username ?? '').trim()
+      const password = String(body.password ?? '')
+      if (!email || !password) return errorResponse('email and password are required', 400)
+
+      const { data: emailExists } = await supabase.from('users').select('id').eq('email', email).maybeSingle()
+      if (emailExists) return errorResponse('Email already in use', 409)
+      if (username) {
+        const { data: uExists } = await supabase.from('users').select('id').eq('username', username).maybeSingle()
+        if (uExists) return errorResponse('Username already taken', 409)
+      }
+
+      const passwordHash = await bcrypt.hash(password, 10)
+      const userId = crypto.randomUUID()
+      const { error } = await supabase.from('users').insert({
+        id: userId,
+        email,
+        username: username || null,
+        password_hash: passwordHash,
+        first_name: body.first_name ?? null,
+        last_name: body.last_name ?? null,
+        role: body.role ?? 'user',
+        email_verified: true,
+      })
+      if (error) throw error
+      return jsonResponse({ success: true, user_id: userId })
+    }
+
+    // ── PUT /admin/players/:id ────────────────────────────────────────────────
+    const adminPlayerPutMatch = method === 'PUT' && path.match(/^\/admin\/players\/([^/]+)$/)
+    if (adminPlayerPutMatch) {
+      const targetId = adminPlayerPutMatch[1]
+      const body = await req.json()
+      const { data: cfg } = await supabase
+        .from('game_configs').select('config_value').eq('config_key', 'admin_password').maybeSingle()
+      if (!cfg || cfg.config_value !== body.admin_password) return errorResponse('Invalid admin password', 403)
+
+      const { first_name, last_name, email, username, city, country_id, state_id, challenge_level, role } = body
+
+      if (email) {
+        const { data: existing } = await supabase.from('users').select('id').eq('email', email).neq('id', targetId).maybeSingle()
+        if (existing) return errorResponse('Email already in use', 409)
+      }
+      if (username) {
+        const { data: existing } = await supabase.from('users').select('id').eq('username', username).neq('id', targetId).maybeSingle()
+        if (existing) return errorResponse('Username already taken', 409)
+      }
+
+      await supabase.from('users').update({
+        ...(first_name !== undefined && { first_name }),
+        ...(last_name !== undefined && { last_name }),
+        ...(email !== undefined && { email }),
+        ...(username !== undefined && { username }),
+        ...(city !== undefined && { city }),
+        ...(country_id !== undefined && { country_id }),
+        ...(state_id !== undefined && { state_id }),
+        ...(challenge_level !== undefined && { challenge_level }),
+        ...(role !== undefined && { role }),
+      }).eq('id', targetId)
+
+      return jsonResponse({ success: true })
+    }
+
+    // ── DELETE /admin/players/:id ─────────────────────────────────────────────
+    const adminPlayerDeleteMatch = method === 'DELETE' && path.match(/^\/admin\/players\/([^/]+)$/)
+    if (adminPlayerDeleteMatch) {
+      const targetId = adminPlayerDeleteMatch[1]
+      const adminPw = new URL(req.url).searchParams.get('admin_password')
+      const { data: cfg } = await supabase
+        .from('game_configs').select('config_value').eq('config_key', 'admin_password').maybeSingle()
+      if (!cfg || cfg.config_value !== adminPw) return errorResponse('Invalid admin password', 403)
+
+      await supabase.from('square_trades').delete().eq('from_user_id', targetId)
+      await supabase.from('square_trades').delete().eq('to_user_id', targetId)
+      await supabase.from('team_members').delete().eq('user_id', targetId)
+      await supabase.from('pending_deeds').delete().eq('user_id', targetId)
+      await supabase.from('player_cards').delete().eq('user_id', targetId)
+      await supabase.from('wallet_transactions').delete().eq('user_id', targetId)
+      await supabase.from('player_wallets').delete().eq('user_id', targetId)
+      await supabase.from('users').delete().eq('id', targetId)
+      return jsonResponse({ success: true })
     }
 
     return errorResponse('Not found', 404)

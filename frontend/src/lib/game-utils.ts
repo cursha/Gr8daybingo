@@ -48,6 +48,7 @@ export interface CellData {
   secret_reward?: number | null;
   secret_revealed?: boolean;
   quantity?: number;
+  category?: string | null;
 }
 
 export interface MarkCellResult {
@@ -199,10 +200,28 @@ export interface PlayerBadge {
   next_badge_name: string | null;
   next_badge_emoji: string | null;
   deeds_to_next_badge: number | null;
+  is_captain: boolean;
+  captain_of_team: { id: string; name: string } | null;
 }
 
 export async function getMyProfile(): Promise<PlayerBadge> {
   return apiClient.get<PlayerBadge>('/game/my-profile');
+}
+
+export interface QuickDeed {
+  id: number;
+  label: string;
+  emoji: string;
+  display_order: number;
+}
+
+export async function getQuickDeeds(): Promise<QuickDeed[]> {
+  const res = await apiClient.get<{ quick_deeds: QuickDeed[] }>('/game/quick-deeds');
+  return res.quick_deeds;
+}
+
+export async function tapQuickDeed(id: number): Promise<void> {
+  await apiClient.post(`/game/quick-deeds/${id}/tap`, {});
 }
 
 export interface TeamMember {
@@ -337,36 +356,53 @@ export async function getLeaderboard(): Promise<LeaderboardData> {
   return withRetry(() => apiClient.get<LeaderboardData>('/game/leaderboard'));
 }
 
-export interface WorldDeedsCountry {
-  country_code: string;
-  country_name: string;
-  total_deeds: number;
+export interface PlayerRankEntry {
+  user_id: string;
+  display_name: string;
+  player_number: number | null;
+  city: string | null;
+  country_name: string | null;
+  country_code: string | null;
+  deeds: number;
+  referrals: number;
+  badge_name: string;
+  badge_emoji: string;
 }
 
-export interface WorldDeedsData {
-  countries: WorldDeedsCountry[];
-  grand_total: number;
-}
-
-export interface CountryDeedEntry {
+export interface TopDeedEntry {
   deed_id: number;
   deed_text: string;
+  category: string;
   count: number;
 }
 
-export interface CountryDrillData {
-  country_code: string;
-  country_name: string;
-  deeds: CountryDeedEntry[];
-  total: number;
+export interface LeaderboardRegion {
+  code: string;
+  name: string;
+  flag: string;
+  players: PlayerRankEntry[];
 }
 
-export async function getWorldDeeds(): Promise<WorldDeedsData> {
-  return apiClient.get<WorldDeedsData>('/game/public/world-deeds', { skipAuth: true });
+export interface PlayerLeaderboardData {
+  all_time: PlayerRankEntry[];
+  this_week: PlayerRankEntry[];
+  regions_all_time: LeaderboardRegion[];
+  regions_this_week: LeaderboardRegion[];
+  current_week_year: string;
+  top_deeds: TopDeedEntry[];
+  promotion_threshold: number;
+  this_week_deeds: number;
+  last_week_deeds: number;
+  week_trend: number;
+  unique_countries: number;
+  top_country_flags: string[];
+  new_players_this_week: number;
+  new_players_last_week: number;
+  total_referrals: number;
 }
 
-export async function getCountryDrillDown(countryCode: string): Promise<CountryDrillData> {
-  return apiClient.get<CountryDrillData>(`/game/public/world-deeds?country=${countryCode}`, { skipAuth: true });
+export async function getPlayerLeaderboard(): Promise<PlayerLeaderboardData> {
+  return withRetry(() => apiClient.get<PlayerLeaderboardData>('/game/leaderboard/players', { skipAuth: true } as any));
 }
 
 export async function getPublicPrize(): Promise<PrizeInfo> {
@@ -384,6 +420,21 @@ export async function adminVerify(password: string) {
 
 export async function getAdminConfig() {
   return withRetry(() => apiClient.get<Record<string, string>>('/game/admin/config'));
+}
+
+export interface DeedCategory {
+  id: number;
+  name: string;
+  description: string;
+  is_active: boolean;
+}
+
+export async function getAdminDeedCategories(): Promise<{ categories: DeedCategory[] }> {
+  return apiClient.get('/game/admin/deed-categories');
+}
+
+export async function updateAdminDeedCategory(name: string, updates: { is_active?: boolean; description?: string }): Promise<void> {
+  await apiClient.put(`/game/admin/deed-categories/${name}`, updates);
 }
 
 export async function updateAdminConfig(configs: Record<string, string>) {
@@ -557,6 +608,51 @@ export interface RegisterProfileResult {
 
 export async function getRegistrationStatus(): Promise<ProfileStatus> {
   return withRetry(() => apiClient.get<ProfileStatus>('/registration/status'));
+}
+
+// ── Profile editing ───────────────────────────────────────────────────────────
+
+export interface ProfileDetails {
+  first_name: string | null;
+  last_name: string | null;
+  username: string | null;
+  email: string;
+  city: string | null;
+  country_id: number | null;
+  state_id: number | null;
+  challenge_level: number | null;
+  player_number: number | null;
+}
+
+export async function getMyProfileDetails(): Promise<ProfileDetails> {
+  return apiClient.get<ProfileDetails>('/game/my-profile/details');
+}
+
+export async function updateMyProfile(data: Partial<Omit<ProfileDetails, 'email' | 'player_number'>>): Promise<void> {
+  await apiClient.put('/game/my-profile', data);
+}
+
+export async function changePassword(current_password: string, new_password: string): Promise<void> {
+  await apiClient.post('/auth-custom/change-password', { current_password, new_password });
+}
+
+export async function deleteMyAccount(): Promise<void> {
+  await apiClient.delete('/game/my-profile');
+}
+
+export async function adminCreatePlayer(data: {
+  first_name?: string; last_name?: string; email: string;
+  username?: string; password: string; role?: string; admin_password: string;
+}): Promise<{ user_id: string }> {
+  return apiClient.post<{ user_id: string }>('/game/admin/players', data);
+}
+
+export async function adminUpdatePlayer(id: string, data: Record<string, unknown> & { admin_password: string }): Promise<void> {
+  await apiClient.put(`/game/admin/players/${id}`, data);
+}
+
+export async function adminDeletePlayer(id: string, admin_password: string): Promise<void> {
+  await apiClient.delete(`/game/admin/players/${id}?admin_password=${encodeURIComponent(admin_password)}`);
 }
 
 export async function registerProfile(payload: {

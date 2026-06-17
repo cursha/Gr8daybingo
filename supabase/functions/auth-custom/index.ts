@@ -265,6 +265,27 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: true, message: 'Logged out.' })
     }
 
+    // POST /change-password
+    if (method === 'POST' && path === '/change-password') {
+      const authUser = await getAuthUser(req)
+      const user = requireAuth(authUser)
+      const body = await req.json()
+      const currentPassword = String(body.current_password ?? '')
+      const newPassword = String(body.new_password ?? '')
+      if (!currentPassword || !newPassword) return errorResponse('current_password and new_password are required', 400)
+      if (newPassword.length < 8) return errorResponse('New password must be at least 8 characters', 400)
+
+      const { data: dbUser } = await supabase.from('users').select('password_hash').eq('id', user.sub).maybeSingle()
+      if (!dbUser?.password_hash) return errorResponse('User not found', 404)
+
+      const valid = await bcrypt.compare(currentPassword, dbUser.password_hash)
+      if (!valid) return errorResponse('Current password is incorrect', 401)
+
+      const newHash = await bcrypt.hash(newPassword, 10)
+      await supabase.from('users').update({ password_hash: newHash }).eq('id', user.sub)
+      return jsonResponse({ success: true })
+    }
+
     // GET /me
     if (method === 'GET' && path === '/me') {
       const user = await getAuthUser(req)

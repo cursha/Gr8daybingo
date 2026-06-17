@@ -37,6 +37,10 @@ build/
 venv/
 *.egg
 
+# Deployment zips
+dist.zip
+*.zip
+
 # Logs
 *.log
 error_log

@@ -381,6 +381,11 @@ const BingoCell: React.FC<BingoCellProps> = ({
       {/* ===== REGULAR DEED ===== */}
       {!isFree && !isCompleted && !needsPurchase && !needsReferral && (
         <div className="flex flex-col items-center justify-center px-1.5 sm:px-2">
+          {cell.category && (
+            <span className="text-[6px] sm:text-[7px] font-black tracking-widest text-indigo-400 uppercase mb-0.5">
+              {cell.category}
+            </span>
+          )}
           <span className={`text-[8px] sm:text-[10px] md:text-[11px] text-center leading-snug font-semibold text-slate-700 ${qty > 1 ? 'line-clamp-3' : 'line-clamp-4'}`}>
             {cell.deed_text}
           </span>

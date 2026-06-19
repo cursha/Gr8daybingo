@@ -669,6 +669,29 @@ const GameBoard: React.FC = () => {
           </div>
         )}
 
+        {/* Quick Kindness — moved to top so it's always visible above the card */}
+        {user && quickDeeds.length > 0 && (
+          <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-4 mb-4">
+            <h3 className="font-bold text-white/80 mb-3 text-xs uppercase tracking-wider">Quick Kindness — tap when you do it</h3>
+            <div className="flex flex-wrap gap-3 justify-center">
+              {quickDeeds.map(deed => (
+                <button
+                  key={deed.id}
+                  onClick={() => handleQuickDeedTap(deed)}
+                  disabled={quickDeedTapping === deed.id}
+                  className="flex flex-col items-center gap-1.5 bg-white/10 hover:bg-emerald-500/20 active:scale-95 border border-white/20 hover:border-emerald-400/50 rounded-2xl px-5 py-3 transition-all duration-150 disabled:opacity-50"
+                >
+                  <span className="text-2xl">{deed.emoji}</span>
+                  <span className="text-xs font-semibold text-white/80">{deed.label}</span>
+                  {(quickDeedCounts[deed.id] ?? 0) > 0 && (
+                    <span className="text-[10px] text-emerald-400 font-bold">+{quickDeedCounts[deed.id]} today</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Title + Game Mode Display */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
           <div>
@@ -811,29 +834,6 @@ const GameBoard: React.FC = () => {
                   ))}
                 </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Quick Deed Buttons */}
-        {user && quickDeeds.length > 0 && (
-          <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-4 mb-4">
-            <h3 className="font-bold text-white/80 mb-3 text-xs uppercase tracking-wider">Quick Kindness — tap when you do it</h3>
-            <div className="flex flex-wrap gap-3 justify-center">
-              {quickDeeds.map(deed => (
-                <button
-                  key={deed.id}
-                  onClick={() => handleQuickDeedTap(deed)}
-                  disabled={quickDeedTapping === deed.id}
-                  className="flex flex-col items-center gap-1.5 bg-white/10 hover:bg-emerald-500/20 active:scale-95 border border-white/20 hover:border-emerald-400/50 rounded-2xl px-5 py-3 transition-all duration-150 disabled:opacity-50"
-                >
-                  <span className="text-2xl">{deed.emoji}</span>
-                  <span className="text-xs font-semibold text-white/80">{deed.label}</span>
-                  {(quickDeedCounts[deed.id] ?? 0) > 0 && (
-                    <span className="text-[10px] text-emerald-400 font-bold">+{quickDeedCounts[deed.id]} today</span>
-                  )}
-                </button>
-              ))}
             </div>
           </div>
         )}

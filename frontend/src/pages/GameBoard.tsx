@@ -26,13 +26,18 @@ import {
   getMyProfile,
   getQuickDeeds,
   tapQuickDeed,
+  getMyStreak,
   QuickDeed,
+  StreakData,
+  StreakMilestoneHit,
 } from '@/lib/game-utils';
 import BingoCell from '@/components/BingoCell';
 import CelebrationOverlay from '@/components/CelebrationOverlay';
 import RegistrationModal from '@/components/RegistrationModal';
 import DareModal from '@/components/DareModal';
 import EditProfileModal from '@/components/EditProfileModal';
+import StreakDisplay from '@/components/StreakDisplay';
+import StreakMilestoneModal from '@/components/StreakMilestoneModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -92,6 +97,8 @@ const GameBoard: React.FC = () => {
   const [quickDeedTapping, setQuickDeedTapping] = useState<number | null>(null);
   const [quickDeedCounts, setQuickDeedCounts] = useState<Record<number, number>>({});
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [streak, setStreak] = useState<StreakData | null>(null);
+  const [streakMilestones, setStreakMilestones] = useState<StreakMilestoneHit[]>([]);
 
   useEffect(() => {
     getPublicPrize()
@@ -122,6 +129,9 @@ const GameBoard: React.FC = () => {
           setPendingTradeCount(pending);
         })
         .catch(() => setPendingTradeCount(0));
+      getMyStreak()
+        .then((s) => setStreak(s))
+        .catch(() => {});
     }
   }, [user]);
 
@@ -202,6 +212,17 @@ const GameBoard: React.FC = () => {
 
       if (result.is_bingo) {
         setTimeout(() => setShowCelebration(true), 500);
+      }
+
+      if (result.streak_update) {
+        const su = result.streak_update;
+        setStreak((prev) => prev
+          ? { ...prev, current_streak_days: su.current_streak_days, longest_streak_days: su.longest_streak_days }
+          : null
+        );
+        if (su.new_milestones.length > 0) {
+          setStreakMilestones(su.new_milestones);
+        }
       }
     } catch (err: any) {
       toast.error(err?.message || 'Failed to mark cell');
@@ -325,9 +346,19 @@ const GameBoard: React.FC = () => {
     if (quickDeedTapping) return;
     setQuickDeedTapping(deed.id);
     try {
-      await tapQuickDeed(deed.id);
+      const result = await tapQuickDeed(deed.id);
       setQuickDeedCounts(prev => ({ ...prev, [deed.id]: (prev[deed.id] ?? 0) + 1 }));
       toast.success(`${deed.emoji} ${deed.label} — thank you for the kindness!`);
+      if (result?.streak_update) {
+        const su = result.streak_update;
+        setStreak((prev) => prev
+          ? { ...prev, current_streak_days: su.current_streak_days, longest_streak_days: su.longest_streak_days }
+          : null
+        );
+        if (su.new_milestones.length > 0) {
+          setStreakMilestones(su.new_milestones);
+        }
+      }
     } catch {
       toast.error('Could not record your deed. Please try again.');
     } finally {
@@ -807,6 +838,13 @@ const GameBoard: React.FC = () => {
           </div>
         )}
 
+        {/* Daily Streak */}
+        {user && streak && (
+          <div className="mb-4">
+            <StreakDisplay streak={streak} />
+          </div>
+        )}
+
         {/* Legend */}
         <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-4 mb-4">
           <h3 className="font-bold text-white/80 mb-3 text-xs uppercase tracking-wider">How to Play</h3>
@@ -974,6 +1012,12 @@ const GameBoard: React.FC = () => {
         <EditProfileModal
           onClose={() => setShowEditProfile(false)}
           onDeleted={() => { logout(); navigate('/'); }}
+        />
+      )}
+      {streakMilestones.length > 0 && (
+        <StreakMilestoneModal
+          milestones={streakMilestones}
+          onClose={() => setStreakMilestones([])}
         />
       )}
       <Footer tone="dark" />

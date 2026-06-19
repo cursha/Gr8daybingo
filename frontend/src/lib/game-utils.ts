@@ -51,12 +51,48 @@ export interface CellData {
   category?: string | null;
 }
 
+export interface StreakMilestone {
+  id: number;
+  days_required: number;
+  label: string;
+  message: string;
+  is_active: boolean;
+  display_order: number;
+  created_at: string;
+}
+
+export interface StreakMilestoneHit {
+  id: number;
+  days_required: number;
+  label: string;
+  message: string;
+}
+
+export interface StreakUpdate {
+  current_streak_days: number;
+  longest_streak_days: number;
+  new_milestones: StreakMilestoneHit[];
+}
+
+export interface StreakData {
+  current_streak_days: number;
+  longest_streak_days: number;
+  last_valid_deed_date: string | null;
+  achievements: Array<{
+    days_required: number;
+    label: string;
+    message: string;
+    achieved_at: string;
+  }>;
+}
+
 export interface MarkCellResult {
   success: boolean;
   completed_cells: number[];
   is_bingo: boolean;
   secret_reward?: number;
   draw_entered?: boolean;
+  streak_update?: StreakUpdate;
 }
 
 export interface CardData {
@@ -231,8 +267,8 @@ export async function getQuickDeeds(): Promise<QuickDeed[]> {
   return res.quick_deeds;
 }
 
-export async function tapQuickDeed(id: number): Promise<void> {
-  await apiClient.post(`/game/quick-deeds/${id}/tap`, {});
+export async function tapQuickDeed(id: number): Promise<{ success: boolean; streak_update?: StreakUpdate }> {
+  return apiClient.post<{ success: boolean; streak_update?: StreakUpdate }>(`/game/quick-deeds/${id}/tap`, {});
 }
 
 export interface TeamMember {
@@ -730,6 +766,39 @@ export async function acceptTrade(id: number): Promise<{ success: boolean }> {
 
 export async function rejectOrCancelTrade(id: number): Promise<{ success: boolean }> {
   return apiClient.post<{ success: boolean }>(`/game/my-team/trades/${id}/reject`, {});
+}
+
+// ── Streak API ────────────────────────────────────────────────────────────────
+
+export async function getMyStreak(): Promise<StreakData> {
+  return apiClient.get<StreakData>('/game/my-streak');
+}
+
+export interface StreakLeaderboard {
+  current_streak_leaders: Array<{ username: string | null; name: string | null; current_streak_days: number }>;
+  longest_streak_leaders: Array<{ username: string | null; name: string | null; longest_streak_days: number }>;
+  average_streak: number | null;
+}
+
+export async function getStreakLeaderboard(): Promise<StreakLeaderboard> {
+  return apiClient.get<StreakLeaderboard>('/game/leaderboard/streaks');
+}
+
+export async function adminGetStreakMilestones(): Promise<StreakMilestone[]> {
+  const data = await apiClient.get<{ milestones: StreakMilestone[] }>('/game/admin/streak-milestones');
+  return data.milestones;
+}
+
+export async function adminCreateStreakMilestone(payload: { days_required: number; label: string; message: string; display_order?: number }): Promise<void> {
+  await apiClient.post('/game/admin/streak-milestones', payload);
+}
+
+export async function adminUpdateStreakMilestone(id: number, payload: Partial<{ days_required: number; label: string; message: string; is_active: boolean; display_order: number }>): Promise<void> {
+  await apiClient.put(`/game/admin/streak-milestones/${id}`, payload);
+}
+
+export async function adminDeleteStreakMilestone(id: number): Promise<void> {
+  await apiClient.delete(`/game/admin/streak-milestones/${id}`);
 }
 
 // Helper: Check if a cell is "completed" (marked, purchased, referral free, or free space)

@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { getMyProfile, getRegistrationStatus, PlayerBadge, ProfileStatus } from '@/lib/game-utils';
+import { getMyProfile, getRegistrationStatus, getMyStreak, PlayerBadge, ProfileStatus, StreakData } from '@/lib/game-utils';
 import { ArrowLeft, Heart } from 'lucide-react';
+import StreakDisplay from '@/components/StreakDisplay';
 
 const HERO_BG = 'linear-gradient(135deg, #312e81 0%, #1e3a5f 50%, #064e3b 100%)';
 
@@ -21,6 +22,7 @@ const Profile: React.FC = () => {
   const [badge, setBadge] = useState<PlayerBadge | null>(null);
   const [profile, setProfile] = useState<ProfileStatus | null>(null);
   const [playerNumber, setPlayerNumber] = useState<number | null>(null);
+  const [streak, setStreak] = useState<StreakData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -34,10 +36,12 @@ const Profile: React.FC = () => {
     Promise.all([
       getMyProfile().catch(() => null),
       getRegistrationStatus().catch(() => null),
-    ]).then(([badgeData, profileData]) => {
+      getMyStreak().catch(() => null),
+    ]).then(([badgeData, profileData, streakData]) => {
       setBadge(badgeData);
       setProfile(profileData);
       setPlayerNumber((profileData as any)?.player_number ?? null);
+      setStreak(streakData);
     }).finally(() => setLoading(false));
   }, [user]);
 
@@ -186,6 +190,11 @@ const Profile: React.FC = () => {
               </div>
             )}
           </div>
+        )}
+
+        {/* Daily Streak */}
+        {!loading && streak && (
+          <StreakDisplay streak={streak} />
         )}
 
         {/* Badge tiers reference */}

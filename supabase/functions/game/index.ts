@@ -155,6 +155,74 @@ const WIN_LABELS: Record<string, string> = {
 }
 function winLabel(cond: string): string { return WIN_LABELS[cond] ?? cond }
 
+// ── Daily Streak Tracker ─────────────────────────────────────────────────────
+interface StreakMilestoneRow { id: number; days_required: number; label: string; message: string }
+interface StreakUpdateResult {
+  streak_updated: boolean
+  current_streak_days: number
+  longest_streak_days: number
+  new_milestones: StreakMilestoneRow[]
+}
+
+async function updatePlayerStreak(
+  supabase: ReturnType<typeof getSupabase>,
+  userId: string
+): Promise<StreakUpdateResult> {
+  const none: StreakUpdateResult = { streak_updated: false, current_streak_days: 0, longest_streak_days: 0, new_milestones: [] }
+
+  const { data: cfg } = await supabase
+    .from('game_configs').select('config_value').eq('config_key', 'streak_enabled').maybeSingle()
+  if (cfg?.config_value !== 'true') return none
+
+  // Calendar date in UTC (YYYY-MM-DD)
+  const today = new Date().toISOString().slice(0, 10)
+
+  const { data: userRow } = await supabase
+    .from('users').select('current_streak_days, longest_streak_days, last_valid_deed_date')
+    .eq('id', userId).maybeSingle()
+  if (!userRow) return none
+
+  const lastDate: string | null = userRow.last_valid_deed_date
+  let current: number = userRow.current_streak_days ?? 0
+  let longest: number = userRow.longest_streak_days ?? 0
+
+  // Already counted a deed today — nothing to do
+  if (lastDate === today) return { streak_updated: false, current_streak_days: current, longest_streak_days: longest, new_milestones: [] }
+
+  const yd = new Date()
+  yd.setUTCDate(yd.getUTCDate() - 1)
+  const yesterday = yd.toISOString().slice(0, 10)
+
+  if (!lastDate) {
+    current = 1
+  } else if (lastDate === yesterday) {
+    current += 1
+  } else {
+    current = 1
+  }
+  if (current > longest) longest = current
+
+  await supabase.from('users').update({
+    current_streak_days: current,
+    longest_streak_days: longest,
+    last_valid_deed_date: today,
+  }).eq('id', userId)
+
+  // Award any newly reached milestones (UNIQUE constraint prevents duplicates)
+  const { data: milestones } = await supabase
+    .from('streak_milestones').select('id, days_required, label, message')
+    .eq('is_active', true).lte('days_required', current).order('days_required')
+
+  const newMilestones: StreakMilestoneRow[] = []
+  for (const m of milestones ?? []) {
+    const { error } = await supabase.from('player_streak_achievements')
+      .insert({ user_id: userId, milestone_id: m.id })
+    if (!error) newMilestones.push(m)
+  }
+
+  return { streak_updated: true, current_streak_days: current, longest_streak_days: longest, new_milestones: newMilestones }
+}
+
 // ── Main handler ─────────────────────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
   const cors = handleCors(req)
@@ -490,9 +558,19 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      // Update daily streak
+      const streakResult = await updatePlayerStreak(supabase, user.sub)
+
       const resp: Record<string, unknown> = { success: true, completed_cells: completed, is_bingo: isBingo }
       if (secretRewardAwarded !== null) resp.secret_reward = secretRewardAwarded
       if (isBingo && !card.is_bingo) resp.draw_entered = true
+      if (streakResult.streak_updated) {
+        resp.streak_update = {
+          current_streak_days: streakResult.current_streak_days,
+          longest_streak_days: streakResult.longest_streak_days,
+          new_milestones: streakResult.new_milestones,
+        }
+      }
       return jsonResponse(resp)
     }
 
@@ -743,7 +821,18 @@ Deno.serve(async (req: Request) => {
         .from('quick_deed_logs')
         .insert({ user_id: user.sub, quick_deed_id: deedId })
       if (error) throw error
-      return jsonResponse({ success: true })
+
+      // Update daily streak
+      const streakResult = await updatePlayerStreak(supabase, user.sub)
+      const resp: Record<string, unknown> = { success: true }
+      if (streakResult.streak_updated) {
+        resp.streak_update = {
+          current_streak_days: streakResult.current_streak_days,
+          longest_streak_days: streakResult.longest_streak_days,
+          new_milestones: streakResult.new_milestones,
+        }
+      }
+      return jsonResponse(resp)
     }
 
     // ── GET /quick-deeds/my-stats ─────────────────────────────────────────────
@@ -2939,6 +3028,115 @@ Deno.serve(async (req: Request) => {
         ...(role !== undefined && { role }),
       }).eq('id', targetId)
 
+      return jsonResponse({ success: true })
+    }
+
+    // ── GET /my-streak ────────────────────────────────────────────────────────
+    if (method === 'GET' && path === '/my-streak') {
+      const user = requireAuth(authUser)
+      const { data: userRow } = await supabase
+        .from('users').select('current_streak_days, longest_streak_days, last_valid_deed_date')
+        .eq('id', user.sub).maybeSingle()
+      if (!userRow) return errorResponse('User not found', 404)
+
+      // Check for a missed day and reset if needed (lazy evaluation on load)
+      const today = new Date().toISOString().slice(0, 10)
+      const yd = new Date(); yd.setUTCDate(yd.getUTCDate() - 1)
+      const yesterday = yd.toISOString().slice(0, 10)
+      const lastDate: string | null = userRow.last_valid_deed_date
+
+      let current: number = userRow.current_streak_days ?? 0
+      const longest: number = userRow.longest_streak_days ?? 0
+
+      if (lastDate && lastDate !== today && lastDate !== yesterday && current > 0) {
+        // Missed at least one day — reset current streak display
+        await supabase.from('users').update({ current_streak_days: 0 }).eq('id', user.sub)
+        current = 0
+      }
+
+      const { data: achievements } = await supabase
+        .from('player_streak_achievements')
+        .select('achieved_at, streak_milestones(days_required, label, message)')
+        .eq('user_id', user.sub)
+        .order('achieved_at', { ascending: false })
+
+      return jsonResponse({
+        current_streak_days: current,
+        longest_streak_days: longest,
+        last_valid_deed_date: lastDate,
+        achievements: (achievements ?? []).map((a: any) => ({
+          days_required: a.streak_milestones?.days_required,
+          label: a.streak_milestones?.label,
+          message: a.streak_milestones?.message,
+          achieved_at: a.achieved_at,
+        })),
+      })
+    }
+
+    // ── GET /leaderboard/streaks ──────────────────────────────────────────────
+    if (method === 'GET' && path === '/leaderboard/streaks') {
+      const { data: current } = await supabase
+        .from('users').select('username, name, current_streak_days')
+        .gt('current_streak_days', 0)
+        .order('current_streak_days', { ascending: false })
+        .limit(20)
+      const { data: longest } = await supabase
+        .from('users').select('username, name, longest_streak_days')
+        .gt('longest_streak_days', 0)
+        .order('longest_streak_days', { ascending: false })
+        .limit(20)
+      const { data: avgRow } = await supabase.rpc('streak_average').maybeSingle().catch(() => ({ data: null }))
+      return jsonResponse({
+        current_streak_leaders: current ?? [],
+        longest_streak_leaders: longest ?? [],
+        average_streak: avgRow?.avg_streak ?? null,
+      })
+    }
+
+    // ── GET /admin/streak-milestones ──────────────────────────────────────────
+    if (method === 'GET' && path === '/admin/streak-milestones') {
+      requireAdmin(authUser)
+      const { data } = await supabase.from('streak_milestones').select('*').order('display_order')
+      return jsonResponse({ milestones: data ?? [] })
+    }
+
+    // ── POST /admin/streak-milestones ─────────────────────────────────────────
+    if (method === 'POST' && path === '/admin/streak-milestones') {
+      requireAdmin(authUser)
+      const body = await req.json()
+      const { days_required, label, message, display_order } = body
+      if (!days_required || !label || !message) return errorResponse('days_required, label, and message are required', 400)
+      const { data, error } = await supabase.from('streak_milestones')
+        .insert({ days_required, label, message, display_order: display_order ?? 0 })
+        .select().single()
+      if (error) return errorResponse(error.message, 400)
+      return jsonResponse({ milestone: data })
+    }
+
+    // ── PUT /admin/streak-milestones/:id ──────────────────────────────────────
+    const smEditMatch = path.match(/^\/admin\/streak-milestones\/(\d+)$/)
+    if (method === 'PUT' && smEditMatch) {
+      requireAdmin(authUser)
+      const id = parseInt(smEditMatch[1])
+      const body = await req.json()
+      const updates: Record<string, unknown> = {}
+      if (body.days_required !== undefined) updates.days_required = body.days_required
+      if (body.label !== undefined) updates.label = body.label
+      if (body.message !== undefined) updates.message = body.message
+      if (body.is_active !== undefined) updates.is_active = body.is_active
+      if (body.display_order !== undefined) updates.display_order = body.display_order
+      const { error } = await supabase.from('streak_milestones').update(updates).eq('id', id)
+      if (error) return errorResponse(error.message, 400)
+      return jsonResponse({ success: true })
+    }
+
+    // ── DELETE /admin/streak-milestones/:id ───────────────────────────────────
+    const smDeleteMatch = method === 'DELETE' && path.match(/^\/admin\/streak-milestones\/(\d+)$/)
+    if (smDeleteMatch) {
+      requireAdmin(authUser)
+      const id = parseInt(smDeleteMatch[1])
+      await supabase.from('player_streak_achievements').delete().eq('milestone_id', id)
+      await supabase.from('streak_milestones').delete().eq('id', id)
       return jsonResponse({ success: true })
     }
 

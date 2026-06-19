@@ -1021,8 +1021,39 @@ const AdminPanel: React.FC = () => {
         </div>
       </header>
 
+      {/* Section Nav */}
+      <nav className="bg-white border-b border-slate-200 sticky top-[57px] z-30">
+        <div className="max-w-4xl mx-auto px-4 py-2 overflow-x-auto">
+          <div className="flex gap-1 w-max">
+            {[
+              { id: 'section-card-viewer', label: 'Card Viewer', icon: <Search className="w-3.5 h-3.5" /> },
+              { id: 'section-players', label: 'Players', icon: <Users className="w-3.5 h-3.5 text-sky-500" /> },
+              { id: 'section-teams', label: 'Teams', icon: <Users className="w-3.5 h-3.5 text-indigo-500" /> },
+              { id: 'section-game-settings', label: 'Game Settings', icon: <Settings className="w-3.5 h-3.5" /> },
+              { id: 'section-streaks', label: 'Streaks', icon: <Flame className="w-3.5 h-3.5" /> },
+              { id: 'section-deeds', label: 'Deeds', icon: <Target className="w-3.5 h-3.5" /> },
+              { id: 'section-draw', label: 'Draw', icon: <Ticket className="w-3.5 h-3.5" /> },
+              { id: 'section-prize-claims', label: 'Prize Claims', icon: <Gift className="w-3.5 h-3.5" /> },
+              { id: 'section-void', label: 'Void Cell', icon: <XCircle className="w-3.5 h-3.5" /> },
+              { id: 'section-announce', label: 'Announce', icon: <Mail className="w-3.5 h-3.5" /> },
+              { id: 'section-reset', label: 'Reset', icon: <Settings className="w-3.5 h-3.5" /> },
+            ].map(({ id, label, icon }) => (
+              <button
+                key={id}
+                onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })}
+                className="flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-full whitespace-nowrap hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 transition-colors"
+              >
+                {icon}
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </nav>
+
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
         {/* Player Card Viewer */}
+        <section id="section-card-viewer">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1183,118 +1214,10 @@ const AdminPanel: React.FC = () => {
             )}
           </CardContent>
         </Card>
+        </section>
 
-        {/* Teams */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="w-5 h-5 text-indigo-500" />
-              Teams ({teams.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Create new team */}
-            <div className="border rounded-lg p-3 space-y-2 bg-slate-50">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">New Team</p>
-              <div className="grid grid-cols-2 gap-2">
-                <Input placeholder="Team name" value={newTeamName} onChange={(e) => setNewTeamName(e.target.value)} />
-                <Input placeholder="Captain player # (optional)" value={newTeamCaptain} onChange={(e) => setNewTeamCaptain(e.target.value)} />
-              </div>
-              <Button size="sm" onClick={handleCreateTeam} disabled={teamLoading} className="bg-indigo-600 hover:bg-indigo-700 text-white">
-                <Plus className="w-4 h-4 mr-1" /> Create Team
-              </Button>
-            </div>
-
-            {/* Team list */}
-            {teams.length === 0 ? (
-              <p className="text-sm text-slate-400 text-center py-4">No teams yet.</p>
-            ) : (
-              <div className="space-y-3">
-                {teams.map((team) => (
-                  <div key={team.id} className="border rounded-lg p-3 space-y-2">
-                    {editingTeamId === team.id ? (
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <Input value={editTeamName} onChange={(e) => setEditTeamName(e.target.value)} placeholder="Team name" />
-                          <Input value={editTeamCaptain} onChange={(e) => setEditTeamCaptain(e.target.value)} placeholder="Captain player #" />
-                        </div>
-                        <div className="flex gap-2">
-                          <Button size="sm" onClick={() => handleUpdateTeam(team.id)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                            <Save className="w-3.5 h-3.5 mr-1" /> Save
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => setEditingTeamId(null)}>Cancel</Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <span className="font-mono text-xs text-slate-400 mr-2">T-{team.team_number}</span>
-                          <span className="font-semibold text-slate-800">{team.team_name}</span>
-                          {team.captain && (
-                            <span className="ml-2 text-xs text-slate-500">
-                              Captain: {team.captain.first_name ?? team.captain.username ?? '—'}
-                              {team.captain.player_number && <span className="ml-1 font-mono">(GR8-{team.captain.player_number})</span>}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex gap-1 shrink-0">
-                          <Button size="sm" variant="outline" onClick={() => {
-                            setEditingTeamId(team.id);
-                            setEditTeamName(team.team_name);
-                            setEditTeamCaptain(team.captain?.player_number?.toString() ?? '');
-                          }}>
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => handleDeleteTeam(team.id)} className="text-red-500 hover:text-red-700">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Members */}
-                    <div className="pl-1 space-y-1">
-                      {(team.team_members ?? []).map((m) => (
-                        <div key={m.id} className="flex items-center justify-between text-sm">
-                          <span className="text-slate-600">
-                            {m.users?.first_name ?? m.users?.username ?? m.user_id.slice(0, 8)}
-                            {m.users?.player_number && <span className="ml-1.5 font-mono text-xs text-slate-400">GR8-{m.users.player_number}</span>}
-                          </span>
-                          <Button size="sm" variant="ghost" onClick={() => handleRemoveMember(team.id, m.user_id)}
-                            className="h-6 px-2 text-red-400 hover:text-red-600">
-                            <X className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      ))}
-                      {(team.team_members ?? []).length < 4 && (
-                        addMemberTeamId === team.id ? (
-                          <div className="flex gap-2 mt-1">
-                            <Input className="h-7 text-xs" placeholder="Player #" value={addMemberPN}
-                              onChange={(e) => setAddMemberPN(e.target.value)} />
-                            <Button size="sm" className="h-7 text-xs bg-indigo-600 hover:bg-indigo-700 text-white"
-                              onClick={() => handleAddMember(team.id)}>Add</Button>
-                            <Button size="sm" variant="ghost" className="h-7 text-xs"
-                              onClick={() => { setAddMemberTeamId(null); setAddMemberPN(''); }}>Cancel</Button>
-                          </div>
-                        ) : (
-                          <button onClick={() => { setAddMemberTeamId(team.id); setAddMemberPN(''); }}
-                            className="text-xs text-indigo-500 hover:text-indigo-700 mt-1">
-                            + Add player ({4 - (team.team_members ?? []).length} spot{4 - (team.team_members ?? []).length !== 1 ? 's' : ''} left)
-                          </button>
-                        )
-                      )}
-                      {(team.team_members ?? []).length === 0 && addMemberTeamId !== team.id && (
-                        <p className="text-xs text-slate-400">No members yet.</p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Member List */}
+        {/* Players */}
+        <section id="section-players">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between flex-wrap gap-2">
@@ -1479,91 +1402,122 @@ const AdminPanel: React.FC = () => {
             )}
           </CardContent>
         </Card>
+        </section>
 
-        {/* Void Cell */}
+        {/* Teams */}
+        <section id="section-teams">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <XCircle className="w-5 h-5 text-red-500" />
-              Void a Cell
+              <Users className="w-5 h-5 text-indigo-500" />
+              Teams ({teams.length})
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-slate-500">
-              Remove a marked cell from a player's card. This cannot be undone and is logged for audit purposes.
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-600">Card ID</label>
-                <Input
-                  placeholder="e.g. 42"
-                  value={voidCardId}
-                  onChange={(e) => setVoidCardId(e.target.value)}
-                />
+            {/* Create new team */}
+            <div className="border rounded-lg p-3 space-y-2 bg-slate-50">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">New Team</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Input placeholder="Team name" value={newTeamName} onChange={(e) => setNewTeamName(e.target.value)} />
+                <Input placeholder="Captain player # (optional)" value={newTeamCaptain} onChange={(e) => setNewTeamCaptain(e.target.value)} />
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-600">Cell Index (0–24)</label>
-                <Input
-                  placeholder="e.g. 12"
-                  value={voidCellIndex}
-                  onChange={(e) => setVoidCellIndex(e.target.value)}
-                />
-              </div>
+              <Button size="sm" onClick={handleCreateTeam} disabled={teamLoading} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                <Plus className="w-4 h-4 mr-1" /> Create Team
+              </Button>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-600">Reason (required)</label>
-              <Input
-                placeholder="e.g. Player admitted they didn't complete the deed"
-                value={voidReason}
-                onChange={(e) => setVoidReason(e.target.value)}
-              />
-            </div>
-            <Button
-              onClick={handleVoidCell}
-              disabled={voidLoading}
-              className="bg-red-600 hover:bg-red-700 text-white font-bold"
-            >
-              {voidLoading ? 'Voiding…' : 'Void Cell'}
-            </Button>
 
-            {markLogs.length > 0 && (
-              <div className="mt-4">
-                <p className="text-xs font-semibold text-slate-500 mb-2">Recent mark activity (last 100)</p>
-                <div className="max-h-64 overflow-y-auto border rounded-lg">
-                  <table className="w-full text-xs">
-                    <thead className="bg-slate-50 sticky top-0">
-                      <tr>
-                        <th className="px-2 py-1.5 text-left">When</th>
-                        <th className="px-2 py-1.5 text-left">Player</th>
-                        <th className="px-2 py-1.5 text-left">Card</th>
-                        <th className="px-2 py-1.5 text-left">Cell</th>
-                        <th className="px-2 py-1.5 text-left">Action</th>
-                        <th className="px-2 py-1.5 text-left">Note / Reason</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {markLogs.map((log) => (
-                        <tr key={log.id} className={log.action === 'void' ? 'bg-red-50' : 'hover:bg-slate-50'}>
-                          <td className="px-2 py-1.5 text-slate-500">{new Date(log.created_at).toLocaleString()}</td>
-                          <td className="px-2 py-1.5">{log.users?.username ?? log.user_id.slice(0, 8)}</td>
-                          <td className="px-2 py-1.5">{log.card_id}</td>
-                          <td className="px-2 py-1.5">{log.cell_index}</td>
-                          <td className="px-2 py-1.5">
-                            <span className={`font-semibold ${log.action === 'void' ? 'text-red-600' : 'text-emerald-600'}`}>
-                              {log.action}
+            {/* Team list */}
+            {teams.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-4">No teams yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {teams.map((team) => (
+                  <div key={team.id} className="border rounded-lg p-3 space-y-2">
+                    {editingTeamId === team.id ? (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input value={editTeamName} onChange={(e) => setEditTeamName(e.target.value)} placeholder="Team name" />
+                          <Input value={editTeamCaptain} onChange={(e) => setEditTeamCaptain(e.target.value)} placeholder="Captain player #" />
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={() => handleUpdateTeam(team.id)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                            <Save className="w-3.5 h-3.5 mr-1" /> Save
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => setEditingTeamId(null)}>Cancel</Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="font-mono text-xs text-slate-400 mr-2">T-{team.team_number}</span>
+                          <span className="font-semibold text-slate-800">{team.team_name}</span>
+                          {team.captain && (
+                            <span className="ml-2 text-xs text-slate-500">
+                              Captain: {team.captain.first_name ?? team.captain.username ?? '—'}
+                              {team.captain.player_number && <span className="ml-1 font-mono">(GR8-{team.captain.player_number})</span>}
                             </span>
-                          </td>
-                          <td className="px-2 py-1.5 text-slate-500">{log.note ?? log.void_reason ?? '—'}</td>
-                        </tr>
+                          )}
+                        </div>
+                        <div className="flex gap-1 shrink-0">
+                          <Button size="sm" variant="outline" onClick={() => {
+                            setEditingTeamId(team.id);
+                            setEditTeamName(team.team_name);
+                            setEditTeamCaptain(team.captain?.player_number?.toString() ?? '');
+                          }}>
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => handleDeleteTeam(team.id)} className="text-red-500 hover:text-red-700">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Members */}
+                    <div className="pl-1 space-y-1">
+                      {(team.team_members ?? []).map((m) => (
+                        <div key={m.id} className="flex items-center justify-between text-sm">
+                          <span className="text-slate-600">
+                            {m.users?.first_name ?? m.users?.username ?? m.user_id.slice(0, 8)}
+                            {m.users?.player_number && <span className="ml-1.5 font-mono text-xs text-slate-400">GR8-{m.users.player_number}</span>}
+                          </span>
+                          <Button size="sm" variant="ghost" onClick={() => handleRemoveMember(team.id, m.user_id)}
+                            className="h-6 px-2 text-red-400 hover:text-red-600">
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+                      {(team.team_members ?? []).length < 4 && (
+                        addMemberTeamId === team.id ? (
+                          <div className="flex gap-2 mt-1">
+                            <Input className="h-7 text-xs" placeholder="Player #" value={addMemberPN}
+                              onChange={(e) => setAddMemberPN(e.target.value)} />
+                            <Button size="sm" className="h-7 text-xs bg-indigo-600 hover:bg-indigo-700 text-white"
+                              onClick={() => handleAddMember(team.id)}>Add</Button>
+                            <Button size="sm" variant="ghost" className="h-7 text-xs"
+                              onClick={() => { setAddMemberTeamId(null); setAddMemberPN(''); }}>Cancel</Button>
+                          </div>
+                        ) : (
+                          <button onClick={() => { setAddMemberTeamId(team.id); setAddMemberPN(''); }}
+                            className="text-xs text-indigo-500 hover:text-indigo-700 mt-1">
+                            + Add player ({4 - (team.team_members ?? []).length} spot{4 - (team.team_members ?? []).length !== 1 ? 's' : ''} left)
+                          </button>
+                        )
+                      )}
+                      {(team.team_members ?? []).length === 0 && addMemberTeamId !== team.id && (
+                        <p className="text-xs text-slate-400">No members yet.</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>
         </Card>
+        </section>
 
+        {/* Game Settings */}
+        <section id="section-game-settings">
         {/* Game Mode Selection */}
         <Card>
           <CardHeader>
@@ -1600,90 +1554,6 @@ const AdminPanel: React.FC = () => {
             )}
             <Button onClick={handleSaveConfig} className="bg-violet-600 hover:bg-violet-700 text-white">
               <Save className="w-4 h-4 mr-1" /> Save Game Mode
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Weekly Reset */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Mail className="w-5 h-5 text-sky-500" />
-              Weekly New Card Email
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-slate-500">
-              Sends a "your new card is ready" email to all verified players. This runs automatically every Monday at 8am UTC. Use the button below to send it manually at any time.
-            </p>
-            <Button
-              onClick={handleWeeklyReset}
-              disabled={weeklyResetLoading}
-              className="bg-sky-600 hover:bg-sky-700 text-white font-bold"
-            >
-              {weeklyResetLoading ? 'Sending…' : 'Send Now to All Players'}
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Game Announcement */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Mail className="w-5 h-5 text-emerald-500" />
-              Announce New Game to All Players
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-slate-500">
-              Send an email to all verified players announcing a new game. Include the prize, game type, and optional theme. A button overview is automatically included at the bottom of every announcement.
-            </p>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Prize <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                placeholder="e.g. $50 Amazon Gift Card"
-                value={announcePrize}
-                onChange={(e) => setAnnouncePrize(e.target.value)}
-                className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Game Type <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                placeholder="e.g. One Line, Four Corners, Full Card"
-                value={announceGameType}
-                onChange={(e) => setAnnounceGameType(e.target.value)}
-                className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Theme <span className="text-slate-400 text-xs">(optional)</span></label>
-              <input
-                type="text"
-                placeholder="e.g. Summer of Kindness"
-                value={announceTheme}
-                onChange={(e) => setAnnounceTheme(e.target.value)}
-                className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Additional Message <span className="text-slate-400 text-xs">(optional)</span></label>
-              <textarea
-                placeholder="Any extra note to include in the email..."
-                value={announceExtra}
-                onChange={(e) => setAnnounceExtra(e.target.value)}
-                rows={3}
-                className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 resize-none"
-              />
-            </div>
-            <Button
-              onClick={handleAnnounceGame}
-              disabled={announceLoading}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-            >
-              {announceLoading ? 'Sending…' : 'Send Announcement to All Players'}
             </Button>
           </CardContent>
         </Card>
@@ -1848,54 +1718,10 @@ const AdminPanel: React.FC = () => {
             </div>
           </CardContent>
         </Card>
-
-        {/* Draw Results */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Ticket className="w-5 h-5 text-purple-500" />
-              Weekly Draw Results
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-slate-500 mb-3">
-              Players automatically enter the draw by achieving Bingo. The draw runs every Monday.
-            </p>
-            {drawWinners.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2">
-                <Ticket className="w-8 h-8 text-slate-300" />
-                No draw results yet.
-              </div>
-            ) : (
-              <div className="border rounded-lg overflow-hidden">
-                <div className="max-h-[360px] overflow-y-auto divide-y">
-                  {drawWinners.map((w) => (
-                    <div key={w.id} className="px-3 py-3 text-sm">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="space-y-0.5">
-                          <p className="font-semibold text-slate-800">{w.name ?? 'Unknown'}</p>
-                          {w.email && (
-                            <p className="text-slate-500 text-xs">
-                              <a href={`mailto:${w.email}`} className="text-indigo-600 hover:underline">{w.email}</a>
-                            </p>
-                          )}
-                          <p className="text-xs text-slate-400">
-                            {w.week_year} · {w.total_entries} entries · drawn {new Date(w.selected_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <span className={`text-xs font-bold px-2 py-1 rounded ${w.odds_weight < 0.5 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                          {w.odds_weight < 0.5 ? 'Repeat winner' : 'Winner'}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        </section>
 
         {/* Streak Milestones */}
+        <section id="section-streaks">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -2083,69 +1909,10 @@ const AdminPanel: React.FC = () => {
             </div>
           </CardContent>
         </Card>
+        </section>
 
-        {/* Prize Claims */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-amber-500" />
-              Prize Claims ({prizeClaims.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-slate-500 mb-3">
-              Players who won bingo and submitted a claim. Update the status after contacting them.
-            </p>
-            {prizeClaims.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2">
-                <Trophy className="w-8 h-8 text-slate-300" />
-                No prize claims yet.
-              </div>
-            ) : (
-              <div className="border rounded-lg overflow-hidden">
-                <div className="max-h-[400px] overflow-y-auto divide-y">
-                  {prizeClaims.map((claim) => (
-                    <div key={claim.id} className="px-3 py-3 text-sm hover:bg-slate-50">
-                      <div className="flex items-start justify-between gap-3 flex-wrap">
-                        <div className="flex-1 min-w-0 space-y-0.5">
-                          <p className="font-semibold text-slate-800">{claim.full_name}</p>
-                          <p className="text-slate-500 flex items-center gap-1">
-                            <Mail className="w-3 h-3" />
-                            <a href={`mailto:${claim.email}`} className="text-indigo-600 hover:underline">{claim.email}</a>
-                          </p>
-                          {claim.phone && <p className="text-slate-500 text-xs">📞 {claim.phone}</p>}
-                          {claim.mailing_address && <p className="text-slate-500 text-xs">📍 {claim.mailing_address}</p>}
-                          {claim.notes && <p className="text-slate-400 italic text-xs">"{claim.notes}"</p>}
-                          <p className="text-xs text-slate-400">
-                            Week {claim.week_year} · {claim.created_at ? new Date(claim.created_at).toLocaleDateString() : ''}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <select
-                            value={claim.status}
-                            onChange={(e) => handleUpdateClaimStatus(claim.id, e.target.value)}
-                            className={`text-xs border rounded px-2 py-1 font-semibold ${
-                              claim.status === 'fulfilled' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                              claim.status === 'contacted' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                              claim.status === 'rejected' ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                              'bg-amber-50 text-amber-700 border-amber-200'
-                            }`}
-                          >
-                            <option value="pending">Pending</option>
-                            <option value="contacted">Contacted</option>
-                            <option value="fulfilled">Fulfilled</option>
-                            <option value="rejected">Rejected</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
+        {/* Deeds */}
+        <section id="section-deeds">
         {/* Gr8Day Deed Suggestions (Pending Approval) */}
         <Card>
           <CardHeader>
@@ -2586,6 +2353,293 @@ const AdminPanel: React.FC = () => {
             </div>
           </CardContent>
         </Card>
+        </section>
+
+        {/* Draw Results */}
+        <section id="section-draw">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Ticket className="w-5 h-5 text-purple-500" />
+              Weekly Draw Results
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-slate-500 mb-3">
+              Players automatically enter the draw by achieving Bingo. The draw runs every Monday.
+            </p>
+            {drawWinners.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2">
+                <Ticket className="w-8 h-8 text-slate-300" />
+                No draw results yet.
+              </div>
+            ) : (
+              <div className="border rounded-lg overflow-hidden">
+                <div className="max-h-[360px] overflow-y-auto divide-y">
+                  {drawWinners.map((w) => (
+                    <div key={w.id} className="px-3 py-3 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="space-y-0.5">
+                          <p className="font-semibold text-slate-800">{w.name ?? 'Unknown'}</p>
+                          {w.email && (
+                            <p className="text-slate-500 text-xs">
+                              <a href={`mailto:${w.email}`} className="text-indigo-600 hover:underline">{w.email}</a>
+                            </p>
+                          )}
+                          <p className="text-xs text-slate-400">
+                            {w.week_year} · {w.total_entries} entries · drawn {new Date(w.selected_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <span className={`text-xs font-bold px-2 py-1 rounded ${w.odds_weight < 0.5 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                          {w.odds_weight < 0.5 ? 'Repeat winner' : 'Winner'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        </section>
+
+        {/* Prize Claims */}
+        <section id="section-prize-claims">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Trophy className="w-5 h-5 text-amber-500" />
+              Prize Claims ({prizeClaims.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-slate-500 mb-3">
+              Players who won bingo and submitted a claim. Update the status after contacting them.
+            </p>
+            {prizeClaims.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2">
+                <Trophy className="w-8 h-8 text-slate-300" />
+                No prize claims yet.
+              </div>
+            ) : (
+              <div className="border rounded-lg overflow-hidden">
+                <div className="max-h-[400px] overflow-y-auto divide-y">
+                  {prizeClaims.map((claim) => (
+                    <div key={claim.id} className="px-3 py-3 text-sm hover:bg-slate-50">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="flex-1 min-w-0 space-y-0.5">
+                          <p className="font-semibold text-slate-800">{claim.full_name}</p>
+                          <p className="text-slate-500 flex items-center gap-1">
+                            <Mail className="w-3 h-3" />
+                            <a href={`mailto:${claim.email}`} className="text-indigo-600 hover:underline">{claim.email}</a>
+                          </p>
+                          {claim.phone && <p className="text-slate-500 text-xs">📞 {claim.phone}</p>}
+                          {claim.mailing_address && <p className="text-slate-500 text-xs">📍 {claim.mailing_address}</p>}
+                          {claim.notes && <p className="text-slate-400 italic text-xs">"{claim.notes}"</p>}
+                          <p className="text-xs text-slate-400">
+                            Week {claim.week_year} · {claim.created_at ? new Date(claim.created_at).toLocaleDateString() : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <select
+                            value={claim.status}
+                            onChange={(e) => handleUpdateClaimStatus(claim.id, e.target.value)}
+                            className={`text-xs border rounded px-2 py-1 font-semibold ${
+                              claim.status === 'fulfilled' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                              claim.status === 'contacted' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                              claim.status === 'rejected' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                              'bg-amber-50 text-amber-700 border-amber-200'
+                            }`}
+                          >
+                            <option value="pending">Pending</option>
+                            <option value="contacted">Contacted</option>
+                            <option value="fulfilled">Fulfilled</option>
+                            <option value="rejected">Rejected</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        </section>
+
+        {/* Void Cell */}
+        <section id="section-void">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <XCircle className="w-5 h-5 text-red-500" />
+              Void a Cell
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-slate-500">
+              Remove a marked cell from a player's card. This cannot be undone and is logged for audit purposes.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">Card ID</label>
+                <Input
+                  placeholder="e.g. 42"
+                  value={voidCardId}
+                  onChange={(e) => setVoidCardId(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">Cell Index (0–24)</label>
+                <Input
+                  placeholder="e.g. 12"
+                  value={voidCellIndex}
+                  onChange={(e) => setVoidCellIndex(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-600">Reason (required)</label>
+              <Input
+                placeholder="e.g. Player admitted they didn't complete the deed"
+                value={voidReason}
+                onChange={(e) => setVoidReason(e.target.value)}
+              />
+            </div>
+            <Button
+              onClick={handleVoidCell}
+              disabled={voidLoading}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold"
+            >
+              {voidLoading ? 'Voiding…' : 'Void Cell'}
+            </Button>
+
+            {markLogs.length > 0 && (
+              <div className="mt-4">
+                <p className="text-xs font-semibold text-slate-500 mb-2">Recent mark activity (last 100)</p>
+                <div className="max-h-64 overflow-y-auto border rounded-lg">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 sticky top-0">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left">When</th>
+                        <th className="px-2 py-1.5 text-left">Player</th>
+                        <th className="px-2 py-1.5 text-left">Card</th>
+                        <th className="px-2 py-1.5 text-left">Cell</th>
+                        <th className="px-2 py-1.5 text-left">Action</th>
+                        <th className="px-2 py-1.5 text-left">Note / Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {markLogs.map((log) => (
+                        <tr key={log.id} className={log.action === 'void' ? 'bg-red-50' : 'hover:bg-slate-50'}>
+                          <td className="px-2 py-1.5 text-slate-500">{new Date(log.created_at).toLocaleString()}</td>
+                          <td className="px-2 py-1.5">{log.users?.username ?? log.user_id.slice(0, 8)}</td>
+                          <td className="px-2 py-1.5">{log.card_id}</td>
+                          <td className="px-2 py-1.5">{log.cell_index}</td>
+                          <td className="px-2 py-1.5">
+                            <span className={`font-semibold ${log.action === 'void' ? 'text-red-600' : 'text-emerald-600'}`}>
+                              {log.action}
+                            </span>
+                          </td>
+                          <td className="px-2 py-1.5 text-slate-500">{log.note ?? log.void_reason ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        </section>
+
+        {/* Game Announcement */}
+        <section id="section-announce">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5 text-emerald-500" />
+              Announce New Game to All Players
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-slate-500">
+              Send an email to all verified players announcing a new game. Include the prize, game type, and optional theme. A button overview is automatically included at the bottom of every announcement.
+            </p>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700">Prize <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                placeholder="e.g. $50 Amazon Gift Card"
+                value={announcePrize}
+                onChange={(e) => setAnnouncePrize(e.target.value)}
+                className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700">Game Type <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                placeholder="e.g. One Line, Four Corners, Full Card"
+                value={announceGameType}
+                onChange={(e) => setAnnounceGameType(e.target.value)}
+                className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700">Theme <span className="text-slate-400 text-xs">(optional)</span></label>
+              <input
+                type="text"
+                placeholder="e.g. Summer of Kindness"
+                value={announceTheme}
+                onChange={(e) => setAnnounceTheme(e.target.value)}
+                className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700">Additional Message <span className="text-slate-400 text-xs">(optional)</span></label>
+              <textarea
+                placeholder="Any extra note to include in the email..."
+                value={announceExtra}
+                onChange={(e) => setAnnounceExtra(e.target.value)}
+                rows={3}
+                className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 resize-none"
+              />
+            </div>
+            <Button
+              onClick={handleAnnounceGame}
+              disabled={announceLoading}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+            >
+              {announceLoading ? 'Sending…' : 'Send Announcement to All Players'}
+            </Button>
+          </CardContent>
+        </Card>
+        </section>
+
+        {/* Weekly Reset */}
+        <section id="section-reset">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5 text-sky-500" />
+              Weekly New Card Email
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-slate-500">
+              Sends a "your new card is ready" email to all verified players. This runs automatically every Monday at 8am UTC. Use the button below to send it manually at any time.
+            </p>
+            <Button
+              onClick={handleWeeklyReset}
+              disabled={weeklyResetLoading}
+              className="bg-sky-600 hover:bg-sky-700 text-white font-bold"
+            >
+              {weeklyResetLoading ? 'Sending…' : 'Send Now to All Players'}
+            </Button>
+          </CardContent>
+        </Card>
+        </section>
       </div>
       <Footer tone="light" />
     </div>

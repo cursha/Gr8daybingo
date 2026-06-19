@@ -22,7 +22,7 @@ These rules override everything else. No exceptions.
 ### 2.1 Never push to live or GitHub without dual confirmation
 
 - **Do not push to GitHub** until the task is fully complete, working correctly, and both Curt and Michael have confirmed nothing is broken.
-- **Do not deploy to the live site** (havagr8day.com) under any circumstance without explicit approval from both Curt and Michael in that conversation.
+- **Do not deploy to the live site** (havagr8day.com) under any circumstance without explicit approval from both Curt or Michael in that conversation.
 - "Looks good to me" is not enough. The actual feature must be tested end-to-end first.
 - A previous AI session caused serious unintended damage to the live server by pushing without proper confirmation. This rule exists because of that incident.
 

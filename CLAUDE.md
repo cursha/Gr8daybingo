@@ -8,10 +8,10 @@ This file governs how Claude Code operates on this project. Every rule here is m
 
 | Person | Role | How to refer |
 |---|---|---|
-| **Curt** (John Curtis Skene) | Project owner and founder | Curt or John — both are fine. Never "client" |
+| **Curt** (John Curtis Skene) | Project owner and founder | Curt. Never "client" |
 | **Michael** (Michael Ojiemeke) | Developer / AI engineer managing this repo | Michael |
 
-Both Curt AND Michael must explicitly confirm before anything goes live or is pushed to GitHub. If either has not confirmed, do not proceed.
+Either Curt or Michael must explicitly confirm before anything goes live or is pushed to GitHub. If either has not confirmed, do not proceed.
 
 ---
 

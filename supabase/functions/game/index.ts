@@ -143,6 +143,52 @@ function parseJsonArr(raw: string | null | undefined): number[] {
   try { return JSON.parse(raw ?? '[]') } catch { return [] }
 }
 
+// ── Player Progression Levels (Issue #15) ───────────────────────────────────
+interface PlayerLevelRow {
+  id: number; level_number: number; level_name: string;
+  required_bingos: number; is_active: boolean;
+}
+
+/** Highest level a player has earned, given their total bingos and the active
+ *  threshold table. Level 1 is always unlocked. */
+function highestUnlockedLevel(totalBingos: number, levels: PlayerLevelRow[]): number {
+  let highest = 1
+  for (const lv of levels) {
+    if (lv.is_active && totalBingos >= (lv.required_bingos ?? 0)) {
+      highest = Math.max(highest, lv.level_number)
+    }
+  }
+  return highest
+}
+
+/** Resolve a player's level state: the active level table, their total bingos,
+ *  the highest level they've unlocked, and their selected level (clamped so it
+ *  can never exceed what they've earned). */
+async function getPlayerLevelState(
+  supabase: ReturnType<typeof getSupabase>,
+  userId: string,
+): Promise<{ levels: PlayerLevelRow[]; totalBingos: number; highestUnlocked: number; selected: number }> {
+  const { data: levelRows } = await supabase
+    .from('player_levels').select('*').eq('is_active', true).order('level_number')
+  const levels = (levelRows ?? []) as PlayerLevelRow[]
+
+  const { count } = await supabase
+    .from('player_cards')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('is_bingo', true)
+  const totalBingos = count ?? 0
+
+  const highestUnlocked = highestUnlockedLevel(totalBingos, levels)
+
+  const { data: u } = await supabase
+    .from('users').select('challenge_level').eq('id', userId).maybeSingle()
+  const raw = u?.challenge_level ?? 1
+  const selected = Math.min(Math.max(raw, 1), highestUnlocked)
+
+  return { levels, totalBingos, highestUnlocked, selected }
+}
+
 /** Free-space cells (the I DARE YA centre) always count toward Bingo, even
  *  though they are never "marked". Returns their indices from the card data. */
 function freeSpaceIndices(cells: Cell[]): number[] {
@@ -431,7 +477,16 @@ Deno.serve(async (req: Request) => {
       const purchasableCount = rng.randint(1, 3)
       const referralFreeCount = 0
 
-      const deedList = [...deeds]
+      // Player Progression Levels (#15): restrict deeds to the player's selected
+      // level, with natural downward fallback (complexity <= selected). Deeds with
+      // no complexity set are treated as the easiest level, so always eligible.
+      const levelState = await getPlayerLevelState(supabase, user.sub)
+      const selectedLevel = levelState.selected
+      let levelDeeds = (deeds ?? []).filter((d) => (d.complexity ?? 1) <= selectedLevel)
+      // Never let level filtering starve the card; fall back to all active deeds.
+      if (levelDeeds.length < 24) levelDeeds = deeds ?? []
+
+      const deedList = [...levelDeeds]
       rng.shuffle(deedList)
       const selectedDeeds = deedList.slice(0, 24)
 
@@ -507,6 +562,7 @@ Deno.serve(async (req: Request) => {
           purchased_cells: '[]',
           referral_cells: JSON.stringify(referralCellIndices),
           is_bingo: false,
+          card_level: selectedLevel,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -523,7 +579,83 @@ Deno.serve(async (req: Request) => {
         purchased_cells: [],
         referral_cells: referralCellIndices,
         is_bingo: false,
+        card_level: selectedLevel,
       })
+    }
+
+    // ── GET /my-levels (Issue #15): the player's level state ──────────────────
+    if (method === 'GET' && path === '/my-levels') {
+      const user = requireAuth(authUser)
+      const st = await getPlayerLevelState(supabase, user.sub)
+      return jsonResponse({
+        levels: st.levels.map((l) => ({
+          level_number: l.level_number,
+          level_name: l.level_name,
+          required_bingos: l.required_bingos,
+        })),
+        total_bingos: st.totalBingos,
+        highest_unlocked: st.highestUnlocked,
+        selected: st.selected,
+      })
+    }
+
+    // ── POST /my-level (Issue #15): set the player's selected play level ───────
+    if (method === 'POST' && path === '/my-level') {
+      const user = requireAuth(authUser)
+      const body = await req.json()
+      const level = parseInt(body.level)
+      if (isNaN(level) || level < 1) return errorResponse('A valid level is required.', 400)
+      const st = await getPlayerLevelState(supabase, user.sub)
+      if (level > st.highestUnlocked) {
+        return errorResponse(`You haven't unlocked Level ${level} yet.`, 403)
+      }
+      await supabase.from('users').update({ challenge_level: level }).eq('id', user.sub)
+      return jsonResponse({ success: true, selected: level })
+    }
+
+    // ── Admin: player level thresholds CRUD (Issue #15) ───────────────────────
+    if (method === 'GET' && path === '/admin/player-levels') {
+      requireAdmin(authUser)
+      const { data } = await supabase.from('player_levels').select('*').order('level_number')
+      return jsonResponse({ levels: data ?? [] })
+    }
+    if (method === 'POST' && path === '/admin/player-levels') {
+      requireAdmin(authUser)
+      const body = await req.json()
+      const level_number = parseInt(body.level_number)
+      const required_bingos = parseInt(body.required_bingos)
+      if (isNaN(level_number) || isNaN(required_bingos)) {
+        return errorResponse('level_number and required_bingos are required.', 400)
+      }
+      const { data, error } = await supabase.from('player_levels').insert({
+        level_number,
+        level_name: String(body.level_name ?? `Level ${level_number}`),
+        required_bingos,
+        is_active: body.is_active ?? true,
+      }).select().single()
+      if (error) throw error
+      return jsonResponse(data)
+    }
+    const playerLevelMatch = path.match(/^\/admin\/player-levels\/(\d+)$/)
+    if (method === 'PUT' && playerLevelMatch) {
+      requireAdmin(authUser)
+      const body = await req.json()
+      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+      if (body.level_name != null) updates.level_name = String(body.level_name)
+      if (body.required_bingos != null) updates.required_bingos = parseInt(body.required_bingos)
+      if (body.is_active != null) updates.is_active = !!body.is_active
+      if (body.level_number != null) updates.level_number = parseInt(body.level_number)
+      const { data, error } = await supabase
+        .from('player_levels').update(updates).eq('id', parseInt(playerLevelMatch[1])).select().single()
+      if (error) throw error
+      return jsonResponse(data)
+    }
+    if (method === 'DELETE' && playerLevelMatch) {
+      requireAdmin(authUser)
+      const { error } = await supabase
+        .from('player_levels').delete().eq('id', parseInt(playerLevelMatch[1]))
+      if (error) throw error
+      return jsonResponse({ success: true })
     }
 
     // ── POST /mark-cell ───────────────────────────────────────────────────────

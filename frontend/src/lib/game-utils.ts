@@ -855,3 +855,77 @@ export function isCellCompleted(
     referralCells.includes(cellIndex)
   );
 }
+
+// ---------- Player Progression Levels (Issue #15) ----------
+export interface PlayerLevel {
+  id?: number;
+  level_number: number;
+  level_name: string;
+  required_bingos: number;
+  is_active?: boolean;
+}
+
+export interface MyLevelInfo {
+  levels: PlayerLevel[];
+  total_bingos: number;
+  highest_unlocked: number;
+  selected: number;
+}
+
+export async function getMyLevels(): Promise<MyLevelInfo> {
+  return apiClient.get<MyLevelInfo>('/game/my-levels');
+}
+
+export async function setMyPlayLevel(
+  level: number
+): Promise<{ success: boolean; selected: number }> {
+  return apiClient.post('/game/my-level', { level });
+}
+
+/**
+ * Pure mirror of the backend unlock rule: the highest level a player has earned
+ * for a given bingo count. Level 1 is always unlocked. Kept pure so it can be
+ * unit-tested and reused for optimistic UI.
+ */
+export function computeHighestUnlocked(
+  totalBingos: number,
+  levels: PlayerLevel[]
+): number {
+  let highest = 1;
+  for (const lv of levels) {
+    if ((lv.is_active ?? true) && totalBingos >= (lv.required_bingos ?? 0)) {
+      highest = Math.max(highest, lv.level_number);
+    }
+  }
+  return highest;
+}
+
+/** The levels a player may currently select (1 .. highest unlocked). */
+export function selectableLevels(highestUnlocked: number): number[] {
+  return Array.from({ length: Math.max(1, highestUnlocked) }, (_, i) => i + 1);
+}
+
+// Admin CRUD for the level thresholds
+export async function adminGetPlayerLevels(): Promise<{ levels: PlayerLevel[] }> {
+  return apiClient.get('/game/admin/player-levels');
+}
+
+export async function adminCreatePlayerLevel(payload: {
+  level_number: number;
+  level_name?: string;
+  required_bingos: number;
+  is_active?: boolean;
+}): Promise<PlayerLevel> {
+  return apiClient.post('/game/admin/player-levels', payload);
+}
+
+export async function adminUpdatePlayerLevel(
+  id: number,
+  payload: Partial<PlayerLevel>
+): Promise<PlayerLevel> {
+  return apiClient.put(`/game/admin/player-levels/${id}`, payload);
+}
+
+export async function adminDeletePlayerLevel(id: number): Promise<{ success: boolean }> {
+  return apiClient.delete(`/game/admin/player-levels/${id}`);
+}

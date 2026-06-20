@@ -7,6 +7,7 @@ import Index from './pages/Index';
 import GameBoard from './pages/GameBoard';
 import Wallet from './pages/Wallet';
 import AdminPanel from './pages/AdminPanel';
+import AdminLevels from './pages/AdminLevels';
 import Leaderboard from './pages/Leaderboard';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -36,6 +37,7 @@ const AppRoutes = () => (
     <Route path="/wallet" element={<Wallet />} />
     <Route path="/leaderboard" element={<Leaderboard />} />
     <Route path="/admin" element={<AdminPanel />} />
+    <Route path="/admin/levels" element={<AdminLevels />} />
     {/* <Route path="/blog/*" element={<BlogRoutes />} /> */}
     <Route path="/auth/callback" element={<AuthCallback />} />
     <Route path="/auth/error" element={<AuthError />} />

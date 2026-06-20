@@ -1059,13 +1059,38 @@ Deno.serve(async (req: Request) => {
       type CityNode = { name: string; deeds: number; players: number }
       type StateNode = { name: string; deeds: number; players: number; cities: Record<string, CityNode> }
       type CountryNode = { code: string; name: string; deeds: number; players: number; states: Record<string, StateNode> }
+      // Normalize free-text province/city so variants group together
+      // (e.g. "ON" -> "Ontario" via the states table, "toronto" -> "Toronto").
+      const { data: statesRows } = await supabase.from('states').select('name, code')
+      const titleCase = (s: string) => s.toLowerCase().replace(/\b\w/g, (m) => m.toUpperCase())
+      const stateCanon: Record<string, string> = {}
+      for (const st of (statesRows ?? [])) {
+        if (st.code) stateCanon[String(st.code).toLowerCase().trim()] = st.name
+        if (st.name) stateCanon[String(st.name).toLowerCase().trim()] = st.name
+      }
+      const normProvince = (raw: string | null): string => {
+        const t = (raw ?? '').trim()
+        if (!t) return 'Unspecified'
+        return stateCanon[t.toLowerCase()] ?? titleCase(t)
+      }
+      const normCity = (raw: string | null): string => {
+        const t = (raw ?? '').trim()
+        return t ? titleCase(t) : 'Unspecified'
+      }
+      // Sort comparator: real names by deeds desc, "Unknown"/"Unspecified" always last.
+      const placeSort = (a: { name: string; deeds: number }, b: { name: string; deeds: number }) => {
+        const aLast = a.name === 'Unknown' || a.name === 'Unspecified'
+        const bLast = b.name === 'Unknown' || b.name === 'Unspecified'
+        if (aLast !== bLast) return aLast ? 1 : -1
+        return b.deeds - a.deeds
+      }
       const geoMap: Record<string, CountryNode> = {}
       for (const u of (allUsers ?? [])) {
         const country = u.country_id ? countryMap[u.country_id] : null
         const cName = country?.name ?? 'Unknown'
         const cCode = country?.code ?? 'XX'
-        const sName = (u.province_state && String(u.province_state).trim()) || 'Unspecified'
-        const cityName = (u.city && String(u.city).trim()) || 'Unspecified'
+        const sName = normProvince(u.province_state)
+        const cityName = normCity(u.city)
         const deeds = allTime[u.id] ?? 0
         if (!geoMap[cName]) geoMap[cName] = { code: cCode, name: cName, deeds: 0, players: 0, states: {} }
         const cn = geoMap[cName]; cn.deeds += deeds; cn.players += 1
@@ -1080,11 +1105,11 @@ Deno.serve(async (req: Request) => {
           states: Object.values(cn.states)
             .map(sn => ({
               name: sn.name, deeds: sn.deeds, players: sn.players,
-              cities: Object.values(sn.cities).sort((a, b) => b.deeds - a.deeds),
+              cities: Object.values(sn.cities).sort(placeSort),
             }))
-            .sort((a, b) => b.deeds - a.deeds),
+            .sort(placeSort),
         }))
-        .sort((a, b) => b.deeds - a.deeds)
+        .sort(placeSort)
 
       // Full deed breakdown (every completed deed with its count), for deed drill-down
       const deedBreakdown = Object.entries(deedCounts)

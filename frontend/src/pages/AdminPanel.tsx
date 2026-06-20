@@ -2104,12 +2104,16 @@ const AdminPanel: React.FC = () => {
                   onChange={(e) => setNewDeed((prev) => ({ ...prev, deed_text: e.target.value }))}
                   className="flex-1"
                 />
-                <Input
-                  placeholder="Category"
+                <select
                   value={newDeed.category}
                   onChange={(e) => setNewDeed((prev) => ({ ...prev, category: e.target.value }))}
-                  className="w-32 sm:w-40"
-                />
+                  className="w-32 sm:w-40 border border-input rounded-md bg-background px-2 text-sm"
+                >
+                  <option value="">Category</option>
+                  {deedCategories.map((c) => (
+                    <option key={c.name} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
                 <select
                   value={newDeed.complexity}
                   onChange={(e) => setNewDeed((prev) => ({ ...prev, complexity: e.target.value }))}
@@ -2174,14 +2178,18 @@ const AdminPanel: React.FC = () => {
                             className="flex-1 h-8 text-sm"
                             placeholder="Short deed text"
                           />
-                          <Input
+                          <select
                             value={editDeedData.category}
                             onChange={(e) =>
                               setEditDeedData((prev) => ({ ...prev, category: e.target.value }))
                             }
-                            className="w-28 h-8 text-sm"
-                            placeholder="Category"
-                          />
+                            className="w-28 h-8 text-sm border border-input rounded-md bg-background px-2"
+                          >
+                            <option value="">Category</option>
+                            {deedCategories.map((c) => (
+                              <option key={c.name} value={c.name}>{c.name}</option>
+                            ))}
+                          </select>
                           <select
                             value={editDeedData.complexity}
                             onChange={(e) => setEditDeedData((prev) => ({ ...prev, complexity: e.target.value }))}

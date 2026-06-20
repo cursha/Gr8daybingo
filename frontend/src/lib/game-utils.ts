@@ -406,6 +406,7 @@ export async function getLeaderboard(): Promise<LeaderboardData> {
 export interface PlayerRankEntry {
   user_id: string;
   display_name: string;
+  username: string | null;
   player_number: number | null;
   city: string | null;
   country_name: string | null;

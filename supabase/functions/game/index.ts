@@ -980,6 +980,7 @@ Deno.serve(async (req: Request) => {
         return {
           user_id: u.id,
           display_name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || `GR8-${u.player_number}`,
+          username: u.username ?? null,
           player_number: u.player_number,
           city: u.city ?? null,
           country_name: country?.name ?? null,

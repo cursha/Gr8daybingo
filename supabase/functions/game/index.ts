@@ -2392,6 +2392,18 @@ Deno.serve(async (req: Request) => {
     // ── POST /claim-prize ─────────────────────────────────────────────────────
     if (method === 'POST' && path === '/claim-prize') {
       const user = requireAuth(authUser)
+
+      // Anonymous accounts (Issue #17) have no contact info, so they are not
+      // eligible for prizes. Enforced server-side.
+      const { data: claimant } = await supabase
+        .from('users').select('registration_type').eq('id', user.sub).maybeSingle()
+      if (claimant?.registration_type === 'anonymous') {
+        return errorResponse(
+          'Anonymous accounts are not eligible for prizes because we have no way to contact you.',
+          403,
+        )
+      }
+
       const body = await req.json()
       const { full_name, email, phone, mailing_address, notes } = body
 

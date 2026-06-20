@@ -3186,11 +3186,23 @@ Deno.serve(async (req: Request) => {
         .gt('longest_streak_days', 0)
         .order('longest_streak_days', { ascending: false })
         .limit(20)
-      const { data: avgRow } = await supabase.rpc('streak_average').maybeSingle().catch(() => ({ data: null }))
+      // Average current streak across active streakers (computed in-JS; the old
+      // streak_average RPC was never created and the .catch on the builder threw).
+      let averageStreak: number | null = null
+      try {
+        const { data: streakRows } = await supabase
+          .from('users').select('current_streak_days').gt('current_streak_days', 0)
+        if (streakRows && streakRows.length) {
+          const sum = streakRows.reduce((s: number, r: any) => s + (r.current_streak_days || 0), 0)
+          averageStreak = Math.round((sum / streakRows.length) * 10) / 10
+        }
+      } catch (_e) {
+        averageStreak = null
+      }
       return jsonResponse({
         current_streak_leaders: current ?? [],
         longest_streak_leaders: longest ?? [],
-        average_streak: avgRow?.avg_streak ?? null,
+        average_streak: averageStreak,
       })
     }
 

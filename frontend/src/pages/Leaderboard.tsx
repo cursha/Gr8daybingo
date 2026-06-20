@@ -268,7 +268,12 @@ const Leaderboard: React.FC = () => {
                     {stateNode && <><ChevronRight className="w-3 h-3 text-slate-600" /><span className="text-white">{stateNode.name}</span></>}
                   </div>
                 )}
-                <TableHead cols={['Region', 'Deeds', 'Players']} />
+                <div className="flex items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
+                  <span className="flex-1">Region</span>
+                  <span className="w-16 text-right">Deeds</span>
+                  <span className="w-12 text-right">Players</span>
+                  <span className="w-4" />
+                </div>
                 {!country && geo.length === 0 && <Empty>No activity yet.</Empty>}
 
                 {!country && geo.map((c) => (

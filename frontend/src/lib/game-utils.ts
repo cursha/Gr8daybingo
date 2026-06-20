@@ -448,6 +448,7 @@ export interface PlayerLeaderboardData {
   total_referrals: number;
   geo_tree?: GeoCountry[];
   deed_breakdown?: TopDeedEntry[];
+  geo_drilldown_threshold?: number;
 }
 
 export interface GeoCity { name: string; deeds: number; players: number; }
@@ -818,7 +819,7 @@ export interface StreakLeaderboard {
 }
 
 export async function getStreakLeaderboard(): Promise<StreakLeaderboard> {
-  return apiClient.get<StreakLeaderboard>('/game/leaderboard/streaks');
+  return apiClient.get<StreakLeaderboard>('/game/leaderboard/streaks', { skipAuth: true } as any);
 }
 
 export async function adminGetStreakMilestones(): Promise<StreakMilestone[]> {

@@ -1041,6 +1041,13 @@ Deno.serve(async (req: Request) => {
         .from('game_configs').select('config_value').eq('config_key', 'country_promotion_threshold').maybeSingle()
       const promotionThreshold = parseInt(thresholdCfg?.config_value ?? '100')
 
+      // Privacy/drill-down gate: a province only reveals its city breakdown once it
+      // has at least this many players (admin-configurable). Keeps small areas from
+      // exposing individuals and keeps the drill-down meaningful.
+      const { data: geoThreshCfg } = await supabase
+        .from('game_configs').select('config_value').eq('config_key', 'geo_drilldown_threshold').maybeSingle()
+      const geoDrilldownThreshold = Math.max(1, parseInt(geoThreshCfg?.config_value ?? '5'))
+
       // Count players per country (all-time, any deeds)
       const playersByCountry: Record<string, number> = {}
       for (const u of (allUsers ?? [])) {
@@ -1194,7 +1201,8 @@ Deno.serve(async (req: Request) => {
           states: Object.values(cn.states)
             .map(sn => ({
               name: sn.name, deeds: sn.deeds, players: sn.players,
-              cities: Object.values(sn.cities).sort(placeSort),
+              // Only reveal city-level detail once the province clears the threshold.
+              cities: sn.players >= geoDrilldownThreshold ? Object.values(sn.cities).sort(placeSort) : [],
             }))
             .sort(placeSort),
         }))
@@ -1227,6 +1235,7 @@ Deno.serve(async (req: Request) => {
         total_referrals: totalReferrals,
         geo_tree: geoTree,
         deed_breakdown: deedBreakdown,
+        geo_drilldown_threshold: geoDrilldownThreshold,
       })
     }
 

@@ -940,6 +940,7 @@ const AdminPanel: React.FC = () => {
     { key: 'secret_reward_1_pct', label: 'Secret Square: $1 Reward %', type: 'number' },
     { key: 'secret_reward_2_pct', label: 'Secret Square: $2 Reward %', type: 'number' },
     { key: 'secret_reward_5_pct', label: 'Secret Square: $5 Reward %', type: 'number' },
+    { key: 'geo_drilldown_threshold', label: 'Leaderboard: players before a region drills to cities', type: 'number' },
   ];
 
   const prizeImageUrl = editConfigs['prize_image_url'] || '';
@@ -1697,7 +1698,7 @@ const AdminPanel: React.FC = () => {
                   const val = e.target.value;
                   setEditConfigs(prev => ({ ...prev, streak_enabled: val }));
                   try {
-                    await updateAdminConfig('streak_enabled', val);
+                    await updateAdminConfig({ streak_enabled: val });
                     toast.success('Streak setting saved');
                   } catch { toast.error('Failed to save'); }
                 }}

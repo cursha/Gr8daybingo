@@ -3273,6 +3273,62 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    // ── POST /admin/backfill-completed-deeds ──────────────────────────────────
+    // One-time: reconstruct historical completed_deeds from existing logs.
+    // Guarded: admin only, and aborts if completed_deeds already has rows.
+    if (method === 'POST' && path === '/admin/backfill-completed-deeds') {
+      requireAdmin(authUser)
+      const { count: existing } = await supabase.from('completed_deeds').select('id', { count: 'exact', head: true })
+      if ((existing ?? 0) > 0) return jsonResponse({ skipped: true, existing })
+
+      const { data: users } = await supabase.from('users').select('id, city, province_state, country_id')
+      const userMap = new Map((users ?? []).map((u: any) => [u.id, u]))
+      const { data: countries } = await supabase.from('countries').select('id, name')
+      const countryMap = new Map((countries ?? []).map((c: any) => [c.id, c.name]))
+      const { data: teamRows } = await supabase.from('team_members').select('user_id, team_id')
+      const teamMap = new Map((teamRows ?? []).map((t: any) => [t.user_id, t.team_id]))
+      const { data: gd } = await supabase.from('good_deeds').select('id, category')
+      const deedCat = new Map((gd ?? []).map((d: any) => [d.id, d.category]))
+      const loc = (uid: string) => {
+        const u: any = userMap.get(uid) || {}
+        return { city: u.city ?? null, province_state: u.province_state ?? null, country_id: u.country_id ?? null, country_name: u.country_id ? (countryMap.get(u.country_id) ?? null) : null }
+      }
+      const rows: any[] = []
+      const { data: qlogs } = await supabase.from('quick_deed_logs').select('user_id, quick_deed_id, tapped_at')
+      for (const q of (qlogs ?? [])) {
+        if (!userMap.has(q.user_id)) continue
+        rows.push({ player_id: q.user_id, team_id_at_completion: teamMap.get(q.user_id) ?? null, source_type: 'quick_action', quick_deed_id: q.quick_deed_id, category: null, ...loc(q.user_id), completed_at: q.tapped_at })
+      }
+      const quickCount = rows.length
+      const { data: marks } = await supabase.from('cell_mark_log').select('card_id, cell_index, created_at').eq('action', 'mark')
+      const markTime = new Map<string, string>()
+      for (const m of (marks ?? [])) {
+        const k = `${m.card_id}|${m.cell_index}`
+        const prev = markTime.get(k)
+        if (!prev || new Date(m.created_at) > new Date(prev)) markTime.set(k, m.created_at)
+      }
+      const { data: cards } = await supabase.from('player_cards').select('id, user_id, card_data, completed_cells, updated_at')
+      for (const card of (cards ?? [])) {
+        let completed: any[] = []; let cells: any[] = []
+        try { completed = JSON.parse(card.completed_cells || '[]') } catch { completed = [] }
+        try { cells = JSON.parse(card.card_data || '[]') } catch { cells = [] }
+        if (!Array.isArray(completed)) completed = []
+        for (const idx of completed) {
+          const cell = cells[idx]
+          const deedId = cell && cell.deed_id != null ? cell.deed_id : null
+          if (deedId == null) continue
+          rows.push({ player_id: card.user_id, team_id_at_completion: teamMap.get(card.user_id) ?? null, source_type: 'bingo_card', deed_id: deedId, category: deedCat.get(deedId) ?? (cell.category ?? null), card_id: card.id, cell_index: idx, ...loc(card.user_id), completed_at: markTime.get(`${card.id}|${idx}`) || card.updated_at || new Date().toISOString() })
+        }
+      }
+      const cardCount = rows.length - quickCount
+      for (let i = 0; i < rows.length; i += 500) {
+        const { error } = await supabase.from('completed_deeds').insert(rows.slice(i, i + 500))
+        if (error) return errorResponse(`backfill insert failed: ${error.message}`, 500)
+      }
+      const { count: after } = await supabase.from('completed_deeds').select('id', { count: 'exact', head: true })
+      return jsonResponse({ backfilled: rows.length, bingo_card: cardCount, quick_action: quickCount, total_now: after })
+    }
+
     // ── GET /admin/streak-milestones ──────────────────────────────────────────
     if (method === 'GET' && path === '/admin/streak-milestones') {
       requireAdmin(authUser)

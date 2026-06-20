@@ -39,16 +39,44 @@ export interface LoginInput {
 class AuthApi {
   async getCurrentUser(): Promise<AuthUser | null> {
     if (!getAuthToken()) return null;
-    try {
-      return await apiClient.get<AuthUser>('/auth-custom/me');
-    } catch (err: unknown) {
-      const status = (err as { status?: number })?.status;
-      if (status === 401) {
-        clearAuthToken();
-        return null;
+
+    // A logged-in player must never be kicked out by a one-off blip. The
+    // Supabase edge gateway can briefly reject a valid token (cold start /
+    // verify_jwt race) and the network can drop a request. So we only treat
+    // the token as dead when a 401 PERSISTS across a couple of quick retries.
+    // Any non-401 failure is transient by nature and never clears the token,
+    // so the session survives until the backend recovers.
+    const MAX_ATTEMPTS = 3;
+    let lastErr: unknown;
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        return await apiClient.get<AuthUser>('/auth-custom/me');
+      } catch (err: unknown) {
+        lastErr = err;
+        const status = (err as { status?: number })?.status;
+
+        if (attempt < MAX_ATTEMPTS) {
+          // Back off briefly, then retry. A genuinely expired/invalid token
+          // keeps returning 401; a transient hiccup clears up on the next try.
+          await new Promise((r) => setTimeout(r, 400 * attempt));
+          continue;
+        }
+
+        // Retries exhausted.
+        if (status === 401) {
+          // The server consistently rejects this token, so it really is invalid.
+          clearAuthToken();
+          return null;
+        }
+        // Persistent non-auth failure: surface it, but keep the token so the
+        // player stays logged in once the backend is reachable again.
+        throw err instanceof Error ? err : new Error('Failed to fetch user');
       }
-      throw err instanceof Error ? err : new Error('Failed to fetch user');
     }
+
+    // Unreachable (the loop always returns or throws), but keeps TS happy.
+    throw lastErr instanceof Error ? lastErr : new Error('Failed to fetch user');
   }
 
   async register(input: RegisterInput): Promise<AuthTokenResponse> {

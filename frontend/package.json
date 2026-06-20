@@ -5,6 +5,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint --quiet ./src",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "preview": "vite preview",
     "postinstall": "echo 'Dependencies installed successfully'"
   },
@@ -93,6 +95,7 @@
     "typescript-eslint": "^8.0.1",
     "vite": "^5.4.1",
     "vite-plugin-sitemap": "^0.8.2",
-    "vite-prerender-plugin": "^0.5.13"
+    "vite-prerender-plugin": "^0.5.13",
+    "vitest": "^2.1.9"
   }
 }

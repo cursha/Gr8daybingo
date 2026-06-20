@@ -164,6 +164,56 @@ interface StreakUpdateResult {
   new_milestones: StreakMilestoneRow[]
 }
 
+// Impact Board (Issue #14): record one completed deed, snapshotting the player's
+// team + location + the deed's category AT COMPLETION TIME so history stays
+// correct if they later move team/city. Fully best-effort — any failure here
+// must NEVER block a player from marking a deed, so the whole body is guarded.
+async function recordCompletedDeed(
+  supabase: ReturnType<typeof getSupabase>,
+  opts: {
+    playerId: string
+    sourceType: 'bingo_card' | 'quick_action'
+    deedId?: number | null
+    quickDeedId?: number | null
+    cardId?: number | null
+    cellIndex?: number | null
+    category?: string | null
+  }
+): Promise<void> {
+  try {
+    const { data: u } = await supabase
+      .from('users').select('city, province_state, country_id').eq('id', opts.playerId).maybeSingle()
+    let countryName: string | null = null
+    if (u?.country_id) {
+      const { data: c } = await supabase.from('countries').select('name').eq('id', u.country_id).maybeSingle()
+      countryName = c?.name ?? null
+    }
+    const { data: tm } = await supabase
+      .from('team_members').select('team_id').eq('user_id', opts.playerId).maybeSingle()
+    let category = opts.category ?? null
+    if (!category && opts.deedId != null) {
+      const { data: d } = await supabase.from('good_deeds').select('category').eq('id', opts.deedId).maybeSingle()
+      category = d?.category ?? null
+    }
+    await supabase.from('completed_deeds').insert({
+      player_id: opts.playerId,
+      team_id_at_completion: tm?.team_id ?? null,
+      source_type: opts.sourceType,
+      deed_id: opts.deedId ?? null,
+      quick_deed_id: opts.quickDeedId ?? null,
+      category,
+      card_id: opts.cardId ?? null,
+      cell_index: opts.cellIndex ?? null,
+      city: u?.city ?? null,
+      province_state: u?.province_state ?? null,
+      country_id: u?.country_id ?? null,
+      country_name: countryName,
+    })
+  } catch (_e) {
+    // swallow — impact recording is never allowed to break gameplay
+  }
+}
+
 async function updatePlayerStreak(
   supabase: ReturnType<typeof getSupabase>,
   userId: string
@@ -546,6 +596,16 @@ Deno.serve(async (req: Request) => {
         note: markNote,
       })
 
+      // Impact Board: record the completed deed (best-effort, never blocks the mark)
+      await recordCompletedDeed(supabase, {
+        playerId: user.sub,
+        sourceType: 'bingo_card',
+        deedId: (cell as { deed_id?: number | null }).deed_id ?? null,
+        cardId: card_id,
+        cellIndex: cell_index,
+        category: (cell as { category?: string | null }).category ?? null,
+      })
+
       // First time the card reaches Bingo: enter draw + congratulate by email (best-effort).
       if (isBingo && !card.is_bingo) {
         await supabase.from('draw_entries').upsert(
@@ -821,6 +881,13 @@ Deno.serve(async (req: Request) => {
         .from('quick_deed_logs')
         .insert({ user_id: user.sub, quick_deed_id: deedId })
       if (error) throw error
+
+      // Impact Board: a quick action is a completed deed (best-effort, non-blocking)
+      await recordCompletedDeed(supabase, {
+        playerId: user.sub,
+        sourceType: 'quick_action',
+        quickDeedId: deedId,
+      })
 
       // Update daily streak
       const streakResult = await updatePlayerStreak(supabase, user.sub)

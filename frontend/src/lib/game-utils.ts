@@ -410,7 +410,13 @@ export interface PlayerLeaderboardData {
   new_players_this_week: number;
   new_players_last_week: number;
   total_referrals: number;
+  geo_tree?: GeoCountry[];
+  deed_breakdown?: TopDeedEntry[];
 }
+
+export interface GeoCity { name: string; deeds: number; players: number; }
+export interface GeoState { name: string; deeds: number; players: number; cities: GeoCity[]; }
+export interface GeoCountry { code: string; name: string; deeds: number; players: number; states: GeoState[]; }
 
 export async function getPlayerLeaderboard(): Promise<PlayerLeaderboardData> {
   return withRetry(() => apiClient.get<PlayerLeaderboardData>('/game/leaderboard/players', { skipAuth: true } as any));

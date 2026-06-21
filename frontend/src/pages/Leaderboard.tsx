@@ -13,9 +13,10 @@ import {
   GeoState,
 } from '@/lib/game-utils';
 import Footer from '@/components/Footer';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   ArrowLeft, MapPin, ListChecks, Trophy, ChevronRight, Loader2, Users,
-  Flame, Globe, Lock, ChevronLeft, Sparkles, Award, Grid3x3, UsersRound, Building2, Map,
+  Flame, Globe, Lock, ChevronLeft, Sparkles, Award, Grid3x3, UsersRound, Building2, Map, Eye,
 } from 'lucide-react';
 
 type View = 'players' | 'streaks' | 'deeds' | 'places';
@@ -87,9 +88,84 @@ const ImpactGroup: React.FC<{ title: string; cols: string; cards: { icon: React.
   </div>
 );
 
+// ── Demo data (shown to logged-out visitors; sample numbers, clearly labelled) ──
+const demoPlayer = (n: number, username: string, deeds: number, city: string | null, country: string | null): PlayerRankEntry => ({
+  user_id: `demo-${n}`, display_name: username, username, player_number: 10000 + n,
+  city, country_name: country, country_code: null, deeds, referrals: 0, badge_name: '', badge_emoji: '',
+});
+const DEMO_DATA: PlayerLeaderboardData = {
+  all_time: [
+    demoPlayer(1, 'kindheart_maya', 142, 'Toronto', 'Canada'),
+    demoPlayer(2, 'liam_gives', 128, 'Austin', 'United States'),
+    demoPlayer(3, 'sofia_smiles', 119, 'Manchester', 'United Kingdom'),
+    demoPlayer(4, 'noah_helps', 97, 'Calgary', 'Canada'),
+    demoPlayer(5, 'ava_cares', 88, 'Sydney', 'Australia'),
+    demoPlayer(6, 'ethan_good', 74, 'Manila', 'Philippines'),
+    demoPlayer(7, 'mia_kind', 61, 'Toronto', 'Canada'),
+    demoPlayer(8, 'lucas_lifts', 53, 'Chicago', 'United States'),
+    demoPlayer(9, 'emma_joy', 44, 'Auckland', 'New Zealand'),
+    demoPlayer(10, 'oliver_warm', 38, 'London', 'United Kingdom'),
+  ],
+  this_week: new Array(48).fill(null) as any,
+  regions_all_time: [], regions_this_week: [], current_week_year: '',
+  top_deeds: [], promotion_threshold: 0,
+  this_week_deeds: 96, last_week_deeds: 82, week_trend: 14,
+  unique_countries: 5, top_country_flags: [], new_players_this_week: 23, new_players_last_week: 17,
+  total_referrals: 0,
+  deed_breakdown: [
+    { deed_id: 1, deed_text: 'Hold the door for someone', category: 'NOTICE', count: 184 },
+    { deed_id: 2, deed_text: 'Thank a cashier or server warmly', category: 'CELEBRATE', count: 162 },
+    { deed_id: 3, deed_text: 'Check in on a friend', category: 'CONNECT', count: 143 },
+    { deed_id: 4, deed_text: 'Buy a stranger a coffee', category: 'DELIGHT', count: 121 },
+    { deed_id: 5, deed_text: 'Encourage someone who is struggling', category: 'ENCOURAGE', count: 98 },
+    { deed_id: 6, deed_text: 'Help a neighbour with a chore', category: 'HELP', count: 79 },
+  ],
+  geo_tree: [
+    { code: 'CA', name: 'Canada', deeds: 540, players: 86, states: [
+      { name: 'Ontario', deeds: 320, players: 52, cities: [
+        { name: 'Toronto', deeds: 210, players: 33 }, { name: 'Milton', deeds: 64, players: 11 }, { name: 'Ottawa', deeds: 46, players: 8 },
+      ] },
+      { name: 'Alberta', deeds: 220, players: 34, cities: [{ name: 'Calgary', deeds: 140, players: 21 }, { name: 'Edmonton', deeds: 80, players: 13 }] },
+    ] },
+    { code: 'US', name: 'United States', deeds: 410, players: 71, states: [
+      { name: 'Texas', deeds: 230, players: 38, cities: [{ name: 'Austin', deeds: 150, players: 24 }, { name: 'Houston', deeds: 80, players: 14 }] },
+      { name: 'Illinois', deeds: 180, players: 33, cities: [{ name: 'Chicago', deeds: 180, players: 33 }] },
+    ] },
+    { code: 'GB', name: 'United Kingdom', deeds: 250, players: 44, states: [
+      { name: 'England', deeds: 250, players: 44, cities: [{ name: 'London', deeds: 160, players: 28 }, { name: 'Manchester', deeds: 90, players: 16 }] },
+    ] },
+    { code: 'AU', name: 'Australia', deeds: 120, players: 22, states: [{ name: 'New South Wales', deeds: 120, players: 22, cities: [] }] },
+    { code: 'PH', name: 'Philippines', deeds: 90, players: 18, states: [{ name: 'Metro Manila', deeds: 90, players: 18, cities: [] }] },
+  ],
+  geo_drilldown_threshold: 5,
+};
+const DEMO_STREAKS: StreakLeaderboard = {
+  current_streak_leaders: [
+    { username: 'kindheart_maya', name: null, current_streak_days: 86 },
+    { username: 'noah_helps', name: null, current_streak_days: 54 },
+    { username: 'sofia_smiles', name: null, current_streak_days: 41 },
+    { username: 'liam_gives', name: null, current_streak_days: 33 },
+    { username: 'ava_cares', name: null, current_streak_days: 22 },
+  ],
+  longest_streak_leaders: [
+    { username: 'kindheart_maya', name: null, longest_streak_days: 124 },
+    { username: 'sofia_smiles', name: null, longest_streak_days: 98 },
+    { username: 'liam_gives', name: null, longest_streak_days: 77 },
+  ],
+  average_streak: 19.4,
+};
+const DEMO_IMPACT: ImpactSummary = {
+  period: 'all',
+  impact: { deeds_delivered: 1410, bingos_achieved: 96, full_cards_completed: 14 },
+  participation: { active_players: 241, lifetime_players: 388, active_teams: 19, lifetime_teams: 27 },
+  reach: { cities: 24, provinces: 11, countries: 5 },
+};
+
 // ── main ────────────────────────────────────────────────────────────────────────
 const Leaderboard: React.FC = () => {
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
+  const isDemo = !authLoading && !user;
   const [data, setData] = useState<PlayerLeaderboardData | null>(null);
   const [streaks, setStreaks] = useState<StreakLeaderboard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -101,17 +177,28 @@ const Leaderboard: React.FC = () => {
   const [impact, setImpact] = useState<ImpactSummary | null>(null);
 
   useEffect(() => {
+    if (authLoading) return;
+    // Logged-out visitors see a clearly-labelled demo, not the live community data.
+    if (!user) {
+      setData(DEMO_DATA);
+      setStreaks(DEMO_STREAKS);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     Promise.allSettled([getPlayerLeaderboard(), getStreakLeaderboard()])
       .then(([p, s]) => {
         if (p.status === 'fulfilled') setData(p.value);
         if (s.status === 'fulfilled') setStreaks(s.value);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [authLoading, user]);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) { setImpact({ ...DEMO_IMPACT, period }); return; }
     getImpactSummary(period).then(setImpact).catch(() => {});
-  }, [period]);
+  }, [authLoading, user, period]);
 
   const players = data?.all_time ?? [];
   const deeds = (data?.deed_breakdown && data.deed_breakdown.length ? data.deed_breakdown : data?.top_deeds) ?? [];
@@ -153,6 +240,17 @@ const Leaderboard: React.FC = () => {
       </header>
 
       <div className="max-w-3xl mx-auto w-full px-4 py-5 flex-1 space-y-4">
+        {/* Demo banner for logged-out visitors */}
+        {isDemo && (
+          <div className="flex items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+            <Eye className="w-5 h-5 text-amber-400 shrink-0" />
+            <p className="text-sm text-amber-100 flex-1">
+              <span className="font-semibold">Demo view.</span> These are sample numbers.{' '}
+              <button onClick={() => navigate('/login')} className="underline font-semibold hover:text-white">Sign in</button> to see the live Impact Board.
+            </p>
+          </div>
+        )}
+
         {/* Hero: community total + this-week count (BI-dashboard layout) */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex items-center gap-5">
           <div className="flex-1 min-w-0">

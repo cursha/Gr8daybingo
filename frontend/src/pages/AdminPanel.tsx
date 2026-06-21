@@ -941,6 +941,7 @@ const AdminPanel: React.FC = () => {
     { key: 'secret_reward_2_pct', label: 'Secret Square: $2 Reward %', type: 'number' },
     { key: 'secret_reward_5_pct', label: 'Secret Square: $5 Reward %', type: 'number' },
     { key: 'geo_drilldown_threshold', label: 'Leaderboard: players before a region drills to cities', type: 'number' },
+    { key: 'non_referred_daily_deed_limit', label: 'Non-referred players: max Gr8Day Deeds per 24h (0 = no limit)', type: 'number' },
   ];
 
   const prizeImageUrl = editConfigs['prize_image_url'] || '';

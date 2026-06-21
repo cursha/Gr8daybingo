@@ -225,6 +225,45 @@ async function recordCompletedDeed(
   }
 }
 
+// Referral gating (Curt): non-referred players are capped at a table-driven
+// number of completed Gr8Day Deeds per rolling 24h. A player counts as
+// "referred" if their email appears as a referred_email in the referrals table.
+// Returns { allowed } and a friendly message when blocked.
+async function checkDeedGate(
+  supabase: ReturnType<typeof getSupabase>,
+  user: { sub: string; email?: string }
+): Promise<{ allowed: boolean; message?: string }> {
+  try {
+    const { data: cfg } = await supabase
+      .from('game_configs').select('config_value').eq('config_key', 'non_referred_daily_deed_limit').maybeSingle()
+    const limit = parseInt(cfg?.config_value ?? '3')
+    if (!Number.isFinite(limit) || limit <= 0) return { allowed: true } // 0/disabled = unlimited
+
+    // Referred players are unlimited.
+    const email = (user.email ?? '').trim().toLowerCase()
+    if (email) {
+      const { count: refCount } = await supabase
+        .from('referrals').select('id', { count: 'exact', head: true }).ilike('referred_email', email)
+      if ((refCount ?? 0) > 0) return { allowed: true }
+    }
+
+    // Non-referred: count completed deeds in the last rolling 24h.
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const { count: recent } = await supabase
+      .from('completed_deeds').select('id', { count: 'exact', head: true })
+      .eq('player_id', user.sub).gte('completed_at', since)
+    if ((recent ?? 0) >= limit) {
+      return {
+        allowed: false,
+        message: `You've reached the limit of ${limit} Gr8Day Deeds in 24 hours for players who haven't been referred yet. Ask a current player to invite you and you'll unlock unlimited deeds!`,
+      }
+    }
+    return { allowed: true }
+  } catch (_e) {
+    return { allowed: true } // never block gameplay on a gate error
+  }
+}
+
 async function updatePlayerStreak(
   supabase: ReturnType<typeof getSupabase>,
   userId: string
@@ -560,6 +599,10 @@ Deno.serve(async (req: Request) => {
       const referral = parseJsonArr(card.referral_cells)
       if (completed.includes(cell_index)) return errorResponse('Cell already marked', 400)
 
+      // Referral gating: non-referred players are capped at N deeds / 24h.
+      const gate = await checkDeedGate(supabase, user)
+      if (!gate.allowed) return errorResponse(gate.message ?? 'Daily deed limit reached', 429)
+
       // Secret square reward
       let secretRewardAwarded: number | null = null
       if (cell.is_secret && !cell.secret_revealed && (cell.secret_reward ?? 0) > 0) {
@@ -888,6 +931,11 @@ Deno.serve(async (req: Request) => {
     if (method === 'POST' && quickDeedTapMatch) {
       const user = requireAuth(authUser)
       const deedId = parseInt(quickDeedTapMatch[1])
+
+      // Referral gating: non-referred players are capped at N deeds / 24h.
+      const qGate = await checkDeedGate(supabase, user)
+      if (!qGate.allowed) return errorResponse(qGate.message ?? 'Daily deed limit reached', 429)
+
       const { error } = await supabase
         .from('quick_deed_logs')
         .insert({ user_id: user.sub, quick_deed_id: deedId })

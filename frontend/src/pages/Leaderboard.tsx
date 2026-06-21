@@ -208,6 +208,9 @@ const Leaderboard: React.FC = () => {
   const totalDeeds = players.reduce((s, p) => s + p.deeds, 0);
   const totalPlayers = players.length;
   const thisWeekDeeds = data?.this_week_deeds ?? 0;
+  // Countries where deeds actually happened (excludes the "Unknown" bucket), so
+  // the hero matches the Reach card instead of counting registered-but-idle countries.
+  const heroCountries = geo.filter((c) => c.deeds > 0 && c.code !== 'XX' && c.name !== 'Unknown').length || (data?.unique_countries ?? 0);
   const maxDeeds = players[0]?.deeds || 1;
   const maxDeedCount = deeds[0]?.count || 1;
 
@@ -257,7 +260,7 @@ const Leaderboard: React.FC = () => {
             <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">Community Gr8Day Deeds</p>
             <p className="text-4xl sm:text-5xl font-bold text-white mt-1 leading-none tabular-nums">{totalDeeds.toLocaleString()}</p>
             <p className="text-sm text-slate-400 mt-1.5">
-              by {totalPlayers.toLocaleString()} {totalPlayers === 1 ? 'player' : 'players'} · {(data?.unique_countries ?? 0)} {data?.unique_countries === 1 ? 'country' : 'countries'}
+              by {totalPlayers.toLocaleString()} {totalPlayers === 1 ? 'player' : 'players'} · {heroCountries.toLocaleString()} {heroCountries === 1 ? 'country' : 'countries'}
             </p>
           </div>
           <div className="text-right shrink-0">

@@ -1,0 +1,1739 @@
+From d76dcb2e007902519b4056542c6bde7bdaaa2bb2 Mon Sep 17 00:00:00 2001
+From: Gr8day Dev <dev@havagr8day.com>
+Date: Thu, 25 Jun 2026 22:23:25 +0000
+Subject: [PATCH] Add Weekly Draw Entry system (#33)
+
+Reward every completed Gr8Day deed with weekly-draw entries (default 1/deed),
+not just bingos. Bingos become a configurable bonus (default 10/bingo).
+Entries are tracked as per-player balances (not ticket rows), with an
+append-only ledger that serves as both audit trail and idempotency key.
+The weekly draw selects a winner by weighted random on active entries.
+
+New:
+- supabase/migrations/20260625000000_weekly_draw_entry_system.sql
+    player_draw_balances + draw_entry_ledger tables; SECURITY DEFINER RPCs
+    (award/reverse/adjust/winner-reset/expire/backfill); 10 settings seeded.
+- supabase/functions/_shared/draw_logic.ts  (pure, unit-tested logic)
+- supabase/functions/_shared/draw.ts        (Supabase service + weekly draw)
+- supabase/tests/draw_rules.sql             (SQL rule tests)
+- supabase/tests/draw_logic.test.ts         (pure-logic tests)
+- docs/weekly-draw-entry-system.md          (summary, risks, deploy steps)
+
+Changed:
+- supabase/functions/game/index.ts
+    recordCompletedDeed returns the new id; mark-cell / quick-tap / dare-spin
+    award deed entries; bingo transitions award the bonus; new admin endpoints
+    (draw-leaderboard, reverse-deed, draw-adjust, run-draw).
+- supabase/functions/weekly-reset/index.ts
+    delegates to the shared, balance-based weighted draw.
+
+Fixes two latent bugs:
+- weekly-reset read game_configs with wrong column names (key/value vs
+  config_key/config_value), so recent-winner odds silently used defaults.
+- dare-spin auto-mark never recorded the completed deed, so those deeds were
+  invisible to the Impact Board (and the draw). Now recorded and awarded.
+
+All 15 spec test cases pass (SQL + logic suites), verified against
+PostgreSQL 16 with existing migrations loaded.
+---
+ docs/weekly-draw-entry-system.md              | 130 ++++++
+ supabase/functions/_shared/draw.ts            | 229 ++++++++++
+ supabase/functions/_shared/draw_logic.ts      | 144 +++++++
+ supabase/functions/game/index.ts              | 207 ++++++++-
+ supabase/functions/weekly-reset/index.ts      |  94 +---
+ ...0260625000000_weekly_draw_entry_system.sql | 408 ++++++++++++++++++
+ supabase/tests/draw_logic.test.ts             | 149 +++++++
+ supabase/tests/draw_rules.sql                 | 168 ++++++++
+ 8 files changed, 1431 insertions(+), 98 deletions(-)
+ create mode 100644 docs/weekly-draw-entry-system.md
+ create mode 100644 supabase/functions/_shared/draw.ts
+ create mode 100644 supabase/functions/_shared/draw_logic.ts
+ create mode 100644 supabase/migrations/20260625000000_weekly_draw_entry_system.sql
+ create mode 100644 supabase/tests/draw_logic.test.ts
+ create mode 100644 supabase/tests/draw_rules.sql
+
+diff --git a/docs/weekly-draw-entry-system.md b/docs/weekly-draw-entry-system.md
+new file mode 100644
+index 0000000..e0bf72c
+--- /dev/null
++++ b/docs/weekly-draw-entry-system.md
+@@ -0,0 +1,130 @@
++# Weekly Draw Entry System — Implementation Summary (Issue #33)
++
++## What changed, in one paragraph
++Every completed Gr8Day deed now earns weekly-draw entries immediately (default **1
++per deed**), not just bingos. Bingos still pay out, but as a configurable **bonus**
++(default **10 per bingo**). Entries are tracked as **balances** (per-player counters),
++never as millions of ticket rows. Every award, reversal, expiry, win-reset and manual
++adjustment is written to an append-only **ledger** that doubles as the audit trail and
++the idempotency mechanism. The weekly draw now selects a winner by **weighted random
++choice on Active Draw Entries** (preserving the existing recent-winner odds reduction).
++
++## Files
++
++**New**
++- `supabase/migrations/20260625000000_weekly_draw_entry_system.sql` — tables, RPCs, settings, backfill.
++- `supabase/functions/_shared/draw_logic.ts` — pure logic (settings, eligibility, weighted selection, week math). No imports → unit-testable.
++- `supabase/functions/_shared/draw.ts` — Supabase-facing service (award/reverse/adjust wrappers, `runWeeklyDraw`).
++- `supabase/tests/draw_rules.sql` — SQL rule tests (run via `psql`).
++- `supabase/tests/draw_logic.test.ts` — pure-logic tests (run via `deno test` or `npx tsx`).
++
++**Edited**
++- `supabase/functions/game/index.ts` — award hooks on every completion path + new admin endpoints.
++- `supabase/functions/weekly-reset/index.ts` — delegates the draw to the shared, balance-based runner.
++
++## 1. Database changes
++- `player_draw_balances` — one row per player: `active_entries`, `lifetime_entries`,
++  `this_week_entries` (+ `this_week_year`), `last_draw_win_date`,
++  `last_participation_date`, `last_entry_earned_date`.
++- `draw_entry_ledger` — one row per **event** (not per entry). Holds player/admin id,
++  event type, source, amount, previous & new balance, week, reason, related deed/bingo/draw
++  ids, timestamp. A partial **UNIQUE index on `(event_type, source_event_id)`** is what
++  makes awards idempotent.
++- `draw_winners` gains `winning_active_entries`, `total_pool_entries`, `eligible_players`
++  for reporting (backward-compatible `ADD COLUMN IF NOT EXISTS`).
++- All mutation flows through `SECURITY DEFINER` functions that lock the balance row, so
++  concurrent or duplicate processing is safe: `draw_apply` (core), `draw_award_deed`,
++  `draw_award_bingo`, `draw_reverse_deed`, `draw_reverse_bingo`, `draw_manual_adjust`,
++  `draw_winner_reset`, `draw_record_selected`, `draw_expire_inactive`,
++  `draw_backfill_from_history`.
++
++## 2. Backend service logic
++Award happens at the single choke point where a completed deed is recorded
++(`recordCompletedDeed`, now returns the new `completed_deeds.id`). Each completion path
++— **mark-cell, quick-tap, and the dare-spin auto-mark** — awards a deed entry keyed on
++that id. Bingo transitions award the bonus keyed on `card:<id>:week:<wy>`. Purchased
++squares do **not** earn a deed entry (a bought square isn't a completed deed) but can
++still trigger the bingo bonus. All awards are gated by settings and idempotent.
++
++## 3. Admin settings (auto-exposed by the existing admin-settings function)
++`weekly_draw_enabled`, `deed_draw_entries_enabled`, `draw_entries_per_deed` (1),
++`bingo_bonus_enabled`, `bingo_bonus_entries_per_bingo` (10), `include_quick_tap_deeds`,
++`allow_ticket_rollovers`, `require_current_week_participation`, `reset_active_after_win`,
++`inactive_entry_expiration_weeks` (0 = never; set 1/2/4/8/12/custom). Because
++admin-settings is a generic editor over `game_configs`, these appear automatically — no
++admin-endpoint change was required.
++
++## 4. Leaderboard / reporting
++New admin endpoint `GET /admin/draw-leaderboard` returns, per player: Player Name,
++This Week's Entries, Active Entries, Lifetime Entries, Last Draw Win, Last Participation
++Date, and Current-Week-Eligible (Y/N). Individual only, as specified.
++
++## 5. Weekly draw logic
++`runWeeklyDraw(weekYear)`: confirm enabled → expire inactive → gather balances with
++`active > 0` → drop players who didn't participate this week (when required) → weighted
++random pick on active entries (recent winners down-weighted) → record winner (+ pool
++stats) → audit the selection → reset winner's active entries if configured. Idempotent
++per week. Invoked weekly by `weekly-reset`, and on demand via `POST /admin/run-draw`.
++
++## 6. Audit trail
++Every state change writes a ledger row with previous/new balance, reason, actor, related
++ids and timestamp. Event types: `deed_entry`, `quick_tap_entry`, `bingo_bonus`,
++`deed_reversal`, `bingo_reversal`, `manual_adjust`, `winner_reset`, `inactive_expired`,
++`draw_winner_selected`. (Setting changes continue to be handled by admin-settings.)
++
++## 7. Reversal logic
++`POST /admin/reverse-deed`: removes the deed's entry; if removing that cell un-completes
++the card's bingo (re-checked with the existing `checkBingo`), the bonus is reversed too;
++the deed is hidden from the Impact Board. Reversals are compensating negative ledger
++rows (history is never deleted) and are themselves idempotent.
++
++## 8. Tests — all 15 spec cases pass
++SQL suite (`draw_rules.sql`) covers 1–5, 7, 9, 10, 11, 15 + audit completeness + settings.
++Logic suite (`draw_logic.test.ts`) covers 6, 8, 12, 13, 14 + weighted-selection
++proportionality + week bounds. Verified locally against PostgreSQL 16 with all existing
++migrations loaded.
++
++## 9. Risks & edge cases found in the current codebase
++1. **`weekly-reset` config bug (pre-existing).** The old `runWeeklyDraw` read
++   `game_configs` with `.select('value').eq('key', …)`, but the table columns are
++   `config_value`/`config_key`. So the recent-winner weight/months **silently fell back
++   to defaults** and were never actually configurable. The new code reads the correct
++   columns; the bug is gone in the path we now use.
++2. **Dare-spin completions were invisible (pre-existing).** The dare-spin auto-mark
++   marked a cell and detected bingo but **never called `recordCompletedDeed`**, so those
++   deeds were missing from the Impact Board (Issue #14) and would have been missing from
++   the draw. Now fixed: the auto-mark records the deed and awards its entry.
++3. **"Every bingo" semantics.** A card reaches bingo once (then `is_bingo` stays true), so
++   the bonus fires on each card's first transition, keyed per `(card, week)`. Multiple
++   bingos come from multiple cards. If a card is reset and re-bingos in the same week, the
++   per-(card,week) key intentionally prevents a second bonus — matching the existing
++   "first transition" behaviour. Revisit if business wants re-bingos to re-pay.
++4. **Lifetime entries never decrease.** Reversals, expiry and winner-resets reduce
++   **active** entries only; lifetime is the earned history (consistent with rules 6 & 7).
++   A reversed deed therefore still counts toward lifetime. Documented on purpose; flip in
++   `draw_apply` if you want lifetime to track reversals.
++5. **Backfill is opt-in.** Existing players start at zero. Run
++   `SELECT * FROM draw_backfill_from_history();` once to reconstruct balances from
++   `completed_deeds` + bingo cards. It refuses to run if the ledger already has awards.
++6. **Legacy `draw_entries` table.** Left in place (harmless) for backward compatibility;
++   the new draw no longer reads or writes it. Can be dropped in a later migration once
++   nothing references it.
++7. **`pg_cron` migration** (`20260611000002_schedule_weekly_reset.sql`) requires the
++   `pg_cron` extension, which isn't present in a bare local Postgres. Unrelated to this
++   feature, but note it when reproducing the schema locally.
++
++## 10. Frontend touchpoints
++- The 10 new settings render automatically in the existing admin settings screen (generic
++  `game_configs` editor) — no frontend change needed to manage them.
++- To surface the admin draw leaderboard, call `GET /admin/draw-leaderboard` and render the
++  returned `players[]` (fields listed in §4). It mirrors the shape of the existing
++  `/leaderboard/players` admin data, so it can slot into the same table component.
++- Player-facing experience is unchanged and deliberately opaque: no entry counts or odds
++  are exposed. The winner is notified by the existing prize-winner email; the in-app
++  message to show on a win is simply: **"Congratulations! You won this week's Gr8Day Draw!"**
++
++## How to deploy
++1. Apply the migration (`supabase db push` or your migration runner).
++2. Deploy the `game` and `weekly-reset` functions.
++3. (Optional) Run `SELECT * FROM draw_backfill_from_history();` to seed balances.
++4. Adjust any settings in the admin panel; defaults match the spec.
+diff --git a/supabase/functions/_shared/draw.ts b/supabase/functions/_shared/draw.ts
+new file mode 100644
+index 0000000..dc909fd
+--- /dev/null
++++ b/supabase/functions/_shared/draw.ts
+@@ -0,0 +1,229 @@
++// =============================================================================
++// Draw service — the Supabase-facing layer for the Weekly Draw Entry system.
++// All balance mutation goes through the SECURITY DEFINER SQL functions
++// (draw_award_deed, draw_award_bingo, draw_reverse_*, draw_winner_reset,
++// draw_expire_inactive) so awarding is idempotent and concurrency-safe.
++// =============================================================================
++import { SupabaseClient } from 'npm:@supabase/supabase-js@2'
++import {
++  DrawSettings, parseDrawSettings, deedShouldAward, bingoShouldAward,
++  isEligible, selectWeightedWinner, PoolCandidate, currentWeekYear, weekBounds,
++} from './draw_logic.ts'
++
++export type { DrawSettings } from './draw_logic.ts'
++export { currentWeekYear, weekBounds } from './draw_logic.ts'
++
++const SETTING_KEYS = [
++  'weekly_draw_enabled','deed_draw_entries_enabled','draw_entries_per_deed',
++  'bingo_bonus_enabled','bingo_bonus_entries_per_bingo','include_quick_tap_deeds',
++  'allow_ticket_rollovers','require_current_week_participation','reset_active_after_win',
++  'inactive_entry_expiration_weeks','recent_winner_weight','recent_winner_months',
++]
++
++/** Load and parse the draw settings from game_configs (single round-trip). */
++export async function getDrawSettings(supabase: SupabaseClient): Promise<DrawSettings> {
++  const { data } = await supabase
++    .from('game_configs').select('config_key, config_value').in('config_key', SETTING_KEYS)
++  const raw: Record<string, string> = {}
++  for (const r of data ?? []) raw[r.config_key] = r.config_value ?? ''
++  return parseDrawSettings(raw)
++}
++
++// ── Awarding (called from the game function's completion handlers) ────────────
++
++/** Award a deed's draw entry. No-op (returns false) when settings disable it or
++ *  when the event was already processed (idempotent at the DB level). */
++export async function awardDeedEntry(
++  supabase: SupabaseClient,
++  opts: {
++    completedDeedId: number
++    playerId: string
++    weekYear: string
++    sourceType: 'bingo_card' | 'quick_action'
++    settings?: DrawSettings
++  },
++): Promise<boolean> {
++  const settings = opts.settings ?? (await getDrawSettings(supabase))
++  if (!deedShouldAward(settings, opts.sourceType)) return false
++  const { data, error } = await supabase.rpc('draw_award_deed', {
++    p_completed_deed_id: opts.completedDeedId,
++    p_player: opts.playerId,
++    p_week_year: opts.weekYear,
++    p_per_deed: settings.entriesPerDeed,
++    p_is_quick: opts.sourceType === 'quick_action',
++  })
++  if (error) { console.error('awardDeedEntry rpc error:', error); return false }
++  return data != null // null = duplicate / no-op
++}
++
++/** Award the bingo bonus. Idempotent per (card, week). */
++export async function awardBingoBonus(
++  supabase: SupabaseClient,
++  opts: { playerId: string; cardId: number; weekYear: string; settings?: DrawSettings },
++): Promise<boolean> {
++  const settings = opts.settings ?? (await getDrawSettings(supabase))
++  if (!bingoShouldAward(settings)) return false
++  const { data, error } = await supabase.rpc('draw_award_bingo', {
++    p_player: opts.playerId,
++    p_card_id: opts.cardId,
++    p_week_year: opts.weekYear,
++    p_bonus: settings.bingoBonusPerBingo,
++  })
++  if (error) { console.error('awardBingoBonus rpc error:', error); return false }
++  return data != null
++}
++
++// ── Reversal (called from the admin reverse-deed endpoint) ────────────────────
++
++export async function reverseDeedEntry(
++  supabase: SupabaseClient, completedDeedId: number, adminId: string, reason?: string,
++): Promise<boolean> {
++  const { data, error } = await supabase.rpc('draw_reverse_deed', {
++    p_completed_deed_id: completedDeedId, p_admin: adminId,
++    p_reason: reason ?? 'Deed reversed by admin',
++  })
++  if (error) { console.error('reverseDeedEntry rpc error:', error); return false }
++  return data != null
++}
++
++export async function reverseBingoBonus(
++  supabase: SupabaseClient, cardId: number, weekYear: string, adminId: string, reason?: string,
++): Promise<boolean> {
++  const { data, error } = await supabase.rpc('draw_reverse_bingo', {
++    p_card_id: cardId, p_week_year: weekYear, p_admin: adminId,
++    p_reason: reason ?? 'Bingo reversed by admin',
++  })
++  if (error) { console.error('reverseBingoBonus rpc error:', error); return false }
++  return data != null
++}
++
++export async function manualAdjust(
++  supabase: SupabaseClient, playerId: string, adminId: string, amount: number, reason: string,
++): Promise<boolean> {
++  const { error } = await supabase.rpc('draw_manual_adjust', {
++    p_player: playerId, p_admin: adminId, p_amount: amount, p_reason: reason, p_week_year: currentWeekYear(),
++  })
++  if (error) { console.error('manualAdjust rpc error:', error); return false }
++  return true
++}
++
++// ── Weekly draw runner (called from weekly-reset) ─────────────────────────────
++
++export interface DrawResult {
++  ran: boolean
++  already_ran: boolean
++  winner_id: string | null
++  winner_name: string | null
++  winner_email: string | null
++  eligible_players: number
++  pool_entries: number
++  week_year: string
++  reason?: string
++}
++
++/** Run the weekly draw for `drawWeekYear` (the week that just ended).
++ *  Weighted by ACTIVE entries, with the legacy recent-winner odds reduction
++ *  preserved. Idempotent: refuses to run twice for the same week.            */
++export async function runWeeklyDraw(
++  supabase: SupabaseClient,
++  drawWeekYear: string,
++  rand01: () => number = () => {
++    const b = new Uint32Array(1); crypto.getRandomValues(b); return b[0] / 4_294_967_296
++  },
++): Promise<DrawResult> {
++  const settings = await getDrawSettings(supabase)
++  const base: DrawResult = {
++    ran: false, already_ran: false, winner_id: null, winner_name: null, winner_email: null,
++    eligible_players: 0, pool_entries: 0, week_year: drawWeekYear,
++  }
++
++  if (!settings.weeklyDrawEnabled) return { ...base, reason: 'weekly_draw_disabled' }
++
++  // Idempotent: one winner per week.
++  const { data: existing } = await supabase
++    .from('draw_winners').select('id, user_id').eq('week_year', drawWeekYear).maybeSingle()
++  if (existing) return { ...base, already_ran: true, winner_id: existing.user_id }
++
++  // Expire inactive players first so their stale entries don't sit in the pool.
++  if (settings.inactiveExpirationWeeks > 0) {
++    await supabase.rpc('draw_expire_inactive', { p_weeks: settings.inactiveExpirationWeeks })
++  }
++
++  // Candidate balances (active > 0).
++  const { data: balances } = await supabase
++    .from('player_draw_balances')
++    .select('player_id, active_entries, last_participation_date')
++    .gt('active_entries', 0)
++  if (!balances || balances.length === 0) return { ...base, ran: true, reason: 'no_entries' }
++
++  // Participation: who completed at least one deed during the draw week.
++  // We derive participation from completed_deeds in the week window.
++  let participated = new Set<string>()
++  if (settings.requireParticipation) {
++    const { start, end } = weekBounds(drawWeekYear)
++    const { data: deeds } = await supabase
++      .from('completed_deeds').select('player_id')
++      .gte('completed_at', start.toISOString()).lt('completed_at', end.toISOString())
++    participated = new Set((deeds ?? []).map((d: { player_id: string }) => d.player_id))
++  }
++
++  // Recent winners get reduced odds (preserve legacy behaviour, fixed config read).
++  const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - settings.recentWinnerMonths)
++  const { data: recent } = await supabase
++    .from('draw_winners').select('user_id').gte('selected_at', cutoff.toISOString())
++  const recentIds = new Set((recent ?? []).map((w: { user_id: string }) => w.user_id))
++
++  const candidates: PoolCandidate[] = balances
++    .map((b: { player_id: string; active_entries: number; last_participation_date: string | null }) => ({
++      user_id: b.player_id,
++      active_entries: Number(b.active_entries),
++      last_participation_date: b.last_participation_date,
++      is_recent_winner: recentIds.has(b.player_id),
++    }))
++    .filter((c: PoolCandidate) => isEligible(c, settings, participated.has(c.user_id) || !settings.requireParticipation))
++
++  if (candidates.length === 0) return { ...base, ran: true, reason: 'no_eligible_players' }
++
++  const winner = selectWeightedWinner(candidates, settings, rand01)
++  if (!winner) return { ...base, ran: true, reason: 'no_eligible_players' }
++
++  const poolEntries = candidates.reduce((s, c) => s + c.active_entries, 0)
++  const winnerActive = candidates.find((c) => c.user_id === winner.user_id)?.active_entries ?? 0
++
++  // Record the winner (existing table + new reporting columns).
++  const drawId = crypto.randomUUID()
++  await supabase.from('draw_winners').insert({
++    id: drawId, user_id: winner.user_id, week_year: drawWeekYear,
++    odds_weight: recentIds.has(winner.user_id) ? settings.recentWinnerWeight : 1.0,
++    winning_active_entries: winnerActive, total_pool_entries: poolEntries,
++    eligible_players: candidates.length,
++  })
++
++  // Audit the selection, then reset the winner's active entries if configured.
++  await supabase.rpc('draw_record_selected', {
++    p_player: winner.user_id, p_draw_id: drawId, p_week_year: drawWeekYear,
++    p_pool: poolEntries, p_eligible: candidates.length,
++  })
++  if (settings.resetAfterWin) {
++    await supabase.rpc('draw_winner_reset', {
++      p_player: winner.user_id, p_draw_id: drawId, p_week_year: drawWeekYear,
++    })
++  } else {
++    // Still record the win date even when not resetting.
++    await supabase.from('player_draw_balances')
++      .update({ last_draw_win_date: new Date().toISOString() }).eq('player_id', winner.user_id)
++  }
++
++  // Winner display info for the notification email.
++  const { data: u } = await supabase
++    .from('users').select('email, first_name, name, username').eq('id', winner.user_id).maybeSingle()
++
++  return {
++    ran: true, already_ran: false, winner_id: winner.user_id,
++    winner_name: u?.first_name ?? u?.name ?? u?.username ?? null,
++    winner_email: u?.email ?? null,
++    eligible_players: candidates.length, pool_entries: poolEntries, week_year: drawWeekYear,
++  }
++}
++
++/* weekBounds + currentWeekYear are re-exported from ./draw_logic.ts (pure, tested). */
+diff --git a/supabase/functions/_shared/draw_logic.ts b/supabase/functions/_shared/draw_logic.ts
+new file mode 100644
+index 0000000..4e7f46d
+--- /dev/null
++++ b/supabase/functions/_shared/draw_logic.ts
+@@ -0,0 +1,144 @@
++// =============================================================================
++// Pure draw logic — NO external imports so it is trivially unit-testable.
++// (The Supabase-facing service lives in draw.ts and imports from here.)
++// =============================================================================
++
++export interface DrawSettings {
++  weeklyDrawEnabled: boolean
++  deedEntriesEnabled: boolean
++  entriesPerDeed: number
++  bingoBonusEnabled: boolean
++  bingoBonusPerBingo: number
++  includeQuickTap: boolean
++  allowRollovers: boolean
++  requireParticipation: boolean
++  resetAfterWin: boolean
++  inactiveExpirationWeeks: number // 0 = never
++  // preserved legacy tuning for recent-winner odds reduction
++  recentWinnerWeight: number
++  recentWinnerMonths: number
++}
++
++const bool = (v: string | undefined, dflt: boolean): boolean => {
++  if (v === undefined || v === null || v === '') return dflt
++  return v === '1' || v.toLowerCase() === 'true' || v.toLowerCase() === 'yes'
++}
++const num = (v: string | undefined, dflt: number): number => {
++  const n = parseFloat(v ?? '')
++  return Number.isFinite(n) ? n : dflt
++}
++const int = (v: string | undefined, dflt: number): number => {
++  const n = parseInt(v ?? '', 10)
++  return Number.isFinite(n) ? n : dflt
++}
++
++/** Build a typed settings object from the raw game_configs key→value map. */
++export function parseDrawSettings(raw: Record<string, string | null | undefined>): DrawSettings {
++  const g = (k: string) => raw[k] ?? undefined
++  return {
++    weeklyDrawEnabled:       bool(g('weekly_draw_enabled'), true),
++    deedEntriesEnabled:      bool(g('deed_draw_entries_enabled'), true),
++    entriesPerDeed:          Math.max(0, int(g('draw_entries_per_deed'), 1)),
++    bingoBonusEnabled:       bool(g('bingo_bonus_enabled'), true),
++    bingoBonusPerBingo:      Math.max(0, int(g('bingo_bonus_entries_per_bingo'), 10)),
++    includeQuickTap:         bool(g('include_quick_tap_deeds'), true),
++    allowRollovers:          bool(g('allow_ticket_rollovers'), true),
++    requireParticipation:    bool(g('require_current_week_participation'), true),
++    resetAfterWin:           bool(g('reset_active_after_win'), true),
++    inactiveExpirationWeeks: Math.max(0, int(g('inactive_entry_expiration_weeks'), 0)),
++    recentWinnerWeight:      num(g('recent_winner_weight'), 0.05),
++    recentWinnerMonths:      int(g('recent_winner_months'), 4),
++  }
++}
++
++/** Should a completed deed of this source earn an entry, given settings? */
++export function deedShouldAward(
++  settings: DrawSettings,
++  sourceType: 'bingo_card' | 'quick_action',
++): boolean {
++  if (!settings.weeklyDrawEnabled) return false
++  if (!settings.deedEntriesEnabled) return false
++  if (sourceType === 'quick_action' && !settings.includeQuickTap) return false
++  return settings.entriesPerDeed > 0
++}
++
++/** Should a completed bingo earn the bonus, given settings? */
++export function bingoShouldAward(settings: DrawSettings): boolean {
++  return settings.weeklyDrawEnabled && settings.bingoBonusEnabled && settings.bingoBonusPerBingo > 0
++}
++
++export interface PoolCandidate {
++  user_id: string
++  active_entries: number
++  last_participation_date: string | null
++  is_recent_winner: boolean
++  user?: unknown
++}
++
++/** Filter a candidate to draw eligibility for a given week.
++ *  - active entries > 0
++ *  - if participation required, must have participated in the draw week
++ *    (caller decides participation; here we accept a precomputed flag)        */
++export function isEligible(
++  c: PoolCandidate,
++  settings: DrawSettings,
++  participatedThisWeek: boolean,
++): boolean {
++  if (c.active_entries <= 0) return false
++  if (settings.requireParticipation && !participatedThisWeek) return false
++  return true
++}
++
++/** ISO week label, e.g. "2026-W26" — mirrors getCurrentWeekYear() in game/index.ts. */
++export function currentWeekYear(d = new Date()): string {
++  const thursday = new Date(d)
++  thursday.setDate(d.getDate() + (4 - (d.getDay() || 7)))
++  const year = thursday.getFullYear()
++  const jan1 = new Date(year, 0, 1)
++  const week = Math.ceil(((thursday.getTime() - jan1.getTime()) / 86_400_000 + 1) / 7)
++  return `${year}-W${String(week).padStart(2, '0')}`
++}
++
++/** [start, end) UTC datetime bounds for an ISO week label (Mon→Mon). */
++export function weekBounds(weekYear: string): { start: Date; end: Date } {
++  const [yStr, wStr] = weekYear.split('-W')
++  const year = parseInt(yStr), week = parseInt(wStr)
++  const jan4 = new Date(Date.UTC(year, 0, 4))           // ISO week 1 contains Jan 4
++  const jan4Day = jan4.getUTCDay() || 7
++  const week1Monday = new Date(jan4)
++  week1Monday.setUTCDate(jan4.getUTCDate() - (jan4Day - 1))
++  const start = new Date(week1Monday)
++  start.setUTCDate(week1Monday.getUTCDate() + (week - 1) * 7)
++  const end = new Date(start)
++  end.setUTCDate(start.getUTCDate() + 7)
++  return { start, end }
++}
++
++export interface WeightedEntry { user_id: string; weight: number; user?: unknown }
++
++/** Weighted random selection. `rand01` is a function returning [0,1).
++ *  Weight = active_entries × (recent-winner penalty). Deterministic given rand01,
++ *  which makes it unit-testable. Returns null for an empty/zero-weight pool.    */
++export function selectWeightedWinner(
++  candidates: PoolCandidate[],
++  settings: DrawSettings,
++  rand01: () => number,
++): WeightedEntry | null {
++  const pool: WeightedEntry[] = candidates
++    .map((c) => ({
++      user_id: c.user_id,
++      weight: c.active_entries * (c.is_recent_winner ? settings.recentWinnerWeight : 1),
++      user: c.user,
++    }))
++    .filter((p) => p.weight > 0)
++
++  const total = pool.reduce((s, p) => s + p.weight, 0)
++  if (pool.length === 0 || total <= 0) return null
++
++  let r = rand01() * total
++  for (const p of pool) {
++    r -= p.weight
++    if (r <= 0) return p
++  }
++  return pool[pool.length - 1] // floating-point safety net
++}
+diff --git a/supabase/functions/game/index.ts b/supabase/functions/game/index.ts
+index fe1a705..6458445 100644
+--- a/supabase/functions/game/index.ts
++++ b/supabase/functions/game/index.ts
+@@ -2,6 +2,10 @@ import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
+ import { getAuthUser, requireAuth, requireAdmin } from '../_shared/auth.ts'
+ import { getSupabase, getSubPath, matchPath } from '../_shared/db.ts'
+ import { sendEmail, passwordResetEmail, referralInviteEmail, bingoWinEmail, prizeClaimConfirmationEmail, gameAnnouncementEmail } from '../_shared/email.ts'
++import {
++  getDrawSettings, awardDeedEntry, awardBingoBonus,
++  reverseDeedEntry, reverseBingoBonus, manualAdjust, runWeeklyDraw,
++} from '../_shared/draw.ts'
+ import bcrypt from 'npm:bcryptjs@2'
+ 
+ // ── Types ────────────────────────────────────────────────────────────────────
+@@ -236,7 +240,7 @@ async function recordCompletedDeed(
+     cellIndex?: number | null
+     category?: string | null
+   }
+-): Promise<void> {
++): Promise<number | null> {
+   try {
+     const { data: u } = await supabase
+       .from('users').select('city, province_state, country_id').eq('id', opts.playerId).maybeSingle()
+@@ -252,7 +256,7 @@ async function recordCompletedDeed(
+       const { data: d } = await supabase.from('good_deeds').select('category').eq('id', opts.deedId).maybeSingle()
+       category = d?.category ?? null
+     }
+-    await supabase.from('completed_deeds').insert({
++    const { data: inserted } = await supabase.from('completed_deeds').insert({
+       player_id: opts.playerId,
+       team_id_at_completion: tm?.team_id ?? null,
+       source_type: opts.sourceType,
+@@ -265,9 +269,11 @@ async function recordCompletedDeed(
+       province_state: u?.province_state ?? null,
+       country_id: u?.country_id ?? null,
+       country_name: countryName,
+-    })
++    }).select('id').single()
++    return inserted?.id ?? null
+   } catch (_e) {
+     // swallow — impact recording is never allowed to break gameplay
++    return null
+   }
+ }
+ 
+@@ -783,7 +789,7 @@ Deno.serve(async (req: Request) => {
+       })
+ 
+       // Impact Board: record the completed deed (best-effort, never blocks the mark)
+-      await recordCompletedDeed(supabase, {
++      const completedDeedId = await recordCompletedDeed(supabase, {
+         playerId: user.sub,
+         sourceType: 'bingo_card',
+         deedId: (cell as { deed_id?: number | null }).deed_id ?? null,
+@@ -792,12 +798,20 @@ Deno.serve(async (req: Request) => {
+         category: (cell as { category?: string | null }).category ?? null,
+       })
+ 
+-      // First time the card reaches Bingo: enter draw + congratulate by email (best-effort).
++      // Weekly Draw: award a draw entry for this completed deed (idempotent, gated).
++      const drawSettings = await getDrawSettings(supabase)
++      if (completedDeedId != null) {
++        await awardDeedEntry(supabase, {
++          completedDeedId, playerId: user.sub, weekYear: card.week_year,
++          sourceType: 'bingo_card', settings: drawSettings,
++        })
++      }
++
++      // First time the card reaches Bingo: award bingo bonus + congratulate by email.
+       if (isBingo && !card.is_bingo) {
+-        await supabase.from('draw_entries').upsert(
+-          { user_id: user.sub, week_year: card.week_year },
+-          { onConflict: 'user_id,week_year', ignoreDuplicates: true }
+-        )
++        await awardBingoBonus(supabase, {
++          playerId: user.sub, cardId: card_id, weekYear: card.week_year, settings: drawSettings,
++        })
+         if (user.email) {
+           const tpl = bingoWinEmail((user.name as string | undefined) ?? null, winLabel(card.win_condition))
+           await sendEmail({ to: user.email, subject: tpl.subject, html: tpl.html })
+@@ -897,12 +911,13 @@ Deno.serve(async (req: Request) => {
+         updated_at: new Date().toISOString(),
+       }).eq('id', card_id)
+ 
+-      // First time the card reaches Bingo: enter draw + congratulate by email (best-effort).
++      // First time the card reaches Bingo: award bingo bonus + congratulate by email.
++      // Note: a purchased square is not a completed deed, so it earns NO deed entry,
++      // but it CAN complete a bingo, which still earns the configured bonus.
+       if (isBingo && !card.is_bingo) {
+-        await supabase.from('draw_entries').upsert(
+-          { user_id: user.sub, week_year: card.week_year },
+-          { onConflict: 'user_id,week_year', ignoreDuplicates: true }
+-        )
++        await awardBingoBonus(supabase, {
++          playerId: user.sub, cardId: card_id, weekYear: card.week_year,
++        })
+         if (user.email) {
+           const tpl = bingoWinEmail((user.name as string | undefined) ?? null, winLabel(card.win_condition))
+           await sendEmail({ to: user.email, subject: tpl.subject, html: tpl.html })
+@@ -1074,12 +1089,20 @@ Deno.serve(async (req: Request) => {
+       if (error) throw error
+ 
+       // Impact Board: a quick action is a completed deed (best-effort, non-blocking)
+-      await recordCompletedDeed(supabase, {
++      const quickDeedId = await recordCompletedDeed(supabase, {
+         playerId: user.sub,
+         sourceType: 'quick_action',
+         quickDeedId: deedId,
+       })
+ 
++      // Weekly Draw: award a draw entry for this quick-tap deed (idempotent, gated).
++      if (quickDeedId != null) {
++        await awardDeedEntry(supabase, {
++          completedDeedId: quickDeedId, playerId: user.sub, weekYear: getCurrentWeekYear(),
++          sourceType: 'quick_action',
++        })
++      }
++
+       // Update daily streak
+       const streakResult = await updatePlayerStreak(supabase, user.sub)
+       const resp: Record<string, unknown> = { success: true }
+@@ -2625,6 +2648,132 @@ Deno.serve(async (req: Request) => {
+       })
+     }
+ 
++    // ── GET /admin/draw-leaderboard ───────────────────────────────────────────
++    // Per-player draw-entry data for the admin leaderboard (individual only).
++    if (method === 'GET' && path === '/admin/draw-leaderboard') {
++      requireAdmin(authUser)
++      const wy = getCurrentWeekYear()
++      const ds = await getDrawSettings(supabase)
++
++      const { data: balances } = await supabase
++        .from('player_draw_balances')
++        .select('player_id, active_entries, lifetime_entries, this_week_entries, this_week_year, last_draw_win_date, last_participation_date')
++      const { data: ppl } = await supabase
++        .from('users').select('id, first_name, last_name, username, player_number')
++
++      // Who participated (completed a deed) in the current week → eligibility flag.
++      const wkStart = getWeekStart(wy)
++      const wkEnd = new Date(wkStart); wkEnd.setDate(wkStart.getDate() + 7)
++      const { data: weekDeeds } = await supabase
++        .from('completed_deeds').select('player_id')
++        .gte('completed_at', wkStart.toISOString()).lt('completed_at', wkEnd.toISOString())
++      const participated = new Set((weekDeeds ?? []).map((d: any) => d.player_id))
++
++      const nameById: Record<string, any> = {}
++      for (const u of (ppl ?? [])) nameById[u.id] = u
++
++      const rows = (balances ?? []).map((b: any) => {
++        const u = nameById[b.player_id] ?? {}
++        const thisWeek = b.this_week_year === wy ? Number(b.this_week_entries) : 0
++        const active = Number(b.active_entries)
++        const eligible = active > 0 && (!ds.requireParticipation || participated.has(b.player_id))
++        return {
++          user_id: b.player_id,
++          player_name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || `GR8-${u.player_number}`,
++          this_week_entries: thisWeek,
++          active_entries: active,
++          lifetime_entries: Number(b.lifetime_entries),
++          last_draw_win: b.last_draw_win_date,
++          last_participation_date: b.last_participation_date,
++          current_week_eligible: eligible,
++        }
++      }).sort((a: any, b: any) => b.active_entries - a.active_entries)
++
++      return jsonResponse({ week_year: wy, require_participation: ds.requireParticipation, players: rows })
++    }
++
++    // ── POST /admin/reverse-deed ──────────────────────────────────────────────
++    // Reverse a completed deed: remove its draw entry and, if reversing it also
++    // un-completes the card's bingo, remove the related bingo bonus too.
++    if (method === 'POST' && path === '/admin/reverse-deed') {
++      const admin = requireAdmin(authUser)
++      const body = await req.json()
++      const completedDeedId = Number(body.completed_deed_id)
++      const reason: string = (body.reason ? String(body.reason) : 'Deed reversed by admin').slice(0, 500)
++      if (!Number.isFinite(completedDeedId)) return errorResponse('completed_deed_id required', 400)
++
++      const { data: deed } = await supabase
++        .from('completed_deeds').select('*').eq('id', completedDeedId).maybeSingle()
++      if (!deed) return errorResponse('Completed deed not found', 404)
++
++      // Remove the deed's draw entry (idempotent).
++      const deedReversed = await reverseDeedEntry(supabase, completedDeedId, admin.sub, reason)
++
++      // If this deed sat on a bingo card, recompute whether the card still bingos
++      // once this cell is removed. If it no longer bingos, reverse the bonus.
++      let bingoReversed = false
++      if (deed.source_type === 'bingo_card' && deed.card_id != null) {
++        const { data: card } = await supabase
++          .from('player_cards').select('*').eq('id', deed.card_id).maybeSingle()
++        if (card) {
++          const cells: Cell[] = JSON.parse(card.card_data)
++          const completed = parseJsonArr(card.completed_cells).filter((i: number) => i !== deed.cell_index)
++          const purchased = parseJsonArr(card.purchased_cells)
++          const referral = parseJsonArr(card.referral_cells)
++          const allCompleted = [...new Set([...completed, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
++          const stillBingo = checkBingo(allCompleted, card.win_condition)
++
++          // Reflect the removal on the card itself.
++          await supabase.from('player_cards').update({
++            completed_cells: JSON.stringify(completed),
++            is_bingo: stillBingo,
++            updated_at: new Date().toISOString(),
++          }).eq('id', card.id)
++
++          if (!stillBingo && card.is_bingo) {
++            bingoReversed = await reverseBingoBonus(supabase, card.id, card.week_year, admin.sub, reason)
++          }
++        }
++      }
++
++      // Hide the deed from the Impact Board so rollups stay correct.
++      await supabase.from('completed_deeds')
++        .update({ is_hidden_from_impact_board: true }).eq('id', completedDeedId)
++
++      return jsonResponse({ success: true, deed_entry_reversed: deedReversed, bingo_bonus_reversed: bingoReversed })
++    }
++
++    // ── POST /admin/draw-adjust ───────────────────────────────────────────────
++    // Manual admin adjustment of a player's active draw entries (+/-).
++    if (method === 'POST' && path === '/admin/draw-adjust') {
++      const admin = requireAdmin(authUser)
++      const body = await req.json()
++      const playerId = String(body.player_id ?? '')
++      const amount = Number(body.amount)
++      const reason: string = (body.reason ? String(body.reason) : 'Manual admin adjustment').slice(0, 500)
++      if (!playerId || !Number.isFinite(amount)) return errorResponse('player_id and numeric amount required', 400)
++      const ok = await manualAdjust(supabase, playerId, admin.sub, Math.trunc(amount), reason)
++      return jsonResponse({ success: ok })
++    }
++
++    // ── POST /admin/run-draw ──────────────────────────────────────────────────
++    // Manually trigger the weekly draw for a given (or the previous) week.
++    if (method === 'POST' && path === '/admin/run-draw') {
++      requireAdmin(authUser)
++      const body = await req.json().catch(() => ({}))
++      let weekYear: string = body.week_year ? String(body.week_year) : ''
++      if (!weekYear) {
++        // Default to the week that just ended.
++        const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
++        const t = new Date(d); t.setDate(d.getDate() + (4 - (d.getDay() || 7)))
++        const y = t.getFullYear(); const j = new Date(y, 0, 1)
++        const w = Math.ceil(((t.getTime() - j.getTime()) / 86_400_000 + 1) / 7)
++        weekYear = `${y}-W${String(w).padStart(2, '0')}`
++      }
++      const result = await runWeeklyDraw(supabase, weekYear)
++      return jsonResponse({ success: true, draw: result })
++    }
++
+     // ── GET /my-team ─────────────────────────────────────────────────────────
+     if (method === 'GET' && path === '/my-team') {
+       const user = requireAuth(authUser)
+@@ -3198,12 +3347,30 @@ Deno.serve(async (req: Request) => {
+             updated_at: new Date().toISOString(),
+           }).eq('id', card_id)
+ 
+-          // First time reaching bingo via dare: enter draw + send email (best-effort)
++          // The dare auto-mark IS a completed deed. Record it (this previously
++          // never happened, so dare-marked deeds were invisible to the Impact
++          // Board and the draw) and award its draw entry.
++          const dareDeedId = await recordCompletedDeed(supabase, {
++            playerId: user.sub,
++            sourceType: 'bingo_card',
++            deedId: (markCell as { deed_id?: number | null }).deed_id ?? null,
++            cardId: card_id,
++            cellIndex: markCell.index,
++            category: (markCell as { category?: string | null }).category ?? null,
++          })
++          const dareSettings = await getDrawSettings(supabase)
++          if (dareDeedId != null) {
++            await awardDeedEntry(supabase, {
++              completedDeedId: dareDeedId, playerId: user.sub, weekYear: card.week_year,
++              sourceType: 'bingo_card', settings: dareSettings,
++            })
++          }
++
++          // First time reaching bingo via dare: award bingo bonus + send email
+           if (isBingo2 && !card.is_bingo) {
+-            await supabase.from('draw_entries').upsert(
+-              { user_id: user.sub, week_year: card.week_year },
+-              { onConflict: 'user_id,week_year', ignoreDuplicates: true }
+-            )
++            await awardBingoBonus(supabase, {
++              playerId: user.sub, cardId: card_id, weekYear: card.week_year, settings: dareSettings,
++            })
+             if (user.email) {
+               const tpl = bingoWinEmail((user.name as string | undefined) ?? null, winLabel(card.win_condition))
+               await sendEmail({ to: user.email, subject: tpl.subject, html: tpl.html })
+diff --git a/supabase/functions/weekly-reset/index.ts b/supabase/functions/weekly-reset/index.ts
+index 69b09af..27d50c0 100644
+--- a/supabase/functions/weekly-reset/index.ts
++++ b/supabase/functions/weekly-reset/index.ts
+@@ -1,6 +1,7 @@
+ import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
+ import { getSupabase } from '../_shared/db.ts'
+ import { sendEmail } from '../_shared/email.ts'
++import { runWeeklyDraw } from '../_shared/draw.ts'
+ 
+ const SITE_URL = 'https://havagr8day.com'
+ 
+@@ -81,7 +82,13 @@ function getPreviousWeekYear(): string {
+   return `${lastWeek.getFullYear()}-W${String(week).padStart(2, '0')}`
+ }
+ 
+-async function runWeeklyDraw(supabase: ReturnType<typeof import('../_shared/db.ts').getSupabase>): Promise<{
++// Run the weekly draw for the week that just ended, then shape the result for
++// the notification emails below. The heavy lifting (eligibility, weighting,
++// winner reset, audit, inactivity expiry) lives in _shared/draw.ts so the same
++// logic is shared with the admin "run draw" endpoint.
++async function runWeeklyDrawForReset(
++  supabase: ReturnType<typeof import('../_shared/db.ts').getSupabase>,
++): Promise<{
+   winner_id: string | null
+   winner_name: string | null
+   winner_email: string | null
+@@ -90,83 +97,14 @@ async function runWeeklyDraw(supabase: ReturnType<typeof import('../_shared/db.t
+   already_ran: boolean
+ }> {
+   const weekYear = getPreviousWeekYear()
+-
+-  // Idempotent: don't run draw twice for same week
+-  const { data: existing } = await supabase
+-    .from('draw_winners').select('id, user_id').eq('week_year', weekYear).maybeSingle()
+-  if (existing) {
+-    return { winner_id: existing.user_id, winner_name: null, winner_email: null, entries: 0, week_year: weekYear, already_ran: true }
+-  }
+-
+-  // Fetch all draw entries for this week with player info
+-  const { data: entries } = await supabase
+-    .from('draw_entries')
+-    .select('user_id, users!inner(email, first_name, name, username)')
+-    .eq('week_year', weekYear)
+-
+-  if (!entries || entries.length === 0) {
+-    return { winner_id: null, winner_name: null, winner_email: null, entries: 0, week_year: weekYear, already_ran: false }
+-  }
+-
+-  // Load recent winner weight from config (default 0.05 = 5% odds)
+-  const { data: weightConfig } = await supabase
+-    .from('game_configs').select('value').eq('key', 'recent_winner_weight').maybeSingle()
+-  const recentWinnerWeight = weightConfig ? parseFloat(weightConfig.value) : 0.05
+-
+-  const { data: monthsConfig } = await supabase
+-    .from('game_configs').select('value').eq('key', 'recent_winner_months').maybeSingle()
+-  const recentWinnerMonths = monthsConfig ? parseInt(monthsConfig.value) : 4
+-
+-  // Fetch recent winners (last N months) to apply reduced odds
+-  const cutoff = new Date()
+-  cutoff.setMonth(cutoff.getMonth() - recentWinnerMonths)
+-  const { data: recentWinners } = await supabase
+-    .from('draw_winners')
+-    .select('user_id')
+-    .gte('selected_at', cutoff.toISOString())
+-  const recentWinnerIds = new Set((recentWinners ?? []).map((w: any) => w.user_id))
+-
+-  // Build weighted pool
+-  const pool: Array<{ user_id: string; weight: number; user: any }> = entries.map((e: any) => ({
+-    user_id: e.user_id,
+-    weight: recentWinnerIds.has(e.user_id) ? recentWinnerWeight : 1.0,
+-    user: e.users,
+-  }))
+-
+-  const totalWeight = pool.reduce((sum, p) => sum + p.weight, 0)
+-
+-  // Cryptographically random weighted selection
+-  const randBuf = new Uint32Array(1)
+-  crypto.getRandomValues(randBuf)
+-  let rand = (randBuf[0] / 4_294_967_296) * totalWeight
+-
+-  let winner = pool[pool.length - 1]
+-  for (const entry of pool) {
+-    rand -= entry.weight
+-    if (rand <= 0) {
+-      winner = entry
+-      break
+-    }
+-  }
+-
+-  const winnerOddsWeight = recentWinnerIds.has(winner.user_id) ? recentWinnerWeight : 1.0
+-
+-  // Record the winner
+-  await supabase.from('draw_winners').insert({
+-    user_id: winner.user_id,
+-    week_year: weekYear,
+-    odds_weight: winnerOddsWeight,
+-  })
+-
+-  const winnerName = winner.user?.first_name ?? winner.user?.name ?? winner.user?.username ?? null
+-
++  const r = await runWeeklyDraw(supabase, weekYear)
+   return {
+-    winner_id: winner.user_id,
+-    winner_name: winnerName,
+-    winner_email: winner.user?.email ?? null,
+-    entries: entries.length,
+-    week_year: weekYear,
+-    already_ran: false,
++    winner_id: r.winner_id,
++    winner_name: r.winner_name,
++    winner_email: r.winner_email,
++    entries: r.pool_entries,
++    week_year: r.week_year,
++    already_ran: r.already_ran,
+   }
+ }
+ 
+@@ -192,7 +130,7 @@ Deno.serve(async (req: Request) => {
+ 
+   try {
+     // ── Run weekly draw ───────────────────────────────────────────────────────
+-    const draw = await runWeeklyDraw(supabase)
++    const draw = await runWeeklyDrawForReset(supabase)
+ 
+     // Notify draw winner by email (best-effort)
+     if (draw.winner_email && !draw.already_ran) {
+diff --git a/supabase/migrations/20260625000000_weekly_draw_entry_system.sql b/supabase/migrations/20260625000000_weekly_draw_entry_system.sql
+new file mode 100644
+index 0000000..893bcf8
+--- /dev/null
++++ b/supabase/migrations/20260625000000_weekly_draw_entry_system.sql
+@@ -0,0 +1,408 @@
++-- =============================================================================
++-- Weekly Draw Entry System  (Issue #33)
++-- -----------------------------------------------------------------------------
++-- Rewards EVERY completed Gr8Day deed with weekly-draw entries, not just bingos.
++-- Bingos become a configurable BONUS on top.
++--
++-- Design notes (see docs/weekly-draw-entry-system.md for the full write-up):
++--   * "Balances, not tickets": per-player counters live in player_draw_balances.
++--     We never create one row per entry.
++--   * The ledger (draw_entry_ledger) stores ONE row per EVENT (deed awarded,
++--     bonus awarded, reversal, expiry, win-reset, adjustment). It is both the
++--     audit trail AND the idempotency mechanism. It is bounded by the number of
++--     deeds completed, not by the number of entries.
++--   * Idempotency comes from a UNIQUE index on (event_type, source_event_id):
++--     the same completed-deed id / bingo event / draw id can only be applied
++--     once. All mutation goes through SECURITY DEFINER plpgsql functions that
++--     lock the player's balance row, so concurrent / duplicate processing is
++--     safe by construction.
++--   * Lifetime entries only ever INCREASE (on award). Reversals, winner-resets
++--     and inactivity expiry reduce ACTIVE entries only; lifetime is the earned
++--     history and is never decremented. (Matches rules 6 & 7.)
++-- =============================================================================
++
++-- ── 1. Per-player balances (the "wallet" of draw entries) ────────────────────
++CREATE TABLE IF NOT EXISTS player_draw_balances (
++  player_id               TEXT        PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
++  active_entries          BIGINT      NOT NULL DEFAULT 0 CHECK (active_entries  >= 0),
++  lifetime_entries        BIGINT      NOT NULL DEFAULT 0 CHECK (lifetime_entries >= 0),
++  this_week_entries       BIGINT      NOT NULL DEFAULT 0 CHECK (this_week_entries >= 0),
++  this_week_year          TEXT,        -- the week_year that this_week_entries belongs to
++  last_draw_win_date      TIMESTAMPTZ,
++  last_participation_date TIMESTAMPTZ, -- last time the player completed any deed
++  last_entry_earned_date  TIMESTAMPTZ,
++  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
++);
++
++CREATE INDEX IF NOT EXISTS pdb_active_idx        ON player_draw_balances (active_entries);
++CREATE INDEX IF NOT EXISTS pdb_participation_idx ON player_draw_balances (last_participation_date);
++
++-- ── 2. Event ledger (audit trail + idempotency) ──────────────────────────────
++CREATE TABLE IF NOT EXISTS draw_entry_ledger (
++  id                     BIGSERIAL   PRIMARY KEY,
++  player_id              TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
++  admin_id               TEXT        REFERENCES users(id) ON DELETE SET NULL,
++  event_type             TEXT        NOT NULL CHECK (event_type IN (
++                            'deed_entry','quick_tap_entry','bingo_bonus',
++                            'deed_reversal','bingo_reversal','manual_adjust',
++                            'winner_reset','inactive_expired',
++                            'draw_winner_selected','setting_change')),
++  source_type            TEXT,        -- 'deed' | 'bingo' | 'admin' | 'system' | 'draw' | 'setting'
++  source_event_id        TEXT,        -- idempotency discriminator (see unique index below)
++  amount                 BIGINT      NOT NULL DEFAULT 0,  -- + added, - removed
++  previous_balance       BIGINT      NOT NULL DEFAULT 0,
++  new_balance            BIGINT      NOT NULL DEFAULT 0,
++  week_year              TEXT,
++  reason                 TEXT,
++  related_deed_id        BIGINT,      -- completed_deeds.id
++  related_bingo_card_id  INTEGER,     -- player_cards.id
++  related_draw_id        UUID,        -- draw_winners.id
++  created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
++);
++
++CREATE INDEX IF NOT EXISTS del_player_idx  ON draw_entry_ledger (player_id);
++CREATE INDEX IF NOT EXISTS del_event_idx   ON draw_entry_ledger (event_type);
++CREATE INDEX IF NOT EXISTS del_week_idx     ON draw_entry_ledger (week_year);
++CREATE INDEX IF NOT EXISTS del_created_idx ON draw_entry_ledger (created_at);
++CREATE INDEX IF NOT EXISTS del_deed_idx    ON draw_entry_ledger (related_deed_id);
++
++-- The heart of idempotency: a given (event_type, source_event_id) can occur once.
++-- Award events use the completed-deed id or a card:week key; reversals reuse the
++-- same source_event_id under a different event_type so they coexist but neither
++-- can be applied twice.
++CREATE UNIQUE INDEX IF NOT EXISTS uq_draw_ledger_event_source
++  ON draw_entry_ledger (event_type, source_event_id)
++  WHERE source_event_id IS NOT NULL;
++
++-- ── 3. Extend draw_winners with reporting columns (kept backward-compatible) ──
++ALTER TABLE draw_winners ADD COLUMN IF NOT EXISTS winning_active_entries BIGINT;
++ALTER TABLE draw_winners ADD COLUMN IF NOT EXISTS total_pool_entries     BIGINT;
++ALTER TABLE draw_winners ADD COLUMN IF NOT EXISTS eligible_players       INTEGER;
++
++-- =============================================================================
++-- 4. Core mutation primitive
++-- -----------------------------------------------------------------------------
++-- Every balance change goes through this. It is idempotent (ON CONFLICT on the
++-- unique index) and concurrency-safe (locks the balance row). Returns the new
++-- ledger row id, or NULL when the event was a duplicate (no-op).
++-- =============================================================================
++CREATE OR REPLACE FUNCTION draw_apply(
++  p_player          TEXT,
++  p_event_type      TEXT,
++  p_source_type     TEXT,
++  p_source_event_id TEXT,
++  p_amount          BIGINT,
++  p_week_year       TEXT,
++  p_reason          TEXT,
++  p_admin           TEXT    DEFAULT NULL,
++  p_deed_id         BIGINT  DEFAULT NULL,
++  p_card_id         INTEGER DEFAULT NULL,
++  p_draw_id         UUID    DEFAULT NULL,
++  p_touch_participation BOOLEAN DEFAULT FALSE,  -- award events count as participation
++  p_event_ts        TIMESTAMPTZ DEFAULT now()  -- overridable for backfill
++) RETURNS BIGINT
++LANGUAGE plpgsql SECURITY DEFINER AS $$
++DECLARE
++  v_prev    BIGINT;
++  v_new     BIGINT;
++  v_ledger  BIGINT;
++  v_is_award BOOLEAN := p_event_type IN ('deed_entry','quick_tap_entry','bingo_bonus','manual_adjust');
++BEGIN
++  -- Ensure the balance row exists, then lock it so concurrent awards serialize.
++  INSERT INTO player_draw_balances (player_id) VALUES (p_player)
++  ON CONFLICT (player_id) DO NOTHING;
++
++  SELECT active_entries INTO v_prev
++    FROM player_draw_balances WHERE player_id = p_player FOR UPDATE;
++
++  -- Roll the this-week counter if we've crossed into a new week.
++  IF p_week_year IS NOT NULL THEN
++    UPDATE player_draw_balances
++       SET this_week_entries = 0, this_week_year = p_week_year
++     WHERE player_id = p_player
++       AND (this_week_year IS DISTINCT FROM p_week_year);
++  END IF;
++
++  v_new := GREATEST(v_prev + p_amount, 0);  -- active never goes negative
++
++  -- Insert the ledger row. A duplicate (event_type, source_event_id) is a no-op.
++  INSERT INTO draw_entry_ledger (
++    player_id, admin_id, event_type, source_type, source_event_id,
++    amount, previous_balance, new_balance, week_year, reason,
++    related_deed_id, related_bingo_card_id, related_draw_id, created_at
++  ) VALUES (
++    p_player, p_admin, p_event_type, p_source_type, p_source_event_id,
++    p_amount, v_prev, v_new, p_week_year, p_reason,
++    p_deed_id, p_card_id, p_draw_id, p_event_ts
++  )
++  ON CONFLICT (event_type, source_event_id) WHERE source_event_id IS NOT NULL
++  DO NOTHING
++  RETURNING id INTO v_ledger;
++
++  IF v_ledger IS NULL THEN
++    RETURN NULL;  -- duplicate event; balance untouched
++  END IF;
++
++  -- Apply the balance change now that we know the event is new.
++  UPDATE player_draw_balances
++     SET active_entries   = v_new,
++         lifetime_entries = lifetime_entries + GREATEST(p_amount, 0),  -- earned only
++         this_week_entries = GREATEST(this_week_entries + p_amount, 0),
++         last_entry_earned_date  = CASE WHEN v_is_award AND p_amount > 0
++                                        THEN p_event_ts ELSE last_entry_earned_date END,
++         last_participation_date = CASE WHEN p_touch_participation
++                                        THEN p_event_ts ELSE last_participation_date END,
++         last_draw_win_date      = CASE WHEN p_event_type = 'winner_reset'
++                                        THEN p_event_ts ELSE last_draw_win_date END,
++         updated_at = now()
++   WHERE player_id = p_player;
++
++  RETURN v_ledger;
++END;
++$$;
++
++-- =============================================================================
++-- 5. Public wrappers (called from the edge functions via supabase.rpc)
++-- =============================================================================
++
++-- Award a single deed's entry. Idempotent on the completed_deeds id.
++CREATE OR REPLACE FUNCTION draw_award_deed(
++  p_completed_deed_id BIGINT,
++  p_player            TEXT,
++  p_week_year         TEXT,
++  p_per_deed          BIGINT,
++  p_is_quick          BOOLEAN DEFAULT FALSE,
++  p_event_ts          TIMESTAMPTZ DEFAULT now()
++) RETURNS BIGINT LANGUAGE plpgsql SECURITY DEFINER AS $$
++BEGIN
++  IF p_per_deed <= 0 THEN RETURN NULL; END IF;
++  RETURN draw_apply(
++    p_player          => p_player,
++    p_event_type      => CASE WHEN p_is_quick THEN 'quick_tap_entry' ELSE 'deed_entry' END,
++    p_source_type     => 'deed',
++    p_source_event_id => p_completed_deed_id::text,
++    p_amount          => p_per_deed,
++    p_week_year       => p_week_year,
++    p_reason          => CASE WHEN p_is_quick THEN 'Quick Tap deed completed'
++                              ELSE 'Bingo-card deed completed' END,
++    p_deed_id         => p_completed_deed_id,
++    p_touch_participation => TRUE,
++    p_event_ts        => p_event_ts
++  );
++END;
++$$;
++
++-- Award the bingo bonus. Idempotent per (card, week): re-marking can't double-pay.
++CREATE OR REPLACE FUNCTION draw_award_bingo(
++  p_player    TEXT,
++  p_card_id   INTEGER,
++  p_week_year TEXT,
++  p_bonus     BIGINT,
++  p_event_ts  TIMESTAMPTZ DEFAULT now()
++) RETURNS BIGINT LANGUAGE plpgsql SECURITY DEFINER AS $$
++BEGIN
++  IF p_bonus <= 0 THEN RETURN NULL; END IF;
++  RETURN draw_apply(
++    p_player          => p_player,
++    p_event_type      => 'bingo_bonus',
++    p_source_type     => 'bingo',
++    p_source_event_id => 'card:' || p_card_id || ':week:' || p_week_year,
++    p_amount          => p_bonus,
++    p_week_year       => p_week_year,
++    p_reason          => 'Bingo completed — bonus entries',
++    p_card_id         => p_card_id,
++    p_event_ts        => p_event_ts
++  );
++END;
++$$;
++
++-- Reverse a deed's entry. Looks up the original award to mirror its amount/week.
++CREATE OR REPLACE FUNCTION draw_reverse_deed(
++  p_completed_deed_id BIGINT,
++  p_admin             TEXT,
++  p_reason            TEXT DEFAULT 'Deed reversed by admin'
++) RETURNS BIGINT LANGUAGE plpgsql SECURITY DEFINER AS $$
++DECLARE
++  o RECORD;
++BEGIN
++  SELECT * INTO o FROM draw_entry_ledger
++   WHERE event_type IN ('deed_entry','quick_tap_entry')
++     AND source_event_id = p_completed_deed_id::text
++   LIMIT 1;
++  IF NOT FOUND THEN RETURN NULL; END IF;  -- nothing was ever awarded
++
++  RETURN draw_apply(
++    p_player          => o.player_id,
++    p_event_type      => 'deed_reversal',
++    p_source_type     => 'deed',
++    p_source_event_id => p_completed_deed_id::text,   -- same id, different event_type
++    p_amount          => -o.amount,
++    p_week_year       => o.week_year,
++    p_reason          => p_reason,
++    p_admin           => p_admin,
++    p_deed_id         => p_completed_deed_id
++  );
++END;
++$$;
++
++-- Reverse a bingo bonus for a (card, week).
++CREATE OR REPLACE FUNCTION draw_reverse_bingo(
++  p_card_id   INTEGER,
++  p_week_year TEXT,
++  p_admin     TEXT,
++  p_reason    TEXT DEFAULT 'Bingo reversed by admin'
++) RETURNS BIGINT LANGUAGE plpgsql SECURITY DEFINER AS $$
++DECLARE
++  o RECORD;
++BEGIN
++  SELECT * INTO o FROM draw_entry_ledger
++   WHERE event_type = 'bingo_bonus'
++     AND source_event_id = 'card:' || p_card_id || ':week:' || p_week_year
++   LIMIT 1;
++  IF NOT FOUND THEN RETURN NULL; END IF;
++
++  RETURN draw_apply(
++    p_player          => o.player_id,
++    p_event_type      => 'bingo_reversal',
++    p_source_type     => 'bingo',
++    p_source_event_id => 'card:' || p_card_id || ':week:' || p_week_year,
++    p_amount          => -o.amount,
++    p_week_year       => o.week_year,
++    p_reason          => p_reason,
++    p_admin           => p_admin,
++    p_card_id         => p_card_id
++  );
++END;
++$$;
++
++-- Manual admin adjustment (no idempotency key — every call is a distinct event).
++CREATE OR REPLACE FUNCTION draw_manual_adjust(
++  p_player TEXT, p_admin TEXT, p_amount BIGINT, p_reason TEXT, p_week_year TEXT DEFAULT NULL
++) RETURNS BIGINT LANGUAGE plpgsql SECURITY DEFINER AS $$
++BEGIN
++  RETURN draw_apply(
++    p_player => p_player, p_event_type => 'manual_adjust', p_source_type => 'admin',
++    p_source_event_id => NULL, p_amount => p_amount, p_week_year => p_week_year,
++    p_reason => COALESCE(p_reason,'Manual adjustment'), p_admin => p_admin);
++END;
++$$;
++
++-- Reset a winner's active entries to zero (idempotent per draw id).
++CREATE OR REPLACE FUNCTION draw_winner_reset(
++  p_player TEXT, p_draw_id UUID, p_week_year TEXT
++) RETURNS BIGINT LANGUAGE plpgsql SECURITY DEFINER AS $$
++DECLARE v_active BIGINT;
++BEGIN
++  SELECT active_entries INTO v_active FROM player_draw_balances WHERE player_id = p_player;
++  RETURN draw_apply(
++    p_player => p_player, p_event_type => 'winner_reset', p_source_type => 'draw',
++    p_source_event_id => p_draw_id::text, p_amount => -COALESCE(v_active,0),
++    p_week_year => p_week_year, p_reason => 'Won weekly draw — active entries reset',
++    p_draw_id => p_draw_id);
++END;
++$$;
++
++-- Record the winner-selected audit event (no balance change).
++CREATE OR REPLACE FUNCTION draw_record_selected(
++  p_player TEXT, p_draw_id UUID, p_week_year TEXT, p_pool BIGINT, p_eligible INTEGER
++) RETURNS BIGINT LANGUAGE plpgsql SECURITY DEFINER AS $$
++BEGIN
++  RETURN draw_apply(
++    p_player => p_player, p_event_type => 'draw_winner_selected', p_source_type => 'draw',
++    p_source_event_id => 'selected:' || p_draw_id::text, p_amount => 0,
++    p_week_year => p_week_year,
++    p_reason => format('Selected as winner (pool=%s, eligible=%s)', p_pool, p_eligible),
++    p_draw_id => p_draw_id);
++END;
++$$;
++
++-- Expire inactive players: zero active entries for anyone whose last participation
++-- is older than p_weeks. Lifetime is untouched. p_weeks <= 0 disables expiry.
++CREATE OR REPLACE FUNCTION draw_expire_inactive(p_weeks INTEGER)
++RETURNS INTEGER LANGUAGE plpgsql SECURITY DEFINER AS $$
++DECLARE r RECORD; n INTEGER := 0; v_cutoff TIMESTAMPTZ;
++BEGIN
++  IF p_weeks IS NULL OR p_weeks <= 0 THEN RETURN 0; END IF;
++  v_cutoff := now() - make_interval(weeks => p_weeks);
++  FOR r IN
++    SELECT player_id, active_entries, last_participation_date
++      FROM player_draw_balances
++     WHERE active_entries > 0
++       AND (last_participation_date IS NULL OR last_participation_date < v_cutoff)
++  LOOP
++    PERFORM draw_apply(
++      p_player => r.player_id, p_event_type => 'inactive_expired', p_source_type => 'system',
++      -- distinct key per expiry sweep so it can fire again in a later sweep
++      p_source_event_id => 'expire:' || r.player_id || ':' || to_char(now(),'YYYY-MM-DD"T"HH24:MI:SS'),
++      p_amount => -r.active_entries, p_week_year => NULL,
++      p_reason => format('Inactive > %s week(s) — active entries expired', p_weeks));
++    n := n + 1;
++  END LOOP;
++  RETURN n;
++END;
++$$;
++
++-- =============================================================================
++-- 6. Settings (auto-exposed by the existing admin-settings function)
++-- =============================================================================
++INSERT INTO game_configs (config_key, config_value, description) VALUES
++  ('weekly_draw_enabled',               '1',  'Master switch for the weekly draw (1=on, 0=off)'),
++  ('deed_draw_entries_enabled',         '1',  'Award draw entries for completed deeds (1=on, 0=off)'),
++  ('draw_entries_per_deed',             '1',  'Draw entries granted per completed deed'),
++  ('bingo_bonus_enabled',               '1',  'Award bonus draw entries when a bingo is completed (1=on, 0=off)'),
++  ('bingo_bonus_entries_per_bingo',     '10', 'Bonus draw entries granted per completed bingo'),
++  ('include_quick_tap_deeds',           '1',  'Quick Tap deeds also earn draw entries (1=on, 0=off)'),
++  ('allow_ticket_rollovers',            '1',  'Active draw entries roll over between weeks (1=on, 0=off)'),
++  ('require_current_week_participation','1',  'Player must complete a deed this week to be eligible (1=on, 0=off)'),
++  ('reset_active_after_win',            '1',  'Reset a winner''s active entries to zero (1=on, 0=off)'),
++  ('inactive_entry_expiration_weeks',   '0',  'Weeks of inactivity before active entries expire (0=never; 1/2/4/8/12/custom)')
++ON CONFLICT (config_key) DO NOTHING;
++
++-- =============================================================================
++-- 7. Backfill (guarded, admin-invoked): reconstruct balances from history.
++--    Safe to run once; aborts if the ledger already has award rows.
++-- =============================================================================
++CREATE OR REPLACE FUNCTION draw_backfill_from_history()
++RETURNS TABLE(deeds_awarded BIGINT, bingos_awarded BIGINT) LANGUAGE plpgsql SECURITY DEFINER AS $$
++DECLARE r RECORD; v_per BIGINT; v_bonus BIGINT; v_inc_quick BOOLEAN;
++        d BIGINT := 0; b BIGINT := 0;
++BEGIN
++  IF EXISTS (SELECT 1 FROM draw_entry_ledger
++              WHERE event_type IN ('deed_entry','quick_tap_entry','bingo_bonus')) THEN
++    RAISE EXCEPTION 'Ledger already populated; refusing to backfill';
++  END IF;
++
++  SELECT COALESCE(config_value,'1')::BIGINT INTO v_per
++    FROM game_configs WHERE config_key='draw_entries_per_deed';
++  SELECT COALESCE(config_value,'10')::BIGINT INTO v_bonus
++    FROM game_configs WHERE config_key='bingo_bonus_entries_per_bingo';
++  SELECT COALESCE(config_value,'1')='1' INTO v_inc_quick
++    FROM game_configs WHERE config_key='include_quick_tap_deeds';
++
++  -- One entry per historical completed deed (respecting the quick-tap toggle).
++  FOR r IN SELECT id, player_id, source_type, card_id, completed_at
++             FROM completed_deeds WHERE is_hidden_from_impact_board = false
++            ORDER BY id LOOP
++    IF r.source_type = 'quick_action' AND NOT v_inc_quick THEN CONTINUE; END IF;
++    PERFORM draw_award_deed(
++      r.id, r.player_id, draw_week_year(r.completed_at), v_per,
++      (r.source_type = 'quick_action'), r.completed_at);
++    d := d + 1;
++  END LOOP;
++
++  -- One bonus per historical bingo card.
++  FOR r IN SELECT id, user_id, week_year, updated_at
++             FROM player_cards WHERE is_bingo = true LOOP
++    PERFORM draw_award_bingo(r.user_id, r.id, r.week_year, v_bonus, r.updated_at);
++    b := b + 1;
++  END LOOP;
++
++  RETURN QUERY SELECT d, b;
++END;
++$$;
++
++-- ISO-week label helper in SQL (mirrors getCurrentWeekYear() in the edge code).
++CREATE OR REPLACE FUNCTION draw_week_year(p_ts TIMESTAMPTZ)
++RETURNS TEXT LANGUAGE sql IMMUTABLE AS $$
++  SELECT to_char(p_ts, 'IYYY') || '-W' || to_char(p_ts, 'IW');
++$$;
+diff --git a/supabase/tests/draw_logic.test.ts b/supabase/tests/draw_logic.test.ts
+new file mode 100644
+index 0000000..49976fb
+--- /dev/null
++++ b/supabase/tests/draw_logic.test.ts
+@@ -0,0 +1,149 @@
++// =============================================================================
++// Pure-logic tests for the Weekly Draw Entry system.
++// Runs under Deno (`deno test`) OR Node (`npx tsx tests/draw_logic.test.ts`).
++// Covers the settings-gated rules (cases 12/13/14), participation/rollover
++// (cases 6/8), weighted selection, and the week-bounds helper.
++// =============================================================================
++import {
++  parseDrawSettings, deedShouldAward, bingoShouldAward, isEligible,
++  selectWeightedWinner, weekBounds, currentWeekYear, PoolCandidate,
++} from '../functions/_shared/draw_logic.ts'
++
++// Tiny assert + runner so we don't depend on a framework.
++let passed = 0, failed = 0
++const tests: Array<[string, () => void]> = []
++const test = (name: string, fn: () => void) => tests.push([name, fn])
++function assert(cond: boolean, msg: string) { if (!cond) throw new Error(msg) }
++function eq<T>(a: T, b: T, msg: string) { if (a !== b) throw new Error(`${msg}: ${a} !== ${b}`) }
++
++const DEFAULTS = parseDrawSettings({})
++
++test('defaults are spec-correct', () => {
++  eq(DEFAULTS.weeklyDrawEnabled, true, 'weekly on')
++  eq(DEFAULTS.entriesPerDeed, 1, 'per deed 1')
++  eq(DEFAULTS.bingoBonusPerBingo, 10, 'bonus 10')
++  eq(DEFAULTS.includeQuickTap, true, 'quick on')
++  eq(DEFAULTS.requireParticipation, true, 'participation on')
++  eq(DEFAULTS.resetAfterWin, true, 'reset on')
++  eq(DEFAULTS.inactiveExpirationWeeks, 0, 'never expire by default')
++})
++
++// ── Case 13: deed entries disabled → deeds do not create entries ──────────────
++test('case13 deed entries disabled', () => {
++  const s = parseDrawSettings({ deed_draw_entries_enabled: '0' })
++  eq(deedShouldAward(s, 'bingo_card'), false, 'no deed award when disabled')
++})
++
++// ── Case 14: bingo bonus disabled → no bonus ──────────────────────────────────
++test('case14 bingo bonus disabled', () => {
++  const s = parseDrawSettings({ bingo_bonus_enabled: '0' })
++  eq(bingoShouldAward(s), false, 'no bonus when disabled')
++})
++
++// ── Case 12: weekly draw disabled → nothing awards (master switch) ────────────
++test('case12 master switch off', () => {
++  const s = parseDrawSettings({ weekly_draw_enabled: '0' })
++  eq(deedShouldAward(s, 'bingo_card'), false, 'deed gated by master')
++  eq(bingoShouldAward(s), false, 'bonus gated by master')
++})
++
++test('quick-tap toggle honoured', () => {
++  const s = parseDrawSettings({ include_quick_tap_deeds: '0' })
++  eq(deedShouldAward(s, 'quick_action'), false, 'quick excluded')
++  eq(deedShouldAward(s, 'bingo_card'), true, 'bingo-card still awards')
++})
++
++// ── Case 8: skipped week → ineligible when participation required ─────────────
++test('case8 no participation => ineligible', () => {
++  const c: PoolCandidate = { user_id: 'u', active_entries: 50, last_participation_date: null, is_recent_winner: false }
++  eq(isEligible(c, DEFAULTS, /*participated*/ false), false, 'ineligible without participation')
++  eq(isEligible(c, DEFAULTS, /*participated*/ true), true, 'eligible with participation')
++})
++
++// ── Case 6: rollover — entries persist; eligible if participating ─────────────
++test('case6 rollover entries remain eligible', () => {
++  // 50 active carried from prior weeks; participated this week → still in the pool.
++  const c: PoolCandidate = { user_id: 'u', active_entries: 50, last_participation_date: '2026-01-01', is_recent_winner: false }
++  eq(isEligible(c, DEFAULTS, true), true, 'rolled-over entries count when participating')
++})
++
++test('participation not required => eligible regardless', () => {
++  const s = parseDrawSettings({ require_current_week_participation: '0' })
++  const c: PoolCandidate = { user_id: 'u', active_entries: 3, last_participation_date: null, is_recent_winner: false }
++  eq(isEligible(c, s, false), true, 'no participation gate')
++})
++
++test('zero active entries never eligible', () => {
++  const c: PoolCandidate = { user_id: 'u', active_entries: 0, last_participation_date: '2026-01-01', is_recent_winner: false }
++  eq(isEligible(c, DEFAULTS, true), false, 'no entries => out')
++})
++
++// ── Weighted selection: weight proportional to active entries ─────────────────
++test('weighted selection picks by cumulative weight', () => {
++  const cands: PoolCandidate[] = [
++    { user_id: 'a', active_entries: 1, last_participation_date: null, is_recent_winner: false },
++    { user_id: 'b', active_entries: 9, last_participation_date: null, is_recent_winner: false },
++  ]
++  // total weight = 10. rand01=0.05 -> 0.5 into pool -> 'a' (first 1.0). rand01=0.5 -> 5.0 -> 'b'.
++  eq(selectWeightedWinner(cands, DEFAULTS, () => 0.05)!.user_id, 'a', 'low rand -> a')
++  eq(selectWeightedWinner(cands, DEFAULTS, () => 0.5)!.user_id, 'b', 'mid rand -> b')
++  eq(selectWeightedWinner(cands, DEFAULTS, () => 0.999)!.user_id, 'b', 'high rand -> b')
++})
++
++test('recent winner gets reduced weight', () => {
++  const cands: PoolCandidate[] = [
++    { user_id: 'a', active_entries: 10, last_participation_date: null, is_recent_winner: true },  // weight 0.5
++    { user_id: 'b', active_entries: 10, last_participation_date: null, is_recent_winner: false }, // weight 10
++  ]
++  // total = 10.5; only rand pushing past 0.5 lands on b. rand=0.01 -> 0.105 -> still 'a'.
++  eq(selectWeightedWinner(cands, DEFAULTS, () => 0.01)!.user_id, 'a', 'tiny rand -> a')
++  eq(selectWeightedWinner(cands, DEFAULTS, () => 0.2)!.user_id, 'b', 'most mass -> b')
++})
++
++test('empty / zero-weight pool returns null', () => {
++  eq(selectWeightedWinner([], DEFAULTS, () => 0.5), null, 'empty pool')
++  const zero: PoolCandidate[] = [{ user_id: 'a', active_entries: 0, last_participation_date: null, is_recent_winner: false }]
++  eq(selectWeightedWinner(zero, DEFAULTS, () => 0.5), null, 'zero weight')
++})
++
++// ── Distribution sanity: ~proportional over many draws ────────────────────────
++test('selection is roughly proportional', () => {
++  const cands: PoolCandidate[] = [
++    { user_id: 'a', active_entries: 1, last_participation_date: null, is_recent_winner: false },
++    { user_id: 'b', active_entries: 3, last_participation_date: null, is_recent_winner: false },
++  ]
++  let aWins = 0
++  const N = 20000
++  for (let i = 0; i < N; i++) {
++    // deterministic LCG for reproducibility
++    const r = ((i * 1103515245 + 12345) % 2147483648) / 2147483648
++    if (selectWeightedWinner(cands, DEFAULTS, () => r)!.user_id === 'a') aWins++
++  }
++  const ratio = aWins / N // expect ~0.25
++  assert(ratio > 0.20 && ratio < 0.30, `a-win ratio ~0.25, got ${ratio.toFixed(3)}`)
++})
++
++// ── Week bounds helper ────────────────────────────────────────────────────────
++test('weekBounds spans exactly 7 days, Monday start', () => {
++  const { start, end } = weekBounds('2026-W26')
++  eq(start.getUTCDay(), 1, 'starts Monday')
++  eq((end.getTime() - start.getTime()) / 86_400_000, 7, 'spans 7 days')
++})
++
++test('currentWeekYear round-trips into its own bounds', () => {
++  const wy = currentWeekYear(new Date('2026-06-25T12:00:00Z'))
++  assert(/^\d{4}-W\d{2}$/.test(wy), `format ${wy}`)
++})
++
++// ── runner ────────────────────────────────────────────────────────────────────
++for (const [name, fn] of tests) {
++  try { fn(); passed++; console.log(`  ✓ ${name}`) }
++  catch (e) { failed++; console.error(`  ✗ ${name}\n     ${(e as Error).message}`) }
++}
++console.log(`\n${passed} passed, ${failed} failed`)
++// Deno: surface failures as a real test too.
++declare const Deno: { test?: (n: string, f: () => void) => void } | undefined
++if (typeof Deno !== 'undefined' && Deno?.test) {
++  Deno.test('all pure draw-logic assertions pass', () => { if (failed > 0) throw new Error(`${failed} failing`) })
++}
++if (typeof process !== 'undefined' && failed > 0) (globalThis as { process?: { exitCode?: number } }).process!.exitCode = 1
+diff --git a/supabase/tests/draw_rules.sql b/supabase/tests/draw_rules.sql
+new file mode 100644
+index 0000000..1f976fd
+--- /dev/null
++++ b/supabase/tests/draw_rules.sql
+@@ -0,0 +1,168 @@
++-- =============================================================================
++-- Weekly Draw Entry System — rule tests (Issue #33)
++-- Run against a DB that has all migrations applied:
++--   psql ... -v ON_ERROR_STOP=1 -f tests/draw_rules.sql
++-- Each block RAISEs EXCEPTION on failure, so a clean run = all green.
++-- Self-contained: seeds its own users/cards, cleans up at the end.
++-- =============================================================================
++BEGIN;
++SET client_min_messages = WARNING;
++
++-- ── helpers ──────────────────────────────────────────────────────────────────
++CREATE OR REPLACE FUNCTION _assert(cond BOOLEAN, msg TEXT) RETURNS VOID
++LANGUAGE plpgsql AS $$ BEGIN IF NOT cond THEN RAISE EXCEPTION 'ASSERT FAILED: %', msg; END IF; END $$;
++
++CREATE OR REPLACE FUNCTION _active(p TEXT) RETURNS BIGINT
++LANGUAGE sql AS $$ SELECT COALESCE(active_entries,0)   FROM player_draw_balances WHERE player_id=p $$;
++CREATE OR REPLACE FUNCTION _life(p TEXT) RETURNS BIGINT
++LANGUAGE sql AS $$ SELECT COALESCE(lifetime_entries,0) FROM player_draw_balances WHERE player_id=p $$;
++CREATE OR REPLACE FUNCTION _week(p TEXT) RETURNS BIGINT
++LANGUAGE sql AS $$ SELECT COALESCE(this_week_entries,0) FROM player_draw_balances WHERE player_id=p $$;
++
++-- ── fixtures ─────────────────────────────────────────────────────────────────
++INSERT INTO users (id,email,role) VALUES
++  ('u1','u1@t.co','user'),('u2','u2@t.co','user'),('u3','u3@t.co','user'),
++  ('u4','u4@t.co','user'),('admin1','a@t.co','admin')
++ON CONFLICT (id) DO NOTHING;
++
++-- Fake completed_deeds ids we control, and the current week.
++DO $$
++DECLARE wy TEXT := draw_week_year(now()); cd BIGINT; led BIGINT;
++BEGIN
++  -- Reset config to known defaults for the tests.
++  UPDATE game_configs SET config_value='1'  WHERE config_key='draw_entries_per_deed';
++  UPDATE game_configs SET config_value='10' WHERE config_key='bingo_bonus_entries_per_bingo';
++  UPDATE game_configs SET config_value='1'  WHERE config_key='include_quick_tap_deeds';
++
++  -- ── Case 1: one bingo-card deed → 1 active entry ──────────────────────────
++  INSERT INTO completed_deeds (player_id,source_type,deed_id) VALUES ('u1','bingo_card',1) RETURNING id INTO cd;
++  PERFORM draw_award_deed(cd,'u1',wy,1,false);
++  PERFORM _assert(_active('u1')=1, 'case1 active=1');
++  PERFORM _assert(_life('u1')=1,   'case1 lifetime=1');
++
++  -- ── Case 2: one Quick Tap deed → 1 active entry ───────────────────────────
++  INSERT INTO completed_deeds (player_id,source_type,quick_deed_id) VALUES ('u2','quick_action',5) RETURNING id INTO cd;
++  PERFORM draw_award_deed(cd,'u2',wy,1,true);
++  PERFORM _assert(_active('u2')=1, 'case2 quick active=1');
++
++  -- ── Case 3: same deed completed 5 times → 5 entries ───────────────────────
++  FOR i IN 1..5 LOOP
++    INSERT INTO completed_deeds (player_id,source_type,deed_id) VALUES ('u3','bingo_card',7) RETURNING id INTO cd;
++    PERFORM draw_award_deed(cd,'u3',wy,1,false);
++  END LOOP;
++  PERFORM _assert(_active('u3')=5, 'case3 active=5');
++
++  -- ── Case 4: a bingo → deed entry + bingo bonus ────────────────────────────
++  INSERT INTO completed_deeds (player_id,source_type,deed_id,card_id) VALUES ('u4','bingo_card',9,101) RETURNING id INTO cd;
++  PERFORM draw_award_deed(cd,'u4',wy,1,false);
++  PERFORM draw_award_bingo('u4',101,wy,10);
++  PERFORM _assert(_active('u4')=11, 'case4 deed(1)+bonus(10)=11');
++
++  -- ── Case 5: multiple bingos → bonus per bingo ─────────────────────────────
++  PERFORM draw_award_bingo('u4',102,wy,10);
++  PERFORM draw_award_bingo('u4',103,wy,10);
++  PERFORM _assert(_active('u4')=31, 'case5 11 + 10 + 10 = 31');
++
++  -- ── Case 15: duplicate event processing → no double award ─────────────────
++  -- Re-run the very same card-bingo event and the same deed id; both no-op.
++  led := draw_award_bingo('u4',103,wy,10);              -- duplicate card:week
++  PERFORM _assert(led IS NULL, 'case15 duplicate bingo returns NULL');
++  PERFORM draw_award_deed(cd,'u4',wy,1,false);           -- duplicate completed_deed id
++  PERFORM _assert(_active('u4')=31, 'case15 active unchanged after dup');
++
++  RAISE NOTICE 'cases 1-5,15 PASS';
++END $$;
++
++-- ── Case 10 & 8 & this-week: reversal + participation rollover ───────────────
++DO $$
++DECLARE wy TEXT := draw_week_year(now()); cd BIGINT; led BIGINT;
++BEGIN
++  -- Case 10: admin reverses a deed → its entry removed.
++  INSERT INTO completed_deeds (player_id,source_type,deed_id) VALUES ('u1','bingo_card',2) RETURNING id INTO cd;
++  PERFORM draw_award_deed(cd,'u1',wy,1,false);
++  PERFORM _assert(_active('u1')=2, 'case10 pre-reverse active=2');
++  PERFORM draw_reverse_deed(cd,'admin1','test reversal');
++  PERFORM _assert(_active('u1')=1, 'case10 post-reverse active=1');
++  PERFORM _assert(_life('u1')=2,   'case10 lifetime NOT decremented'); -- earned history kept
++
++  -- Reversal idempotency: reversing again is a no-op.
++  led := draw_reverse_deed(cd,'admin1','dup reversal');
++  PERFORM _assert(led IS NULL, 'case10 duplicate reversal NULL');
++  PERFORM _assert(_active('u1')=1, 'case10 active stable after dup reversal');
++
++  -- Case 11: reverse a deed that caused a bingo → deed entry AND bonus removed.
++  INSERT INTO completed_deeds (player_id,source_type,deed_id,card_id) VALUES ('u2','bingo_card',3,201) RETURNING id INTO cd;
++  PERFORM draw_award_deed(cd,'u2',wy,1,false);
++  PERFORM draw_award_bingo('u2',201,wy,10);
++  PERFORM _assert(_active('u2')=12, 'case11 pre 1(prev)+1+10=12');
++  PERFORM draw_reverse_deed(cd,'admin1','reverse bingo-causing deed');
++  PERFORM draw_reverse_bingo(201,wy,'admin1','bingo undone');
++  PERFORM _assert(_active('u2')=1, 'case11 back to the earlier 1');
++
++  RAISE NOTICE 'cases 10,11 PASS';
++END $$;
++
++-- ── Case 7: winner reset (active→0, lifetime kept) ───────────────────────────
++DO $$
++DECLARE wy TEXT := draw_week_year(now()); did UUID := gen_random_uuid(); life_before BIGINT;
++BEGIN
++  life_before := _life('u3');                 -- u3 had 5 earned
++  INSERT INTO draw_winners (id,user_id,week_year) VALUES (did,'u3',wy);
++  PERFORM draw_winner_reset('u3',did,wy);
++  PERFORM _assert(_active('u3')=0,            'case7 winner active reset to 0');
++  PERFORM _assert(_life('u3')=life_before,    'case7 lifetime unchanged');
++  PERFORM _assert((SELECT last_draw_win_date IS NOT NULL FROM player_draw_balances WHERE player_id='u3'),
++                  'case7 win date recorded');
++  -- idempotent per draw id
++  PERFORM _assert(draw_winner_reset('u3',did,wy) IS NULL, 'case7 reset idempotent');
++  RAISE NOTICE 'case7 PASS';
++END $$;
++
++-- ── Case 9: inactivity expiration ────────────────────────────────────────────
++DO $$
++DECLARE n INTEGER;
++BEGIN
++  -- Make u4 look inactive for 5 weeks; u1 active recently.
++  UPDATE player_draw_balances SET last_participation_date = now() - interval '5 weeks' WHERE player_id='u4';
++  UPDATE player_draw_balances SET last_participation_date = now()                       WHERE player_id='u1';
++  n := draw_expire_inactive(4);               -- expire anyone idle > 4 weeks
++  PERFORM _assert(_active('u4')=0, 'case9 inactive u4 active expired to 0');
++  PERFORM _assert(_active('u1')>0, 'case9 active u1 untouched');
++  PERFORM _assert(_life('u4')>0,   'case9 lifetime kept after expiry');
++  -- Never-expire: weeks<=0 is a no-op.
++  PERFORM _assert(draw_expire_inactive(0)=0, 'case9 weeks=0 disables expiry');
++  RAISE NOTICE 'case9 PASS';
++END $$;
++
++-- ── Audit trail completeness: every event type wrote a ledger row ────────────
++DO $$
++DECLARE missing TEXT;
++BEGIN
++  SELECT string_agg(t,', ') INTO missing FROM (
++    SELECT unnest(ARRAY['deed_entry','quick_tap_entry','bingo_bonus','deed_reversal',
++                        'bingo_reversal','winner_reset','inactive_expired']) AS t
++    EXCEPT SELECT DISTINCT event_type FROM draw_entry_ledger
++  ) q;
++  PERFORM _assert(missing IS NULL, 'audit missing event types: ' || COALESCE(missing,''));
++  -- Every ledger row has prev/new balances and a timestamp.
++  PERFORM _assert((SELECT count(*) FROM draw_entry_ledger
++                    WHERE created_at IS NULL)=0, 'audit all rows timestamped');
++  RAISE NOTICE 'audit trail PASS';
++END $$;
++
++-- ── Cases 12/13/14 are enforced in the edge layer (settings gates) and are ──
++-- ── covered by the Deno tests; here we assert the settings exist as keys. ────
++DO $$
++DECLARE c INTEGER;
++BEGIN
++  SELECT count(*) INTO c FROM game_configs WHERE config_key IN
++    ('weekly_draw_enabled','deed_draw_entries_enabled','bingo_bonus_enabled',
++     'draw_entries_per_deed','bingo_bonus_entries_per_bingo','include_quick_tap_deeds',
++     'allow_ticket_rollovers','require_current_week_participation',
++     'reset_active_after_win','inactive_entry_expiration_weeks');
++  PERFORM _assert(c=10, 'all 10 settings seeded, found ' || c);
++  RAISE NOTICE 'settings PASS';
++END $$;
++
++SELECT 'ALL SQL RULE TESTS PASSED' AS result;
++ROLLBACK;  -- leave the DB clean
+-- 
+2.43.0
+

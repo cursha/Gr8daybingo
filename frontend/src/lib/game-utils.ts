@@ -415,6 +415,7 @@ export interface PlayerRankEntry {
   referrals: number;
   badge_name: string;
   badge_emoji: string;
+  last_played?: string | null;
 }
 
 export interface TopDeedEntry {
@@ -828,8 +829,8 @@ export async function getMyStreak(): Promise<StreakData> {
 }
 
 export interface StreakLeaderboard {
-  current_streak_leaders: Array<{ username: string | null; name: string | null; current_streak_days: number }>;
-  longest_streak_leaders: Array<{ username: string | null; name: string | null; longest_streak_days: number }>;
+  current_streak_leaders: Array<{ username: string | null; name: string | null; current_streak_days: number; last_valid_deed_date?: string | null }>;
+  longest_streak_leaders: Array<{ username: string | null; name: string | null; longest_streak_days: number; last_valid_deed_date?: string | null }>;
   average_streak: number | null;
 }
 

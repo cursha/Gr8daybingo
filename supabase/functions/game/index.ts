@@ -1209,7 +1209,7 @@ Deno.serve(async (req: Request) => {
 
       const { data: allUsers } = await supabase
         .from('users')
-        .select('id, first_name, last_name, username, player_number, city, province_state, country_id, challenge_level')
+        .select('id, first_name, last_name, username, player_number, city, province_state, country_id, challenge_level, last_valid_deed_date')
 
       const { data: countries } = await supabase.from('countries').select('id, name, code')
       const countryMap: Record<number, { name: string; code: string }> = {}
@@ -1270,6 +1270,7 @@ Deno.serve(async (req: Request) => {
           referrals,
           badge_name: badge.name,
           badge_emoji: badge.emoji,
+          last_played: u.last_valid_deed_date ?? null,
         }
       }
 
@@ -3672,12 +3673,12 @@ Deno.serve(async (req: Request) => {
     // ── GET /leaderboard/streaks ──────────────────────────────────────────────
     if (method === 'GET' && path === '/leaderboard/streaks') {
       const { data: current } = await supabase
-        .from('users').select('username, name, current_streak_days')
+        .from('users').select('username, name, current_streak_days, last_valid_deed_date')
         .gt('current_streak_days', 0)
         .order('current_streak_days', { ascending: false })
         .limit(20)
       const { data: longest } = await supabase
-        .from('users').select('username, name, longest_streak_days')
+        .from('users').select('username, name, longest_streak_days, last_valid_deed_date')
         .gt('longest_streak_days', 0)
         .order('longest_streak_days', { ascending: false })
         .limit(20)

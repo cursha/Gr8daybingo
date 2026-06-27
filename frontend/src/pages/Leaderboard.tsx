@@ -324,7 +324,7 @@ const Leaderboard: React.FC = () => {
             {/* ── PLAYERS ─────────────────────────────────────────── */}
             {view === 'players' && (
               <Panel>
-                <TableHead cols={['#', 'Player', 'Gr8Day Deeds']} />
+                <TableHead cols={['#', 'Player', 'Gr8Day Deeds', 'Last Deed']} />
                 {players.length === 0 ? (
                   <Empty>No players ranked yet.</Empty>
                 ) : players.map((p, i) => (
@@ -340,6 +340,9 @@ const Leaderboard: React.FC = () => {
                     <div className="w-28 shrink-0">
                       <p className="text-right text-sm font-bold text-white tabular-nums">{p.deeds.toLocaleString()}</p>
                       <div className="mt-1"><RateBar ratio={p.deeds / maxDeeds} /></div>
+                    </div>
+                    <div className="w-24 shrink-0 text-right">
+                      <p className="text-xs text-slate-400 tabular-nums">{fmtPlayed(p.last_played)}</p>
                     </div>
                   </div>
                 ))}
@@ -360,7 +363,7 @@ const Leaderboard: React.FC = () => {
                   ))}
                 </div>
                 <Panel>
-                  <TableHead cols={['#', 'Player', 'Days']} />
+                  <TableHead cols={['#', 'Player', 'Days', 'Last Deed']} />
                   {streakList.length === 0 ? (
                     <Empty>No streaks yet. Do a deed today to start one.</Empty>
                   ) : streakList.map((e: any, i: number) => {
@@ -376,6 +379,9 @@ const Leaderboard: React.FC = () => {
                             <Flame className="w-3.5 h-3.5 text-amber-400" />{days}
                           </p>
                           <div className="mt-1"><RateBar ratio={days / maxStreak} /></div>
+                        </div>
+                        <div className="w-24 shrink-0 text-right">
+                          <p className="text-xs text-slate-400 tabular-nums">{fmtPlayed(e.last_valid_deed_date)}</p>
                         </div>
                       </div>
                     );
@@ -464,11 +470,19 @@ const Panel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">{children}</div>
 );
 
-const TableHead: React.FC<{ cols: [string, string, string] | string[] }> = ({ cols }) => (
+const fmtPlayed = (d?: string | null): string => {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return '—';
+  return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
+
+const TableHead: React.FC<{ cols: string[] }> = ({ cols }) => (
   <div className="flex items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
     <span className="w-5 text-center">{cols[0]}</span>
     <span className="flex-1">{cols[1]}</span>
-    <span className="w-24 text-right">{cols[2]}</span>
+    {cols[2] != null && <span className="w-24 text-right">{cols[2]}</span>}
+    {cols[3] != null && <span className="w-24 text-right">{cols[3]}</span>}
   </div>
 );
 

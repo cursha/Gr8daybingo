@@ -516,6 +516,7 @@ const GameBoard: React.FC = () => {
             <div className="flex items-center gap-2">
               <Heart className="w-5 h-5 text-pink-400 fill-pink-400" />
               <span className="text-base font-bold text-white hidden sm:inline">Gr8Day Bingo</span>
+              <span className="text-[10px] text-slate-400 select-none ml-1">{APP_VERSION}</span>
             </div>
             {playerNumber && (
               <button
@@ -982,11 +983,6 @@ const GameBoard: React.FC = () => {
             </div>
           )}
         </div>
-      </div>
-
-      {/* Version */}
-      <div className="text-center pb-2">
-        <span className="text-xs text-slate-400 select-none">{APP_VERSION}</span>
       </div>
 
       {/* Celebration */}

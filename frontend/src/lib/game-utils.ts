@@ -540,10 +540,56 @@ export interface ImportDeedsResult {
   created: number;
   skipped: number;
   total: number;
+  targeting_warnings?: string[];
 }
 
-export async function importDeeds(deeds: Partial<DeedItem>[]): Promise<ImportDeedsResult> {
+export async function importDeeds(deeds: (Partial<DeedItem> & Record<string, unknown>)[]): Promise<ImportDeedsResult> {
   return apiClient.post<ImportDeedsResult>('/game/admin/deeds/import', { deeds });
+}
+
+// ---------- Deed Targeting ----------
+export interface TargetingValue {
+  id: number;
+  label: string;
+  description: string | null;
+  is_default: boolean;
+  display_order: number;
+}
+
+export interface TargetingAttribute {
+  id: number;
+  name: string;
+  display_order: number;
+  values: TargetingValue[];
+}
+
+export async function getAdminTargetingAttributes(): Promise<{ attributes: TargetingAttribute[] }> {
+  return apiClient.get('/game/admin/targeting-attributes');
+}
+
+export async function getAdminDeedTargetingBulk(): Promise<{ rows: { deed_id: number; targeting_value_id: number }[] }> {
+  return apiClient.get('/game/admin/deeds/targeting-bulk');
+}
+
+export async function getDeedTargeting(id: number): Promise<{ targeting_value_ids: number[] }> {
+  return apiClient.get(`/game/admin/deeds/${id}/targeting`);
+}
+
+export async function setDeedTargeting(id: number, targeting_value_ids: number[]): Promise<{ success: boolean }> {
+  return apiClient.put(`/game/admin/deeds/${id}/targeting`, { targeting_value_ids });
+}
+
+// ---------- Player Targeting ----------
+export async function getTargetingAttributes(): Promise<{ attributes: TargetingAttribute[] }> {
+  return apiClient.get('/game/targeting-attributes');
+}
+
+export async function getMyTargeting(): Promise<{ targeting_value_ids: number[] }> {
+  return apiClient.get('/game/my-profile/targeting');
+}
+
+export async function setMyTargeting(targeting_value_ids: number[]): Promise<{ success: boolean }> {
+  return apiClient.put('/game/my-profile/targeting', { targeting_value_ids });
 }
 
 // ---------- Deed Suggestion / Approval ----------

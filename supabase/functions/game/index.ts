@@ -193,6 +193,49 @@ async function getPlayerLevelState(
   return { levels, totalBingos, highestUnlocked, selected }
 }
 
+/** Fetch a player's targeting value IDs and a map of deed_id → Set of targeting_value_ids. */
+async function fetchTargetingData(
+  supabase: ReturnType<typeof getSupabase>,
+  userId: string,
+): Promise<{ playerValueIds: Set<number>; deedTargetingMap: Map<number, Set<number>> }> {
+  const { data: userValues } = await supabase
+    .from('user_targeting_values').select('targeting_value_id').eq('user_id', userId)
+  const playerValueIds = new Set<number>((userValues ?? []).map((r) => Number(r.targeting_value_id)))
+
+  const { data: deedValues } = await supabase
+    .from('deed_targeting_values').select('deed_id, targeting_value_id')
+  const deedTargetingMap = new Map<number, Set<number>>()
+  for (const r of deedValues ?? []) {
+    const deedId = Number(r.deed_id)
+    const valueId = Number(r.targeting_value_id)
+    if (!deedTargetingMap.has(deedId)) deedTargetingMap.set(deedId, new Set())
+    deedTargetingMap.get(deedId)!.add(valueId)
+  }
+
+  return { playerValueIds, deedTargetingMap }
+}
+
+/** Filter deeds to those matching the player's targeting values.
+ *  Deeds with no targeting entries are universal (always included).
+ *  Falls back to `fallback` if fewer than `minCount` deeds survive.
+ *  Returns candidates unchanged if the player has no targeting values set. */
+function filterDeedsByTargeting<T extends { id: number }>(
+  candidates: T[],
+  playerValueIds: Set<number>,
+  deedTargetingMap: Map<number, Set<number>>,
+  fallback: T[],
+  minCount = 24,
+): T[] {
+  if (playerValueIds.size === 0) return candidates
+  const filtered = candidates.filter((d) => {
+    const vals = deedTargetingMap.get(d.id)
+    if (!vals || vals.size === 0) return true
+    for (const v of vals) { if (playerValueIds.has(v)) return true }
+    return false
+  })
+  return filtered.length >= minCount ? filtered : fallback
+}
+
 /** Free-space cells (the I DARE YA centre) always count toward Bingo, even
  *  though they are never "marked". Returns their indices from the card data. */
 function freeSpaceIndices(cells: Cell[]): number[] {
@@ -542,7 +585,10 @@ Deno.serve(async (req: Request) => {
       // Never let level filtering starve the card; fall back to all active deeds.
       if (levelDeeds.length < 24) levelDeeds = deeds ?? []
 
-      const deedList = [...levelDeeds]
+      const { playerValueIds, deedTargetingMap } = await fetchTargetingData(supabase, user.sub)
+      const targetedDeeds = filterDeedsByTargeting(levelDeeds, playerValueIds, deedTargetingMap, levelDeeds)
+
+      const deedList = [...targetedDeeds]
       rng.shuffle(deedList)
       const selectedDeeds = deedList.slice(0, 24)
 
@@ -1735,6 +1781,7 @@ Deno.serve(async (req: Request) => {
 
     // ── GET /admin/config ─────────────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/config') {
+      requireAdmin(authUser)
       const { data } = await supabase.from('game_configs').select('*')
       const configs: Record<string, { value: string; description: string }> = {}
       for (const c of data ?? []) configs[c.config_key] = { value: c.config_value ?? '', description: c.description ?? '' }
@@ -1743,6 +1790,7 @@ Deno.serve(async (req: Request) => {
 
     // ── POST /admin/config ────────────────────────────────────────────────────
     if (method === 'POST' && path === '/admin/config') {
+      requireAdmin(authUser)
       const body = await req.json()
       for (const [key, value] of Object.entries(body.configs ?? {})) {
         const { data: existing } = await supabase
@@ -1958,6 +2006,7 @@ Deno.serve(async (req: Request) => {
 
     // ── GET /admin/members ────────────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/members') {
+      requireAdmin(authUser)
       const { data } = await supabase
         .from('users')
         .select('id, email, username, name, first_name, last_name, role, challenge_level, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed')
@@ -1986,6 +2035,7 @@ Deno.serve(async (req: Request) => {
 
     // ── GET /admin/deeds ──────────────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/deeds') {
+      requireAdmin(authUser)
       const { data } = await supabase.from('good_deeds').select('*').order('id')
       return jsonResponse({
         deeds: (data ?? []).map((d) => ({
@@ -1998,6 +2048,7 @@ Deno.serve(async (req: Request) => {
 
     // ── POST /admin/deeds ─────────────────────────────────────────────────────
     if (method === 'POST' && path === '/admin/deeds') {
+      requireAdmin(authUser)
       const body = await req.json()
       const { data, error } = await supabase.from('good_deeds').insert({
         deed_text: body.deed_text ?? '',
@@ -2013,9 +2064,11 @@ Deno.serve(async (req: Request) => {
 
     // ── POST /admin/deeds/import ──────────────────────────────────────────────
     if (method === 'POST' && path === '/admin/deeds/import') {
+      requireAdmin(authUser)
       const body = await req.json()
-      const rows: Array<{ id?: number; deed_text?: string; deed_text_long?: string | null; category?: string; complexity?: number | null; quantity?: number | null; is_active?: unknown }> = body.deeds ?? []
+      const rows: Array<Record<string, unknown>> = body.deeds ?? []
       let updated = 0, created = 0, skipped = 0
+      const targeting_warnings: string[] = []
 
       // Build a lookup of existing deeds by lowercased text so an upload with a
       // blank id matches an existing deed by NAME instead of creating a duplicate.
@@ -2039,6 +2092,31 @@ Deno.serve(async (req: Request) => {
         return Math.max(1, Math.round(n))
       }
 
+      // Build targeting lookup if any targeting_* columns are present.
+      const targetingKeys = Object.keys(rows[0] ?? {}).filter((k) => k.startsWith('targeting_'))
+      type AttrInfo = { labels: Map<string, number> }
+      const attrBySlug = new Map<string, AttrInfo>()
+      if (targetingKeys.length > 0) {
+        const { data: attrs } = await supabase.from('targeting_attributes').select('id, name').eq('is_active', true)
+        const { data: vals } = await supabase.from('targeting_values').select('id, attribute_id, label').eq('is_active', true)
+        const valsByAttr = new Map<number, typeof vals>()
+        for (const v of vals ?? []) {
+          if (!valsByAttr.has(v.attribute_id)) valsByAttr.set(v.attribute_id, [])
+          valsByAttr.get(v.attribute_id)!.push(v)
+        }
+        for (const attr of attrs ?? []) {
+          const slug = 'targeting_' + attr.name.toLowerCase().replace(/\s+/g, '_')
+          const labelMap = new Map<string, number>()
+          for (const v of valsByAttr.get(attr.id) ?? []) {
+            labelMap.set(String(v.label).toLowerCase(), v.id)
+          }
+          attrBySlug.set(slug, { labels: labelMap })
+        }
+        for (const key of targetingKeys) {
+          if (!attrBySlug.has(key)) targeting_warnings.push(`Unknown targeting column "${key}" — ignored`)
+        }
+      }
+
       for (const row of rows) {
         const text = String(row.deed_text ?? '').trim()
         if (!text) { skipped++; continue }
@@ -2058,26 +2136,113 @@ Deno.serve(async (req: Request) => {
         const explicitId = row.id ? Number(row.id) : 0
         const matchedId = explicitId > 0 ? explicitId : (idByText.get(text.toLowerCase()) ?? 0)
 
+        let resolvedId = matchedId
         if (matchedId > 0) {
           const { error } = await supabase.from('good_deeds').update(payload).eq('id', matchedId)
-          if (!error) updated++; else skipped++
+          if (!error) updated++; else { skipped++; continue }
         } else {
           const { data: inserted, error } = await supabase.from('good_deeds').insert(payload).select('id').single()
-          if (!error) {
+          if (!error && inserted) {
             created++
-            // Track the new deed so duplicate rows within the same file update it.
-            if (inserted) idByText.set(text.toLowerCase(), inserted.id)
+            resolvedId = inserted.id
+            idByText.set(text.toLowerCase(), inserted.id)
           } else {
-            skipped++
+            skipped++; continue
+          }
+        }
+
+        // Write targeting if columns were present in the CSV.
+        if (targetingKeys.length > 0 && resolvedId > 0) {
+          const valueIds: number[] = []
+          for (const key of targetingKeys) {
+            const attrInfo = attrBySlug.get(key)
+            if (!attrInfo) continue
+            const raw = String(row[key] ?? '').trim()
+            if (!raw) continue
+            for (const label of raw.split('|').map((l: string) => l.trim()).filter(Boolean)) {
+              const valueId = attrInfo.labels.get(label.toLowerCase())
+              if (valueId == null) {
+                targeting_warnings.push(`Row "${text}": ${key} has unknown value "${label}"`)
+              } else {
+                valueIds.push(valueId)
+              }
+            }
+          }
+          // Scope the delete to only value_ids that belong to attributes present in this CSV.
+          // Attributes not included as columns are left completely untouched.
+          const presentAttrValueIds: number[] = []
+          for (const key of targetingKeys) {
+            const attrInfo = attrBySlug.get(key)
+            if (attrInfo) for (const vId of attrInfo.labels.values()) presentAttrValueIds.push(vId)
+          }
+          if (presentAttrValueIds.length > 0) {
+            await supabase.from('deed_targeting_values').delete()
+              .eq('deed_id', resolvedId)
+              .in('targeting_value_id', presentAttrValueIds)
+          }
+          if (valueIds.length > 0) {
+            await supabase.from('deed_targeting_values').insert(valueIds.map((v) => ({ deed_id: resolvedId, targeting_value_id: v })))
           }
         }
       }
-      return jsonResponse({ success: true, updated, created, skipped, total: updated + created })
+      return jsonResponse({ success: true, updated, created, skipped, total: updated + created, targeting_warnings })
+    }
+
+    // ── GET /admin/deeds/targeting-bulk ──────────────────────────────────────
+    if (method === 'GET' && path === '/admin/deeds/targeting-bulk') {
+      requireAdmin(authUser)
+      const { data } = await supabase.from('deed_targeting_values').select('deed_id, targeting_value_id')
+      return jsonResponse({ rows: data ?? [] })
+    }
+
+    // ── GET /admin/targeting-attributes ──────────────────────────────────────
+    if (method === 'GET' && path === '/admin/targeting-attributes') {
+      requireAdmin(authUser)
+      const { data: attrs } = await supabase
+        .from('targeting_attributes').select('id, name, display_order')
+        .eq('is_active', true).order('display_order')
+      const { data: vals } = await supabase
+        .from('targeting_values').select('id, attribute_id, label, description, is_default, display_order')
+        .eq('is_active', true).order('display_order')
+      const valsByAttr = new Map<number, typeof vals>()
+      for (const v of vals ?? []) {
+        if (!valsByAttr.has(v.attribute_id)) valsByAttr.set(v.attribute_id, [])
+        valsByAttr.get(v.attribute_id)!.push(v)
+      }
+      const attributes = (attrs ?? []).map((a) => ({
+        id: a.id, name: a.name, display_order: a.display_order,
+        values: valsByAttr.get(a.id) ?? [],
+      }))
+      return jsonResponse({ attributes })
+    }
+
+    // ── GET + PUT /admin/deeds/:id/targeting (must be before /:id PUT/DELETE) ─
+    const deedTargetingMatch = path.match(/^\/admin\/deeds\/(\d+)\/targeting$/)
+    if (method === 'GET' && deedTargetingMatch) {
+      requireAdmin(authUser)
+      const deedId = parseInt(deedTargetingMatch[1])
+      const { data } = await supabase
+        .from('deed_targeting_values').select('targeting_value_id').eq('deed_id', deedId)
+      return jsonResponse({ targeting_value_ids: (data ?? []).map((r) => Number(r.targeting_value_id)) })
+    }
+    if (method === 'PUT' && deedTargetingMatch) {
+      requireAdmin(authUser)
+      const deedId = parseInt(deedTargetingMatch[1])
+      const body = await req.json()
+      const ids: number[] = (body.targeting_value_ids ?? []).map(Number).filter((n: number) => Number.isFinite(n) && n > 0)
+      await supabase.from('deed_targeting_values').delete().eq('deed_id', deedId)
+      if (ids.length > 0) {
+        const rows = ids.map((v) => ({ deed_id: deedId, targeting_value_id: v }))
+        const { error } = await supabase.from('deed_targeting_values').insert(rows)
+        if (error) throw error
+      }
+      return jsonResponse({ success: true })
     }
 
     // ── PUT /admin/deeds/:id ──────────────────────────────────────────────────
     const deedPutMatch = matchPath('/admin/deeds/:id', path)
     if (method === 'PUT' && deedPutMatch) {
+      requireAdmin(authUser)
       const body = await req.json()
       const updates: Record<string, unknown> = {}
       if ('deed_text' in body) updates.deed_text = body.deed_text
@@ -2096,6 +2261,7 @@ Deno.serve(async (req: Request) => {
     // ── DELETE /admin/deeds/:id ───────────────────────────────────────────────
     const deedDeleteMatch = matchPath('/admin/deeds/:id', path)
     if (method === 'DELETE' && deedDeleteMatch) {
+      requireAdmin(authUser)
       const { error } = await supabase.from('good_deeds').delete().eq('id', parseInt(deedDeleteMatch.id))
       if (error) throw error
       return jsonResponse({ success: true })
@@ -2169,6 +2335,7 @@ Deno.serve(async (req: Request) => {
 
     // ── GET /admin/pending-deeds ──────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/pending-deeds') {
+      requireAdmin(authUser)
       const statusFilter = url.searchParams.get('status') ?? 'pending'
       let query = supabase.from('pending_deeds').select('*')
       if (statusFilter !== 'all') query = query.eq('status', statusFilter)
@@ -2184,6 +2351,7 @@ Deno.serve(async (req: Request) => {
     // ── POST /admin/pending-deeds/:id/approve ─────────────────────────────────
     const approveMatch = matchPath('/admin/pending-deeds/:id/approve', path)
     if (method === 'POST' && approveMatch) {
+      requireAdmin(authUser)
       const { data: pending } = await supabase.from('pending_deeds')
         .select('*').eq('id', parseInt(approveMatch.id)).maybeSingle()
       if (!pending) return errorResponse('Pending deed not found', 404)
@@ -2200,6 +2368,7 @@ Deno.serve(async (req: Request) => {
     // ── POST /admin/pending-deeds/:id/reject ──────────────────────────────────
     const rejectMatch = matchPath('/admin/pending-deeds/:id/reject', path)
     if (method === 'POST' && rejectMatch) {
+      requireAdmin(authUser)
       const { data: pending } = await supabase.from('pending_deeds')
         .select('id, status').eq('id', parseInt(rejectMatch.id)).maybeSingle()
       if (!pending) return errorResponse('Pending deed not found', 404)
@@ -2211,6 +2380,7 @@ Deno.serve(async (req: Request) => {
     // ── DELETE /admin/pending-deeds/:id ───────────────────────────────────────
     const pendingDeleteMatch = matchPath('/admin/pending-deeds/:id', path)
     if (method === 'DELETE' && pendingDeleteMatch) {
+      requireAdmin(authUser)
       const { data: pending } = await supabase.from('pending_deeds')
         .select('id').eq('id', parseInt(pendingDeleteMatch.id)).maybeSingle()
       if (!pending) return errorResponse('Pending deed not found', 404)
@@ -2587,6 +2757,7 @@ Deno.serve(async (req: Request) => {
 
     // ── GET /admin/prize-claims ───────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/prize-claims') {
+      requireAdmin(authUser)
       const { data } = await supabase
         .from('prize_claims').select('*').order('created_at', { ascending: false })
       return jsonResponse({
@@ -2608,6 +2779,7 @@ Deno.serve(async (req: Request) => {
     // ── PUT /admin/prize-claims/:id ───────────────────────────────────────────
     const claimMatch = matchPath('/admin/prize-claims/:id', path)
     if (method === 'PUT' && claimMatch) {
+      requireAdmin(authUser)
       const body = await req.json()
       const { status } = body
       if (!['pending', 'contacted', 'fulfilled', 'rejected'].includes(status)) {
@@ -3275,9 +3447,15 @@ Deno.serve(async (req: Request) => {
 
           // Fetch a replacement deed that isn't already on the card
           const existingDeedIds = new Set(cells.map((c) => c.deed_id).filter((id): id is number => id != null))
+          const levelState = await getPlayerLevelState(supabase, user.sub)
+          const selectedLevel = levelState.selected
           const { data: replacementDeeds } = await supabase
             .from('good_deeds').select('*').eq('is_active', true)
-          const eligible = (replacementDeeds ?? []).filter((d) => !existingDeedIds.has(d.id))
+          const allEligible = (replacementDeeds ?? []).filter((d) => !existingDeedIds.has(d.id))
+          const levelEligible = allEligible.filter((d) => (d.complexity ?? 1) <= selectedLevel)
+          const swapPool = levelEligible.length >= 1 ? levelEligible : allEligible
+          const { playerValueIds: swapValueIds, deedTargetingMap: swapTargetingMap } = await fetchTargetingData(supabase, user.sub)
+          const eligible = filterDeedsByTargeting(swapPool, swapValueIds, swapTargetingMap, swapPool, 1)
 
           if (eligible.length === 0) {
             result.outcome = 'nothing'
@@ -3502,6 +3680,49 @@ Deno.serve(async (req: Request) => {
       }).sort((a, b) => b.total_deeds - a.total_deeds)
 
       return jsonResponse({ players })
+    }
+
+    // ── GET /targeting-attributes (player-facing, no admin required) ─────────
+    if (method === 'GET' && path === '/targeting-attributes') {
+      requireAuth(authUser)
+      const { data: attrs } = await supabase
+        .from('targeting_attributes').select('id, name, display_order')
+        .eq('is_active', true).order('display_order')
+      const { data: vals } = await supabase
+        .from('targeting_values').select('id, attribute_id, label, description, is_default, display_order')
+        .eq('is_active', true).order('display_order')
+      const valsByAttr = new Map<number, typeof vals>()
+      for (const v of vals ?? []) {
+        if (!valsByAttr.has(v.attribute_id)) valsByAttr.set(v.attribute_id, [])
+        valsByAttr.get(v.attribute_id)!.push(v)
+      }
+      const attributes = (attrs ?? []).map((a) => ({
+        id: a.id, name: a.name, display_order: a.display_order,
+        values: valsByAttr.get(a.id) ?? [],
+      }))
+      return jsonResponse({ attributes })
+    }
+
+    // ── GET /my-profile/targeting ─────────────────────────────────────────────
+    if (method === 'GET' && path === '/my-profile/targeting') {
+      const user = requireAuth(authUser)
+      const { data } = await supabase
+        .from('user_targeting_values').select('targeting_value_id').eq('user_id', user.sub)
+      return jsonResponse({ targeting_value_ids: (data ?? []).map((r) => Number(r.targeting_value_id)) })
+    }
+
+    // ── PUT /my-profile/targeting ─────────────────────────────────────────────
+    if (method === 'PUT' && path === '/my-profile/targeting') {
+      const user = requireAuth(authUser)
+      const body = await req.json()
+      const ids: number[] = (body.targeting_value_ids ?? []).map(Number).filter((n: number) => Number.isFinite(n) && n > 0)
+      await supabase.from('user_targeting_values').delete().eq('user_id', user.sub)
+      if (ids.length > 0) {
+        const rows = ids.map((v) => ({ user_id: user.sub, targeting_value_id: v }))
+        const { error } = await supabase.from('user_targeting_values').insert(rows)
+        if (error) throw error
+      }
+      return jsonResponse({ success: true })
     }
 
     // ── GET /my-profile/details ───────────────────────────────────────────────

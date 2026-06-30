@@ -66,6 +66,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { ArrowLeft, Heart, Lock, Settings, Plus, Trash2, Save, Edit2, X, Target, Inbox, Check, XCircle, Lightbulb, Gift, Upload, Download, FileSpreadsheet, Printer, Trophy, Mail, Users, Ticket, Search, Flame } from 'lucide-react';
 import Footer from '@/components/Footer';
+import { TargetingGroupsInput } from '@/components/TargetingGroupsInput';
 
 const WIN_CONDITIONS = [
   { id: 'one_line', name: 'One Line', description: 'Complete 5 in a row (horizontal, vertical, or diagonal)' },
@@ -654,53 +655,6 @@ const AdminPanel: React.FC = () => {
     } catch {
       toast.error('Failed to toggle Gr8Day Deed');
     }
-  };
-
-  const renderTargetingGroups = (
-    targeting: Set<number>,
-    setTargeting: (s: Set<number>) => void,
-  ) => {
-    if (targetingAttributes.length === 0) return null;
-    return (
-      <div className="space-y-1.5 pt-1 border-t border-slate-100">
-        <p className="text-xs font-medium text-slate-500">
-          Targeting <span className="font-normal text-slate-400">(leave blank to apply to everyone)</span>
-        </p>
-        {targetingAttributes.map((attr) => {
-          const allChecked = attr.values.length > 0 && attr.values.every(v => targeting.has(v.id));
-          const toggleAll = (checked: boolean) => {
-            const next = new Set(targeting);
-            attr.values.forEach(v => checked ? next.add(v.id) : next.delete(v.id));
-            setTargeting(next);
-          };
-          const toggleValue = (id: number, checked: boolean) => {
-            const next = new Set(targeting);
-            checked ? next.add(id) : next.delete(id);
-            setTargeting(next);
-          };
-          return (
-            <div key={attr.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-              <span className="font-medium text-slate-600 w-36 shrink-0">{attr.name}</span>
-              <label className="flex items-center gap-1 text-slate-400 italic cursor-pointer select-none">
-                <input type="checkbox" checked={allChecked} onChange={e => toggleAll(e.target.checked)} />
-                All
-              </label>
-              {attr.values.map(v => (
-                <label key={v.id} className="flex items-center gap-1 cursor-pointer select-none text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={targeting.has(v.id)}
-                    onChange={e => toggleValue(v.id, e.target.checked)}
-                  />
-                  {v.label}
-                  {v.description && <span className="text-slate-400 text-[10px]">({v.description})</span>}
-                </label>
-              ))}
-            </div>
-          );
-        })}
-      </div>
-    );
   };
 
   // ── CSV helpers ──────────────────────────────────────────────────────────────
@@ -2212,7 +2166,7 @@ const AdminPanel: React.FC = () => {
                 }
                 className="min-h-[64px] text-sm"
               />
-              {renderTargetingGroups(newDeedTargeting, setNewDeedTargeting)}
+              <TargetingGroupsInput attributes={targetingAttributes} targeting={newDeedTargeting} onChange={setNewDeedTargeting} />
               <div className="flex justify-end">
                 <Button
                   onClick={handleAddDeed}
@@ -2292,7 +2246,7 @@ const AdminPanel: React.FC = () => {
                           placeholder="Long description (shown on hover)"
                           className="min-h-[60px] text-xs"
                         />
-                        {renderTargetingGroups(editDeedTargeting, setEditDeedTargeting)}
+                        <TargetingGroupsInput attributes={targetingAttributes} targeting={editDeedTargeting} onChange={setEditDeedTargeting} />
                         <div className="flex items-center justify-end gap-1">
                           <Button
                             size="sm"

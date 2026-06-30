@@ -546,6 +546,34 @@ export async function importDeeds(deeds: Partial<DeedItem>[]): Promise<ImportDee
   return apiClient.post<ImportDeedsResult>('/game/admin/deeds/import', { deeds });
 }
 
+// ---------- Deed Targeting ----------
+export interface TargetingValue {
+  id: number;
+  label: string;
+  description: string | null;
+  is_default: boolean;
+  display_order: number;
+}
+
+export interface TargetingAttribute {
+  id: number;
+  name: string;
+  display_order: number;
+  values: TargetingValue[];
+}
+
+export async function getAdminTargetingAttributes(): Promise<{ attributes: TargetingAttribute[] }> {
+  return apiClient.get('/game/admin/targeting-attributes');
+}
+
+export async function getDeedTargeting(id: number): Promise<{ targeting_value_ids: number[] }> {
+  return apiClient.get(`/game/admin/deeds/${id}/targeting`);
+}
+
+export async function setDeedTargeting(id: number, targeting_value_ids: number[]): Promise<{ success: boolean }> {
+  return apiClient.put(`/game/admin/deeds/${id}/targeting`, { targeting_value_ids });
+}
+
 // ---------- Deed Suggestion / Approval ----------
 export interface PendingDeed {
   id: number;

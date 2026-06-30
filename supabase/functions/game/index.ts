@@ -1781,6 +1781,7 @@ Deno.serve(async (req: Request) => {
 
     // ── GET /admin/config ─────────────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/config') {
+      requireAdmin(authUser)
       const { data } = await supabase.from('game_configs').select('*')
       const configs: Record<string, { value: string; description: string }> = {}
       for (const c of data ?? []) configs[c.config_key] = { value: c.config_value ?? '', description: c.description ?? '' }
@@ -1789,6 +1790,7 @@ Deno.serve(async (req: Request) => {
 
     // ── POST /admin/config ────────────────────────────────────────────────────
     if (method === 'POST' && path === '/admin/config') {
+      requireAdmin(authUser)
       const body = await req.json()
       for (const [key, value] of Object.entries(body.configs ?? {})) {
         const { data: existing } = await supabase
@@ -2004,6 +2006,7 @@ Deno.serve(async (req: Request) => {
 
     // ── GET /admin/members ────────────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/members') {
+      requireAdmin(authUser)
       const { data } = await supabase
         .from('users')
         .select('id, email, username, name, first_name, last_name, role, challenge_level, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed')
@@ -2032,6 +2035,7 @@ Deno.serve(async (req: Request) => {
 
     // ── GET /admin/deeds ──────────────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/deeds') {
+      requireAdmin(authUser)
       const { data } = await supabase.from('good_deeds').select('*').order('id')
       return jsonResponse({
         deeds: (data ?? []).map((d) => ({
@@ -2044,6 +2048,7 @@ Deno.serve(async (req: Request) => {
 
     // ── POST /admin/deeds ─────────────────────────────────────────────────────
     if (method === 'POST' && path === '/admin/deeds') {
+      requireAdmin(authUser)
       const body = await req.json()
       const { data, error } = await supabase.from('good_deeds').insert({
         deed_text: body.deed_text ?? '',
@@ -2059,6 +2064,7 @@ Deno.serve(async (req: Request) => {
 
     // ── POST /admin/deeds/import ──────────────────────────────────────────────
     if (method === 'POST' && path === '/admin/deeds/import') {
+      requireAdmin(authUser)
       const body = await req.json()
       const rows: Array<{ id?: number; deed_text?: string; deed_text_long?: string | null; category?: string; complexity?: number | null; quantity?: number | null; is_active?: unknown }> = body.deeds ?? []
       let updated = 0, created = 0, skipped = 0
@@ -2124,6 +2130,7 @@ Deno.serve(async (req: Request) => {
     // ── PUT /admin/deeds/:id ──────────────────────────────────────────────────
     const deedPutMatch = matchPath('/admin/deeds/:id', path)
     if (method === 'PUT' && deedPutMatch) {
+      requireAdmin(authUser)
       const body = await req.json()
       const updates: Record<string, unknown> = {}
       if ('deed_text' in body) updates.deed_text = body.deed_text
@@ -2142,6 +2149,7 @@ Deno.serve(async (req: Request) => {
     // ── DELETE /admin/deeds/:id ───────────────────────────────────────────────
     const deedDeleteMatch = matchPath('/admin/deeds/:id', path)
     if (method === 'DELETE' && deedDeleteMatch) {
+      requireAdmin(authUser)
       const { error } = await supabase.from('good_deeds').delete().eq('id', parseInt(deedDeleteMatch.id))
       if (error) throw error
       return jsonResponse({ success: true })
@@ -2215,6 +2223,7 @@ Deno.serve(async (req: Request) => {
 
     // ── GET /admin/pending-deeds ──────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/pending-deeds') {
+      requireAdmin(authUser)
       const statusFilter = url.searchParams.get('status') ?? 'pending'
       let query = supabase.from('pending_deeds').select('*')
       if (statusFilter !== 'all') query = query.eq('status', statusFilter)
@@ -2230,6 +2239,7 @@ Deno.serve(async (req: Request) => {
     // ── POST /admin/pending-deeds/:id/approve ─────────────────────────────────
     const approveMatch = matchPath('/admin/pending-deeds/:id/approve', path)
     if (method === 'POST' && approveMatch) {
+      requireAdmin(authUser)
       const { data: pending } = await supabase.from('pending_deeds')
         .select('*').eq('id', parseInt(approveMatch.id)).maybeSingle()
       if (!pending) return errorResponse('Pending deed not found', 404)
@@ -2246,6 +2256,7 @@ Deno.serve(async (req: Request) => {
     // ── POST /admin/pending-deeds/:id/reject ──────────────────────────────────
     const rejectMatch = matchPath('/admin/pending-deeds/:id/reject', path)
     if (method === 'POST' && rejectMatch) {
+      requireAdmin(authUser)
       const { data: pending } = await supabase.from('pending_deeds')
         .select('id, status').eq('id', parseInt(rejectMatch.id)).maybeSingle()
       if (!pending) return errorResponse('Pending deed not found', 404)
@@ -2257,6 +2268,7 @@ Deno.serve(async (req: Request) => {
     // ── DELETE /admin/pending-deeds/:id ───────────────────────────────────────
     const pendingDeleteMatch = matchPath('/admin/pending-deeds/:id', path)
     if (method === 'DELETE' && pendingDeleteMatch) {
+      requireAdmin(authUser)
       const { data: pending } = await supabase.from('pending_deeds')
         .select('id').eq('id', parseInt(pendingDeleteMatch.id)).maybeSingle()
       if (!pending) return errorResponse('Pending deed not found', 404)
@@ -2633,6 +2645,7 @@ Deno.serve(async (req: Request) => {
 
     // ── GET /admin/prize-claims ───────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/prize-claims') {
+      requireAdmin(authUser)
       const { data } = await supabase
         .from('prize_claims').select('*').order('created_at', { ascending: false })
       return jsonResponse({
@@ -2654,6 +2667,7 @@ Deno.serve(async (req: Request) => {
     // ── PUT /admin/prize-claims/:id ───────────────────────────────────────────
     const claimMatch = matchPath('/admin/prize-claims/:id', path)
     if (method === 'PUT' && claimMatch) {
+      requireAdmin(authUser)
       const body = await req.json()
       const { status } = body
       if (!['pending', 'contacted', 'fulfilled', 'rejected'].includes(status)) {

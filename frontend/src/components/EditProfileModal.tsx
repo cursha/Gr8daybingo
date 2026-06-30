@@ -5,13 +5,18 @@ import {
   ProfileDetails,
   CountryOption,
   StateOption,
+  TargetingAttribute,
   getMyProfileDetails,
   updateMyProfile,
   changePassword,
   deleteMyAccount,
   getCountries,
   getStates,
+  getTargetingAttributes,
+  getMyTargeting,
+  setMyTargeting as saveMyTargeting,
 } from '@/lib/game-utils';
+import { TargetingGroupsInput } from '@/components/TargetingGroupsInput';
 
 interface Props {
   onClose: () => void;
@@ -32,6 +37,9 @@ const EditProfileModal: React.FC<Props> = ({ onClose, onDeleted }) => {
   const [stateId, setStateId] = useState<number | null>(null);
   const [challengeLevel, setChallengeLevel] = useState<number | null>(null);
 
+  const [targetingAttributes, setTargetingAttributes] = useState<TargetingAttribute[]>([]);
+  const [myTargeting, setMyTargeting] = useState<Set<number>>(new Set());
+
   const [showPassword, setShowPassword] = useState(false);
   const [currentPw, setCurrentPw] = useState('');
   const [newPw, setNewPw] = useState('');
@@ -51,6 +59,8 @@ const EditProfileModal: React.FC<Props> = ({ onClose, onDeleted }) => {
     }).catch(() => toast.error('Failed to load profile'));
 
     getCountries().then(setCountries).catch(() => {});
+    getTargetingAttributes().then((d) => setTargetingAttributes(d.attributes)).catch(() => {});
+    getMyTargeting().then((d) => setMyTargeting(new Set(d.targeting_value_ids))).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -65,7 +75,10 @@ const EditProfileModal: React.FC<Props> = ({ onClose, onDeleted }) => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await updateMyProfile({ first_name: firstName, last_name: lastName, username, city, country_id: countryId, state_id: stateId, challenge_level: challengeLevel });
+      await Promise.all([
+        updateMyProfile({ first_name: firstName, last_name: lastName, username, city, country_id: countryId, state_id: stateId, challenge_level: challengeLevel }),
+        saveMyTargeting([...myTargeting]),
+      ]);
       toast.success('Profile updated!');
       onClose();
     } catch (err: any) {
@@ -160,6 +173,12 @@ const EditProfileModal: React.FC<Props> = ({ onClose, onDeleted }) => {
               {[1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </div>
+
+          <TargetingGroupsInput
+            attributes={targetingAttributes}
+            targeting={myTargeting}
+            onChange={setMyTargeting}
+          />
 
           <button onClick={handleSave} disabled={saving} className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-colors">
             {saving ? 'Saving…' : 'Save Changes'}

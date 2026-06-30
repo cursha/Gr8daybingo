@@ -2066,8 +2066,9 @@ Deno.serve(async (req: Request) => {
     if (method === 'POST' && path === '/admin/deeds/import') {
       requireAdmin(authUser)
       const body = await req.json()
-      const rows: Array<{ id?: number; deed_text?: string; deed_text_long?: string | null; category?: string; complexity?: number | null; quantity?: number | null; is_active?: unknown }> = body.deeds ?? []
+      const rows: Array<Record<string, unknown>> = body.deeds ?? []
       let updated = 0, created = 0, skipped = 0
+      const targeting_warnings: string[] = []
 
       // Build a lookup of existing deeds by lowercased text so an upload with a
       // blank id matches an existing deed by NAME instead of creating a duplicate.
@@ -2091,6 +2092,31 @@ Deno.serve(async (req: Request) => {
         return Math.max(1, Math.round(n))
       }
 
+      // Build targeting lookup if any targeting_* columns are present.
+      const targetingKeys = Object.keys(rows[0] ?? {}).filter((k) => k.startsWith('targeting_'))
+      type AttrInfo = { labels: Map<string, number> }
+      const attrBySlug = new Map<string, AttrInfo>()
+      if (targetingKeys.length > 0) {
+        const { data: attrs } = await supabase.from('targeting_attributes').select('id, name').eq('is_active', true)
+        const { data: vals } = await supabase.from('targeting_values').select('id, attribute_id, label').eq('is_active', true)
+        const valsByAttr = new Map<number, typeof vals>()
+        for (const v of vals ?? []) {
+          if (!valsByAttr.has(v.attribute_id)) valsByAttr.set(v.attribute_id, [])
+          valsByAttr.get(v.attribute_id)!.push(v)
+        }
+        for (const attr of attrs ?? []) {
+          const slug = 'targeting_' + attr.name.toLowerCase().replace(/\s+/g, '_')
+          const labelMap = new Map<string, number>()
+          for (const v of valsByAttr.get(attr.id) ?? []) {
+            labelMap.set(String(v.label).toLowerCase(), v.id)
+          }
+          attrBySlug.set(slug, { labels: labelMap })
+        }
+        for (const key of targetingKeys) {
+          if (!attrBySlug.has(key)) targeting_warnings.push(`Unknown targeting column "${key}" — ignored`)
+        }
+      }
+
       for (const row of rows) {
         const text = String(row.deed_text ?? '').trim()
         if (!text) { skipped++; continue }
@@ -2110,21 +2136,56 @@ Deno.serve(async (req: Request) => {
         const explicitId = row.id ? Number(row.id) : 0
         const matchedId = explicitId > 0 ? explicitId : (idByText.get(text.toLowerCase()) ?? 0)
 
+        let resolvedId = matchedId
         if (matchedId > 0) {
           const { error } = await supabase.from('good_deeds').update(payload).eq('id', matchedId)
-          if (!error) updated++; else skipped++
+          if (!error) updated++; else { skipped++; continue }
         } else {
           const { data: inserted, error } = await supabase.from('good_deeds').insert(payload).select('id').single()
-          if (!error) {
+          if (!error && inserted) {
             created++
-            // Track the new deed so duplicate rows within the same file update it.
-            if (inserted) idByText.set(text.toLowerCase(), inserted.id)
+            resolvedId = inserted.id
+            idByText.set(text.toLowerCase(), inserted.id)
           } else {
-            skipped++
+            skipped++; continue
+          }
+        }
+
+        // Write targeting if columns were present in the CSV.
+        if (targetingKeys.length > 0 && resolvedId > 0) {
+          const valueIds: number[] = []
+          for (const key of targetingKeys) {
+            const attrInfo = attrBySlug.get(key)
+            if (!attrInfo) continue
+            const raw = String(row[key] ?? '').trim()
+            if (!raw) continue
+            for (const label of raw.split('|').map((l: string) => l.trim()).filter(Boolean)) {
+              const valueId = attrInfo.labels.get(label.toLowerCase())
+              if (valueId == null) {
+                targeting_warnings.push(`Row "${text}": ${key} has unknown value "${label}"`)
+              } else {
+                valueIds.push(valueId)
+              }
+            }
+          }
+          // Scope the delete to only value_ids that belong to attributes present in this CSV.
+          // Attributes not included as columns are left completely untouched.
+          const presentAttrValueIds: number[] = []
+          for (const key of targetingKeys) {
+            const attrInfo = attrBySlug.get(key)
+            if (attrInfo) for (const vId of attrInfo.labels.values()) presentAttrValueIds.push(vId)
+          }
+          if (presentAttrValueIds.length > 0) {
+            await supabase.from('deed_targeting_values').delete()
+              .eq('deed_id', resolvedId)
+              .in('targeting_value_id', presentAttrValueIds)
+          }
+          if (valueIds.length > 0) {
+            await supabase.from('deed_targeting_values').insert(valueIds.map((v) => ({ deed_id: resolvedId, targeting_value_id: v })))
           }
         }
       }
-      return jsonResponse({ success: true, updated, created, skipped, total: updated + created })
+      return jsonResponse({ success: true, updated, created, skipped, total: updated + created, targeting_warnings })
     }
 
     // ── GET /admin/targeting-attributes ──────────────────────────────────────

@@ -540,9 +540,10 @@ export interface ImportDeedsResult {
   created: number;
   skipped: number;
   total: number;
+  targeting_warnings?: string[];
 }
 
-export async function importDeeds(deeds: Partial<DeedItem>[]): Promise<ImportDeedsResult> {
+export async function importDeeds(deeds: (Partial<DeedItem> & Record<string, unknown>)[]): Promise<ImportDeedsResult> {
   return apiClient.post<ImportDeedsResult>('/game/admin/deeds/import', { deeds });
 }
 

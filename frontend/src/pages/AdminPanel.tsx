@@ -818,17 +818,25 @@ const AdminPanel: React.FC = () => {
       const text = await file.text();
       const rows = parseCsv(text);
       if (rows.length === 0) { toast.error('No valid rows found in CSV'); return; }
-      const deeds = rows.map((row) => ({
-        id: row['id'] ? parseInt(row['id']) || undefined : undefined,
-        deed_text: row['deed_text'] ?? '',
-        deed_text_long: row['deed_text_long'] || null,
-        category: row['category'] || '',
-        complexity: row['complexity'] ? parseInt(row['complexity']) || null : null,
-        quantity: row['quantity'] ? parseInt(row['quantity']) || 1 : 1,
-        is_active: (row['is_active'] ?? '').trim().toLowerCase() !== 'false',
-      }));
+      const targetingKeys = Object.keys(rows[0] ?? {}).filter((k) => k.startsWith('targeting_'));
+      const deeds = rows.map((row) => {
+        const deed: Record<string, unknown> = {
+          id: row['id'] ? parseInt(row['id']) || undefined : undefined,
+          deed_text: row['deed_text'] ?? '',
+          deed_text_long: row['deed_text_long'] || null,
+          category: row['category'] || '',
+          complexity: row['complexity'] ? parseInt(row['complexity']) || null : null,
+          quantity: row['quantity'] ? parseInt(row['quantity']) || 1 : 1,
+          is_active: (row['is_active'] ?? '').trim().toLowerCase() !== 'false',
+        };
+        for (const k of targetingKeys) deed[k] = row[k] ?? '';
+        return deed;
+      });
       const result = await importDeeds(deeds);
       toast.success(`Import complete — ${result.updated} updated, ${result.created} created${result.skipped > 0 ? `, ${result.skipped} skipped` : ''}`);
+      if (result.targeting_warnings && result.targeting_warnings.length > 0) {
+        toast.warning(`Targeting warnings:\n${result.targeting_warnings.join('\n')}`);
+      }
       await loadData();
     } catch (err: any) {
       toast.error(err?.message || 'Import failed');
@@ -2096,6 +2104,11 @@ const AdminPanel: React.FC = () => {
               <p><span className="font-mono bg-white px-1 rounded">deed_text</span> — short text shown on the bingo square (required)</p>
               <p><span className="font-mono bg-white px-1 rounded">deed_text_long</span> — long description shown on hover (optional)</p>
               <p><span className="font-mono bg-white px-1 rounded">is_active</span> — true or false (TRUE/FALSE in any case works)</p>
+              <p className="font-semibold text-slate-700 pt-1">Optional targeting columns (add these headers to restrict a deed to specific players):</p>
+              <p><span className="font-mono bg-white px-1 rounded">targeting_age_bracket</span> — Teen, Early Adult, Adult, Senior (pipe-separated for multiple, e.g. <span className="font-mono">Adult|Senior</span>; blank = all ages)</p>
+              <p><span className="font-mono bg-white px-1 rounded">targeting_relationship</span> — Single, Partnered (blank = all)</p>
+              <p><span className="font-mono bg-white px-1 rounded">targeting_kids</span> — Yes, No (blank = all)</p>
+              <p><span className="font-mono bg-white px-1 rounded">targeting_place_of_employment</span> — Home, Office, NA (blank = all)</p>
             </div>
           </CardContent>
         </Card>

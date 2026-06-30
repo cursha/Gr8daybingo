@@ -52,6 +52,10 @@ import {
   adminSearchPlayersByLastName,
   CardData,
   CellData,
+  TargetingAttribute,
+  getAdminTargetingAttributes,
+  getDeedTargeting,
+  setDeedTargeting,
 } from '@/lib/game-utils';
 import BingoCell from '@/components/BingoCell';
 import { Button } from '@/components/ui/button';
@@ -91,6 +95,9 @@ const AdminPanel: React.FC = () => {
   const [newDeed, setNewDeed] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1' });
   const [editingDeed, setEditingDeed] = useState<number | null>(null);
   const [editDeedData, setEditDeedData] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1' });
+  const [targetingAttributes, setTargetingAttributes] = useState<TargetingAttribute[]>([]);
+  const [newDeedTargeting, setNewDeedTargeting] = useState<Set<number>>(new Set());
+  const [editDeedTargeting, setEditDeedTargeting] = useState<Set<number>>(new Set());
 
   // Export / import state
   const [exportCategoryFilter, setExportCategoryFilter] = useState('all');
@@ -205,6 +212,12 @@ const AdminPanel: React.FC = () => {
       try {
         const milestones = await adminGetStreakMilestones();
         setStreakMilestones(milestones);
+      } catch { /* silent */ }
+
+      // Load targeting attributes
+      try {
+        const taRes = await getAdminTargetingAttributes();
+        setTargetingAttributes(taRes.attributes || []);
       } catch { /* silent */ }
     } catch (err: any) {
       toast.error('Failed to load admin data');
@@ -588,7 +601,7 @@ const AdminPanel: React.FC = () => {
       return;
     }
     try {
-      await createAdminDeed({
+      const created = await createAdminDeed({
         deed_text: newDeed.deed_text.trim(),
         deed_text_long: newDeed.deed_text_long.trim() || undefined,
         category: newDeed.category.trim(),
@@ -596,7 +609,9 @@ const AdminPanel: React.FC = () => {
         complexity: newDeed.complexity ? parseInt(newDeed.complexity) : undefined,
         quantity: newDeed.quantity ? parseInt(newDeed.quantity) : 1,
       });
+      await setDeedTargeting(created.id, [...newDeedTargeting]);
       setNewDeed({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1' });
+      setNewDeedTargeting(new Set());
       toast.success('Gr8Day Deed added!');
       await loadData();
     } catch {
@@ -611,7 +626,9 @@ const AdminPanel: React.FC = () => {
         complexity: editDeedData.complexity ? parseInt(editDeedData.complexity) : null,
         quantity: editDeedData.quantity ? parseInt(editDeedData.quantity) : 1,
       });
+      await setDeedTargeting(id, [...editDeedTargeting]);
       setEditingDeed(null);
+      setEditDeedTargeting(new Set());
       toast.success('Gr8Day Deed updated!');
       await loadData();
     } catch {
@@ -637,6 +654,53 @@ const AdminPanel: React.FC = () => {
     } catch {
       toast.error('Failed to toggle Gr8Day Deed');
     }
+  };
+
+  const renderTargetingGroups = (
+    targeting: Set<number>,
+    setTargeting: (s: Set<number>) => void,
+  ) => {
+    if (targetingAttributes.length === 0) return null;
+    return (
+      <div className="space-y-1.5 pt-1 border-t border-slate-100">
+        <p className="text-xs font-medium text-slate-500">
+          Targeting <span className="font-normal text-slate-400">(leave blank to apply to everyone)</span>
+        </p>
+        {targetingAttributes.map((attr) => {
+          const allChecked = attr.values.length > 0 && attr.values.every(v => targeting.has(v.id));
+          const toggleAll = (checked: boolean) => {
+            const next = new Set(targeting);
+            attr.values.forEach(v => checked ? next.add(v.id) : next.delete(v.id));
+            setTargeting(next);
+          };
+          const toggleValue = (id: number, checked: boolean) => {
+            const next = new Set(targeting);
+            checked ? next.add(id) : next.delete(id);
+            setTargeting(next);
+          };
+          return (
+            <div key={attr.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+              <span className="font-medium text-slate-600 w-36 shrink-0">{attr.name}</span>
+              <label className="flex items-center gap-1 text-slate-400 italic cursor-pointer select-none">
+                <input type="checkbox" checked={allChecked} onChange={e => toggleAll(e.target.checked)} />
+                All
+              </label>
+              {attr.values.map(v => (
+                <label key={v.id} className="flex items-center gap-1 cursor-pointer select-none text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={targeting.has(v.id)}
+                    onChange={e => toggleValue(v.id, e.target.checked)}
+                  />
+                  {v.label}
+                  {v.description && <span className="text-slate-400 text-[10px]">({v.description})</span>}
+                </label>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   // ── CSV helpers ──────────────────────────────────────────────────────────────
@@ -2148,6 +2212,7 @@ const AdminPanel: React.FC = () => {
                 }
                 className="min-h-[64px] text-sm"
               />
+              {renderTargetingGroups(newDeedTargeting, setNewDeedTargeting)}
               <div className="flex justify-end">
                 <Button
                   onClick={handleAddDeed}
@@ -2227,6 +2292,7 @@ const AdminPanel: React.FC = () => {
                           placeholder="Long description (shown on hover)"
                           className="min-h-[60px] text-xs"
                         />
+                        {renderTargetingGroups(editDeedTargeting, setEditDeedTargeting)}
                         <div className="flex items-center justify-end gap-1">
                           <Button
                             size="sm"
@@ -2236,7 +2302,7 @@ const AdminPanel: React.FC = () => {
                             <Save className="w-3.5 h-3.5 text-emerald-600 mr-1" />
                             Save
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setEditingDeed(null)}>
+                          <Button size="sm" variant="ghost" onClick={() => { setEditingDeed(null); setEditDeedTargeting(new Set()); }}>
                             <X className="w-3.5 h-3.5 mr-1" /> Cancel
                           </Button>
                         </div>
@@ -2287,7 +2353,7 @@ const AdminPanel: React.FC = () => {
                             size="sm"
                             variant="ghost"
                             className="h-8 w-8 p-0"
-                            onClick={() => {
+                            onClick={async () => {
                               setEditingDeed(deed.id);
                               setEditDeedData({
                                 deed_text: deed.deed_text,
@@ -2296,6 +2362,10 @@ const AdminPanel: React.FC = () => {
                                 complexity: deed.complexity != null ? String(deed.complexity) : '',
                                 quantity: deed.quantity != null ? String(deed.quantity) : '1',
                               });
+                              try {
+                                const res = await getDeedTargeting(deed.id);
+                                setEditDeedTargeting(new Set(res.targeting_value_ids));
+                              } catch { setEditDeedTargeting(new Set()); }
                             }}
                           >
                             <Edit2 className="w-3.5 h-3.5" />

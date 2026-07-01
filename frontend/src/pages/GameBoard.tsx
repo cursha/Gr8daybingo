@@ -24,10 +24,12 @@ import {
   getMyTrades,
   spinDare,
   getMyProfile,
-  getQuickDeeds,
-  tapQuickDeed,
   getMyStreak,
-  QuickDeed,
+  QuickTapDeed,
+  getMyQuickTaps,
+  tapQuickTapDeed,
+  getQuickTapEligibleDeeds,
+  setMyQuickTaps,
   StreakData,
   StreakMilestoneHit,
 } from '@/lib/game-utils';
@@ -99,9 +101,14 @@ const GameBoard: React.FC = () => {
   const [dareResult, setDareResult] = useState<DareSpinResult | null>(null);
   const [dareSpinning, setDareSpinning] = useState(false);
   const [pendingTradeCount, setPendingTradeCount] = useState(0);
-  const [quickDeeds, setQuickDeeds] = useState<QuickDeed[]>([]);
-  const [quickDeedTapping, setQuickDeedTapping] = useState<number | null>(null);
-  const [quickDeedCounts, setQuickDeedCounts] = useState<Record<number, number>>({});
+  const [quickTapDeeds, setQuickTapDeeds] = useState<QuickTapDeed[]>([]);
+  const [quickTapSource, setQuickTapSource] = useState<'custom' | 'default'>('default');
+  const [quickTapTapping, setQuickTapTapping] = useState<number | null>(null);
+  const [quickTapCounts, setQuickTapCounts] = useState<Record<number, number>>({});
+  const [showQuickTapPicker, setShowQuickTapPicker] = useState(false);
+  const [eligibleDeeds, setEligibleDeeds] = useState<QuickTapDeed[]>([]);
+  const [pickerSelection, setPickerSelection] = useState<Set<number>>(new Set());
+  const [pickerSaving, setPickerSaving] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [streak, setStreak] = useState<StreakData | null>(null);
   const [streakMilestones, setStreakMilestones] = useState<StreakMilestoneHit[]>([]);
@@ -120,8 +127,8 @@ const GameBoard: React.FC = () => {
       getMyProfile()
         .then((p) => setPlayerBadge(p))
         .catch(() => {});
-      getQuickDeeds()
-        .then((deeds) => setQuickDeeds(deeds))
+      getMyQuickTaps()
+        .then((res) => { setQuickTapDeeds(res.deeds); setQuickTapSource(res.source); })
         .catch(() => {});
       getMyTeam()
         .then((res) => setMyTeam(res.team))
@@ -348,27 +355,54 @@ const GameBoard: React.FC = () => {
     }
   }, [user, loadMySuggestions]);
 
-  const handleQuickDeedTap = async (deed: QuickDeed) => {
-    if (quickDeedTapping) return;
-    setQuickDeedTapping(deed.id);
+  const handleQuickTapTap = async (deed: QuickTapDeed) => {
+    if (quickTapTapping) return;
+    setQuickTapTapping(deed.id);
     try {
-      const result = await tapQuickDeed(deed.id);
-      setQuickDeedCounts(prev => ({ ...prev, [deed.id]: (prev[deed.id] ?? 0) + 1 }));
-      toast.success(`${deed.emoji} ${deed.label} — thank you for the kindness!`);
+      const result = await tapQuickTapDeed(deed.id);
+      setQuickTapCounts(prev => ({ ...prev, [deed.id]: (prev[deed.id] ?? 0) + 1 }));
+      toast.success(`${deed.deed_text} — thank you for the kindness!`);
       if (result?.streak_update) {
         const su = result.streak_update;
         setStreak((prev) => prev
           ? { ...prev, current_streak_days: su.current_streak_days, longest_streak_days: su.longest_streak_days }
           : null
         );
-        if (su.new_milestones.length > 0) {
-          setStreakMilestones(su.new_milestones);
-        }
+        if (su.new_milestones.length > 0) setStreakMilestones(su.new_milestones);
       }
     } catch {
       toast.error('Could not record your deed. Please try again.');
     } finally {
-      setQuickDeedTapping(null);
+      setQuickTapTapping(null);
+    }
+  };
+
+  const handleOpenPicker = async () => {
+    try {
+      const res = await getQuickTapEligibleDeeds();
+      setEligibleDeeds(res.deeds);
+      setPickerSelection(new Set(quickTapDeeds.map((d) => d.id)));
+      setShowQuickTapPicker(true);
+    } catch {
+      toast.error('Could not load eligible deeds.');
+    }
+  };
+
+  const handlePickerSave = async () => {
+    const ids = [...pickerSelection];
+    if (ids.length < 1 || ids.length > 3) { toast.error('Choose 1 to 3 deeds'); return; }
+    setPickerSaving(true);
+    try {
+      await setMyQuickTaps(ids);
+      const res = await getMyQuickTaps();
+      setQuickTapDeeds(res.deeds);
+      setQuickTapSource(res.source);
+      setShowQuickTapPicker(false);
+      toast.success('Quick Tap updated!');
+    } catch {
+      toast.error('Could not save your selection.');
+    } finally {
+      setPickerSaving(false);
     }
   };
 
@@ -672,25 +706,81 @@ const GameBoard: React.FC = () => {
           </div>
         )}
 
-        {/* Quick Kindness — moved to top so it's always visible above the card */}
-        {user && quickDeeds.length > 0 && (
+        {/* Quick Tap v2 */}
+        {user && (
           <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-4 mb-4">
-            <h3 className="font-bold text-white/80 mb-2 sm:mb-3 text-[11px] sm:text-xs uppercase tracking-wider">Quick Kindness — tap when you do it</h3>
-            <div className="flex flex-wrap gap-2 sm:gap-3 justify-center">
-              {quickDeeds.map(deed => (
-                <button
-                  key={deed.id}
-                  onClick={() => handleQuickDeedTap(deed)}
-                  disabled={quickDeedTapping === deed.id}
-                  className="flex flex-col items-center gap-0.5 sm:gap-1.5 bg-white/10 hover:bg-emerald-500/20 active:scale-95 border border-white/20 hover:border-emerald-400/50 rounded-xl sm:rounded-2xl px-2.5 py-1.5 sm:px-5 sm:py-3 transition-all duration-150 disabled:opacity-50"
-                >
-                  <span className="text-base sm:text-2xl leading-none">{deed.emoji}</span>
-                  <span className="text-[10px] sm:text-xs font-semibold text-white/80">{deed.label}</span>
-                  {(quickDeedCounts[deed.id] ?? 0) > 0 && (
-                    <span className="text-[9px] sm:text-[10px] text-emerald-400 font-bold">+{quickDeedCounts[deed.id]} today</span>
-                  )}
+            <div className="flex items-center justify-between mb-2 sm:mb-3">
+              <h3 className="font-bold text-white/80 text-[11px] sm:text-xs uppercase tracking-wider">Quick Kindness — tap when you do it</h3>
+              <button onClick={handleOpenPicker} className="text-[10px] sm:text-xs text-indigo-300 hover:text-white transition-colors">Customize</button>
+            </div>
+            {quickTapDeeds.length === 0 ? (
+              <button onClick={handleOpenPicker} className="w-full py-3 text-sm text-indigo-300 hover:text-white border border-dashed border-white/20 rounded-lg transition-colors">
+                Tap to choose your Quick Tap deeds
+              </button>
+            ) : (
+              <div className="flex flex-wrap gap-2 sm:gap-3 justify-center">
+                {quickTapDeeds.map(deed => (
+                  <button
+                    key={deed.id}
+                    onClick={() => handleQuickTapTap(deed)}
+                    disabled={quickTapTapping === deed.id}
+                    className="flex flex-col items-center gap-0.5 sm:gap-1.5 bg-white/10 hover:bg-emerald-500/20 active:scale-95 border border-white/20 hover:border-emerald-400/50 rounded-xl sm:rounded-2xl px-2.5 py-1.5 sm:px-5 sm:py-3 transition-all duration-150 disabled:opacity-50"
+                  >
+                    <span className="text-[10px] sm:text-xs font-semibold text-white/80 text-center max-w-[80px] sm:max-w-[120px] leading-tight">{deed.deed_text}</span>
+                    {(quickTapCounts[deed.id] ?? 0) > 0 && (
+                      <span className="text-[9px] sm:text-[10px] text-emerald-400 font-bold">+{quickTapCounts[deed.id]} today</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Quick Tap picker modal */}
+        {showQuickTapPicker && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b border-slate-700">
+                <div>
+                  <h2 className="font-bold text-white">Customize Quick Tap</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">Choose 1–3 deeds to show as your quick buttons</p>
+                </div>
+                <button onClick={() => setShowQuickTapPicker(false)} className="text-slate-400 hover:text-white text-lg leading-none">✕</button>
+              </div>
+              <div className="overflow-y-auto flex-1 p-4 space-y-2">
+                {eligibleDeeds.map((deed) => {
+                  const checked = pickerSelection.has(deed.id);
+                  const disabled = !checked && pickerSelection.size >= 3;
+                  return (
+                    <label key={deed.id} className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${checked ? 'bg-emerald-900/30 border-emerald-500/50' : 'border-slate-700 hover:border-slate-500'} ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={disabled}
+                        onChange={() => {
+                          setPickerSelection(prev => {
+                            const next = new Set(prev);
+                            if (next.has(deed.id)) next.delete(deed.id); else next.add(deed.id);
+                            return next;
+                          });
+                        }}
+                        className="mt-0.5 accent-emerald-500"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-white">{deed.deed_text}</p>
+                        {deed.deed_text_long && <p className="text-xs text-slate-400 mt-0.5">{deed.deed_text_long}</p>}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="p-4 border-t border-slate-700 flex justify-end gap-2">
+                <button onClick={() => setShowQuickTapPicker(false)} className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors">Cancel</button>
+                <button onClick={handlePickerSave} disabled={pickerSaving || pickerSelection.size === 0} className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg disabled:opacity-50 transition-colors">
+                  {pickerSaving ? 'Saving…' : 'Save'}
                 </button>
-              ))}
+              </div>
             </div>
           </div>
         )}

@@ -163,6 +163,15 @@ export interface DeedItem {
   is_active: boolean;
   complexity?: number | null;
   quantity?: number | null;
+  quick_tap_eligible?: boolean;
+  quick_tap_default?: boolean;
+}
+
+export interface QuickTapDeed {
+  id: number;
+  deed_text: string;
+  deed_text_long: string | null;
+  category: string;
 }
 
 // API calls
@@ -269,6 +278,23 @@ export async function getQuickDeeds(): Promise<QuickDeed[]> {
 
 export async function tapQuickDeed(id: number): Promise<{ success: boolean; streak_update?: StreakUpdate }> {
   return apiClient.post<{ success: boolean; streak_update?: StreakUpdate }>(`/game/quick-deeds/${id}/tap`, {});
+}
+
+// ---------- Quick Tap v2 ----------
+export async function getQuickTapEligibleDeeds(): Promise<{ deeds: QuickTapDeed[] }> {
+  return apiClient.get('/game/quick-tap-deeds/eligible');
+}
+
+export async function getMyQuickTaps(): Promise<{ source: 'custom' | 'default'; deeds: QuickTapDeed[] }> {
+  return apiClient.get('/game/my-quick-taps');
+}
+
+export async function setMyQuickTaps(deedIds: number[]): Promise<{ success: boolean }> {
+  return apiClient.put('/game/my-quick-taps', { deed_ids: deedIds });
+}
+
+export async function tapQuickTapDeed(deedId: number): Promise<{ success: boolean; streak_update?: StreakUpdate }> {
+  return apiClient.post(`/game/quick-taps/${deedId}/tap`, {});
 }
 
 export interface TeamMember {
@@ -522,6 +548,8 @@ export async function createAdminDeed(deed: {
   is_active: boolean;
   complexity?: number;
   quantity?: number;
+  quick_tap_eligible?: boolean;
+  quick_tap_default?: boolean;
 }) {
   return apiClient.post<DeedItem>('/game/admin/deeds', deed);
 }

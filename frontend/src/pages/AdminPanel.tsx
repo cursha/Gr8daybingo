@@ -94,9 +94,9 @@ const AdminPanel: React.FC = () => {
 
   // Deeds state
   const [deeds, setDeeds] = useState<DeedItem[]>([]);
-  const [newDeed, setNewDeed] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1' });
+  const [newDeed, setNewDeed] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false });
   const [editingDeed, setEditingDeed] = useState<number | null>(null);
-  const [editDeedData, setEditDeedData] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1' });
+  const [editDeedData, setEditDeedData] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false });
   const [targetingAttributes, setTargetingAttributes] = useState<TargetingAttribute[]>([]);
   const [newDeedTargeting, setNewDeedTargeting] = useState<Set<number>>(new Set());
   const [editDeedTargeting, setEditDeedTargeting] = useState<Set<number>>(new Set());
@@ -610,9 +610,11 @@ const AdminPanel: React.FC = () => {
         is_active: true,
         complexity: newDeed.complexity ? parseInt(newDeed.complexity) : undefined,
         quantity: newDeed.quantity ? parseInt(newDeed.quantity) : 1,
+        quick_tap_eligible: newDeed.quick_tap_eligible,
+        quick_tap_default: newDeed.quick_tap_default,
       });
       await setDeedTargeting(created.id, [...newDeedTargeting]);
-      setNewDeed({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1' });
+      setNewDeed({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false });
       setNewDeedTargeting(new Set());
       toast.success('Gr8Day Deed added!');
       await loadData();
@@ -627,6 +629,8 @@ const AdminPanel: React.FC = () => {
         ...editDeedData,
         complexity: editDeedData.complexity ? parseInt(editDeedData.complexity) : null,
         quantity: editDeedData.quantity ? parseInt(editDeedData.quantity) : 1,
+        quick_tap_eligible: editDeedData.quick_tap_eligible,
+        quick_tap_default: editDeedData.quick_tap_default,
       });
       await setDeedTargeting(id, [...editDeedTargeting]);
       setEditingDeed(null);
@@ -2212,6 +2216,18 @@ const AdminPanel: React.FC = () => {
                 }
                 className="min-h-[64px] text-sm"
               />
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                  <input type="checkbox" checked={newDeed.quick_tap_eligible} onChange={(e) => setNewDeed((prev) => ({ ...prev, quick_tap_eligible: e.target.checked, quick_tap_default: e.target.checked ? prev.quick_tap_default : false }))} className="accent-emerald-600" />
+                  Quick Tap eligible
+                </label>
+                {newDeed.quick_tap_eligible && (
+                  <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                    <input type="checkbox" checked={newDeed.quick_tap_default} onChange={(e) => setNewDeed((prev) => ({ ...prev, quick_tap_default: e.target.checked }))} className="accent-indigo-600" />
+                    Default
+                  </label>
+                )}
+              </div>
               <TargetingGroupsInput attributes={targetingAttributes} targeting={newDeedTargeting} onChange={setNewDeedTargeting} />
               <div className="flex justify-end">
                 <Button
@@ -2293,6 +2309,18 @@ const AdminPanel: React.FC = () => {
                           className="min-h-[60px] text-xs"
                         />
                         <TargetingGroupsInput attributes={targetingAttributes} targeting={editDeedTargeting} onChange={setEditDeedTargeting} />
+                        <div className="flex items-center gap-4">
+                          <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                            <input type="checkbox" checked={editDeedData.quick_tap_eligible} onChange={(e) => setEditDeedData((prev) => ({ ...prev, quick_tap_eligible: e.target.checked, quick_tap_default: e.target.checked ? prev.quick_tap_default : false }))} className="accent-emerald-600" />
+                            Quick Tap eligible
+                          </label>
+                          {editDeedData.quick_tap_eligible && (
+                            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                              <input type="checkbox" checked={editDeedData.quick_tap_default} onChange={(e) => setEditDeedData((prev) => ({ ...prev, quick_tap_default: e.target.checked }))} className="accent-indigo-600" />
+                              Default
+                            </label>
+                          )}
+                        </div>
                         <div className="flex items-center justify-end gap-1">
                           <Button
                             size="sm"
@@ -2336,6 +2364,11 @@ const AdminPanel: React.FC = () => {
                                 Do it {deed.quantity}×
                               </span>
                             )}
+                            {deed.quick_tap_eligible && (
+                              <span className="text-[10px] bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded font-semibold">
+                                Quick Tap{deed.quick_tap_default ? ' · Default' : ''}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
@@ -2361,6 +2394,8 @@ const AdminPanel: React.FC = () => {
                                 category: deed.category || '',
                                 complexity: deed.complexity != null ? String(deed.complexity) : '',
                                 quantity: deed.quantity != null ? String(deed.quantity) : '1',
+                                quick_tap_eligible: deed.quick_tap_eligible ?? false,
+                                quick_tap_default: deed.quick_tap_default ?? false,
                               });
                               try {
                                 const res = await getDeedTargeting(deed.id);

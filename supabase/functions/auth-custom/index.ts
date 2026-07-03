@@ -395,12 +395,23 @@ Deno.serve(async (req: Request) => {
     if (method === 'GET' && path === '/me') {
       const user = await getAuthUser(req)
       requireAuth(user)
+      // Sliding session: every successful check re-issues a fresh token so an
+      // active player is never hard-logged-out mid-use just because the
+      // original token's fixed expiry passed while they kept using the app.
+      const refreshedToken = await createAccessToken({
+        sub: user!.sub,
+        email: user!.email,
+        role: user!.role,
+        name: user!.name,
+        last_login: user!.last_login,
+      })
       return jsonResponse({
         id: user!.sub,
         email: user!.email,
         name: user!.name,
         role: user!.role,
         last_login: user!.last_login,
+        token: refreshedToken,
       })
     }
 

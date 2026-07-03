@@ -57,7 +57,13 @@ class AuthApi {
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
-        return await apiClient.get<AuthUser>('/auth-custom/me');
+        const { token, ...userData } = await apiClient.get<AuthUser & { token?: string }>(
+          '/auth-custom/me'
+        );
+        // Sliding session: the server issues a fresh token on every check;
+        // store it so an active player's session keeps renewing itself.
+        if (token) setAuthToken(token);
+        return userData;
       } catch (err: unknown) {
         lastErr = err;
         const status = (err as { status?: number })?.status;

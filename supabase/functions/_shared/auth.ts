@@ -18,7 +18,15 @@ function getAlgorithm(): string {
 }
 
 function getExpireSeconds(): number {
-  return parseInt(Deno.env.get('JWT_EXPIRE_MINUTES') ?? '10080') * 60  // default 7 days
+  // Whatever JWT_EXPIRE_MINUTES is set to in the live secrets, never let a
+  // session expire in under a day — a too-low value there is exactly what
+  // was silently logging players out. Combined with the sliding refresh in
+  // GET /me, this makes the configured value irrelevant to that failure mode.
+  const MIN_MINUTES = 24 * 60
+  const DEFAULT_MINUTES = 7 * 24 * 60
+  const configured = parseInt(Deno.env.get('JWT_EXPIRE_MINUTES') ?? String(DEFAULT_MINUTES))
+  const minutes = Number.isFinite(configured) ? Math.max(configured, MIN_MINUTES) : DEFAULT_MINUTES
+  return minutes * 60
 }
 
 export async function createAccessToken(

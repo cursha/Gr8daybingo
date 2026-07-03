@@ -101,6 +101,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     checkAuthStatus();
   }, [checkAuthStatus]);
 
+  // Keep an open tab's session sliding forward: periodically re-check (which
+  // also re-issues a fresh token server-side) so a player active over a long
+  // session is never hard-logged-out just because the original token expired
+  // while they were still using the app.
+  const isLoggedIn = !!user;
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const REFRESH_INTERVAL_MS = 20 * 60 * 1000; // 20 minutes
+    const interval = setInterval(checkAuthStatus, REFRESH_INTERVAL_MS);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') checkAuthStatus();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [isLoggedIn, checkAuthStatus]);
+
   const value: AuthContextType = {
     user,
     loading,

@@ -228,6 +228,22 @@ The cPanel account `falleng1` on `173.209.32.66` hosts **multiple separate websi
 5. python tools/deploy_to_cpanel.py    (FTP upload to havagr8day.com)
 ```
 
+### Auto-deploy via GitHub Actions
+
+`.github/workflows/deploy-cpanel.yml` automatically runs steps 1 and 5 above whenever a
+commit touching `frontend/**` lands on **`main`**. It builds the frontend in CI (using
+the committed public config in `frontend/.env.production`) and FTP-uploads `dist/` to
+`/havagr8day.com`, guarded by checks that refuse to deploy a build missing required
+env vars or the Supabase config. The FTP credentials (`CPANEL_USER`/`CPANEL_PASS`/`CPANEL_HOST`)
+live in the repo's GitHub Actions secrets, not in this environment.
+
+This means: **merging/pushing to `main` goes live automatically** — there is no separate
+manual approval gate once a commit is on `main`. So the "explicit confirmation before
+deploying live" rule in §2.1 must be satisfied *before* merging into `main`, not after.
+`tools/deploy_to_cpanel.py` is still useful as a manual/local fallback (e.g. deploying
+from a branch, or from a machine when the Action isn't available), but for normal
+frontend changes the push to `main` **is** the deploy step.
+
 ---
 
 ## 9. GitHub Workflow

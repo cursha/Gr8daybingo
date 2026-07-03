@@ -20,9 +20,16 @@ const Welcome: React.FC = () => {
       </header>
 
       <div className="max-w-3xl mx-auto px-4 py-10 space-y-5 text-slate-700 leading-relaxed">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900 mb-1">Welcome to HavaGr8Day Bingo</h1>
-          <p className="text-sm text-slate-400">A note from our founder</p>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+          <img
+            src="/CURT-circle-RED-head.jpg"
+            alt="Curt Skene, founder of HavaGr8Day Bingo"
+            className="w-24 h-24 rounded-full object-cover shrink-0"
+          />
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900 mb-1">Welcome to HavaGr8Day Bingo</h1>
+            <p className="text-sm text-slate-400">A note from our founder</p>
+          </div>
         </div>
 
         <p>Hi, I'm Curt Skene, founder of HavaGr8Day Bingo.</p>
@@ -30,19 +37,21 @@ const Welcome: React.FC = () => {
         <p>Before you start playing, I want to tell you how this all began.</p>
 
         <p>
-          Many years ago, I started something very simple. Whenever I bought myself a coffee, I would
-          occasionally buy one for someone else. Sometimes it was a friend. Sometimes it was a complete
+          Many years ago, I started something very simple. Whenever I bought myself a beverage, I would
+          occasionally buy one for someone else. Sometimes it was a friend. Often, it was a complete
           stranger. There was no plan. No organization. No prizes. No website. Just a simple belief that
           small acts of kindness can make a big difference.
         </p>
 
         <p>
-          Over time, a handful of close friends joined in. Then more people started embracing the idea.
-          We discovered something unexpected. The real reward wasn't the coffee. It wasn't the thank you.
-          It wasn't even the smile.
+          Over time, a handful of friends joined in. Then more people started embracing the idea.
+          We discovered something unexpected. The real reward wasn't buying the drink. It wasn't the
+          thank you. It wasn't even the smile.
         </p>
 
-        <p className="text-xl font-semibold text-slate-900">The reward was awareness.</p>
+        <p className="text-xl font-semibold text-slate-900">
+          The reward was awareness. That idea of knowing you were making a difference!
+        </p>
 
         <p>
           Once you start looking for opportunities to make someone's day better, you begin seeing them
@@ -115,7 +124,7 @@ const Welcome: React.FC = () => {
 
         <p>
           Now get out there, have some fun, complete a few squares, make someone's day, and most
-          importantly...
+          importantly, as I like to say...
         </p>
 
         <p className="text-2xl font-bold text-indigo-600">Have a GR8 Day!</p>

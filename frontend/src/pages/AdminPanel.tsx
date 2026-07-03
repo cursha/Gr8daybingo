@@ -812,7 +812,7 @@ const AdminPanel: React.FC = () => {
     // Targeting column slugs in display_order (matches import expectation).
     const targetingCols = attributes.map((a) => 'targeting_' + a.name.toLowerCase().replace(/\s+/g, '_'));
 
-    const header = ['id', 'category', 'complexity', 'quantity', 'deed_text', 'deed_text_long', 'is_active', ...targetingCols].join(',');
+    const header = ['id', 'category', 'complexity', 'quantity', 'deed_text', 'deed_text_long', 'is_active', 'quick_tap_eligible', 'quick_tap_default', ...targetingCols].join(',');
     const rows = filtered.map((d) => {
       const deedAttrs = deedTargeting.get(d.id);
       const targetingFields = targetingCols.map((slug) => toCsvField((deedAttrs?.get(slug) ?? []).join('|')));
@@ -824,6 +824,8 @@ const AdminPanel: React.FC = () => {
         toCsvField(d.deed_text),
         toCsvField(d.deed_text_long),
         toCsvField(d.is_active),
+        toCsvField(d.quick_tap_eligible),
+        toCsvField(d.quick_tap_default),
         ...targetingFields,
       ].join(',');
     });
@@ -951,6 +953,7 @@ const AdminPanel: React.FC = () => {
       const rows = parseCsv(text);
       if (rows.length === 0) { toast.error('No valid rows found in CSV'); return; }
       const targetingKeys = Object.keys(rows[0] ?? {}).filter((k) => k.startsWith('targeting_'));
+      const parseStrictBool = (v: string | undefined): boolean => (v ?? '').trim().toLowerCase() === 'true';
       const deeds = rows.map((row) => {
         const deed: Record<string, unknown> = {
           id: row['id'] ? parseInt(row['id']) || undefined : undefined,
@@ -959,7 +962,9 @@ const AdminPanel: React.FC = () => {
           category: row['category'] || '',
           complexity: row['complexity'] ? parseInt(row['complexity']) || null : null,
           quantity: row['quantity'] ? parseInt(row['quantity']) || 1 : 1,
-          is_active: (row['is_active'] ?? '').trim().toLowerCase() !== 'false',
+          is_active: parseStrictBool(row['is_active']),
+          quick_tap_eligible: parseStrictBool(row['quick_tap_eligible']),
+          quick_tap_default: parseStrictBool(row['quick_tap_default']),
         };
         for (const k of targetingKeys) deed[k] = row[k] ?? '';
         return deed;
@@ -2235,7 +2240,7 @@ const AdminPanel: React.FC = () => {
               <p><span className="font-mono bg-white px-1 rounded">quantity</span> — how many times the player must do it (1 or more). Use 1 for normal deeds, or 2, 3, 5, 10… for "do it multiple times" deeds.</p>
               <p><span className="font-mono bg-white px-1 rounded">deed_text</span> — short text shown on the bingo square (required)</p>
               <p><span className="font-mono bg-white px-1 rounded">deed_text_long</span> — long description shown on hover (optional)</p>
-              <p><span className="font-mono bg-white px-1 rounded">is_active</span> — true or false (TRUE/FALSE in any case works)</p>
+              <p><span className="font-mono bg-white px-1 rounded">is_active</span>, <span className="font-mono bg-white px-1 rounded">quick_tap_eligible</span>, <span className="font-mono bg-white px-1 rounded">quick_tap_default</span> — must be the literal word <strong>true</strong> or <strong>false</strong> (any case, e.g. TRUE/False both work). Any other value (1, yes, blank, etc.) is treated as false.</p>
               <p className="font-semibold text-slate-700 pt-1">Optional targeting columns (add these headers to restrict a deed to specific players):</p>
               <p><span className="font-mono bg-white px-1 rounded">targeting_age_bracket</span> — Teen, Early Adult, Adult, Senior (pipe-separated for multiple, e.g. <span className="font-mono">Adult|Senior</span>; blank = all ages)</p>
               <p><span className="font-mono bg-white px-1 rounded">targeting_relationship</span> — Single, Partnered (blank = all)</p>

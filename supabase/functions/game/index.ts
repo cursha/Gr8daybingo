@@ -2245,12 +2245,9 @@ Deno.serve(async (req: Request) => {
         idByText.set(String(d.deed_text ?? '').trim().toLowerCase(), d.id)
       }
 
-      // Robustly interpret is_active for both booleans and strings of any case.
-      const parseActive = (v: unknown): boolean => {
-        if (v === false) return false
-        const s = String(v ?? '').trim().toLowerCase()
-        return !(s === 'false' || s === '0' || s === 'no' || s === 'n')
-      }
+      // Strict boolean parsing: only the literal "true" (any case) is truthy.
+      const parseStrictBool = (v: unknown): boolean =>
+        String(v ?? '').trim().toLowerCase() === 'true'
 
       // Clamp quantity to the allowed 1–4 range; default to 1.
       const parseQuantity = (v: unknown): number => {
@@ -2296,7 +2293,9 @@ Deno.serve(async (req: Request) => {
           category: row.category ? String(row.category).trim() : null,
           complexity: complexityVal,
           quantity: parseQuantity(row.quantity),
-          is_active: parseActive(row.is_active),
+          is_active: parseStrictBool(row.is_active),
+          quick_tap_eligible: parseStrictBool(row.quick_tap_eligible),
+          quick_tap_default: parseStrictBool(row.quick_tap_default),
         }
 
         // Determine the target row: explicit id wins, else match by name.

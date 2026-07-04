@@ -960,6 +960,19 @@ export async function getStreakLeaderboard(): Promise<StreakLeaderboard> {
   return apiClient.get<StreakLeaderboard>('/game/leaderboard/streaks', { skipAuth: true } as any);
 }
 
+export interface TeamRankEntry {
+  team_id: number;
+  team_number: number | null;
+  team_name: string;
+  deeds: number;
+  active_members: number;
+  total_members: number;
+}
+
+export async function getTeamLeaderboard(): Promise<{ teams: TeamRankEntry[] }> {
+  return apiClient.get<{ teams: TeamRankEntry[] }>('/game/leaderboard/teams', { skipAuth: true } as any);
+}
+
 export async function adminGetStreakMilestones(): Promise<StreakMilestone[]> {
   const data = await apiClient.get<{ milestones: StreakMilestone[] }>('/game/admin/streak-milestones');
   return data.milestones;

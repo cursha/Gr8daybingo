@@ -3760,6 +3760,54 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    // ── GET /leaderboard/teams ────────────────────────────────────────────────
+    if (method === 'GET' && path === '/leaderboard/teams') {
+      const { data: cd } = await supabase
+        .from('completed_deeds')
+        .select('team_id_at_completion, player_id')
+        .eq('is_hidden_from_impact_board', false)
+        .not('team_id_at_completion', 'is', null)
+
+      const byTeam = new Map<number, { deeds: number; players: Set<string> }>()
+      for (const row of cd ?? []) {
+        const tid = row.team_id_at_completion as number
+        if (!byTeam.has(tid)) byTeam.set(tid, { deeds: 0, players: new Set() })
+        const entry = byTeam.get(tid)!
+        entry.deeds++
+        entry.players.add(row.player_id)
+      }
+
+      const teamIds = [...byTeam.keys()]
+      const { data: teamRows } = teamIds.length
+        ? await supabase.from('teams').select('id, team_name, team_number').in('id', teamIds)
+        : { data: [] }
+      const { data: memberRows } = teamIds.length
+        ? await supabase.from('team_members').select('team_id').in('team_id', teamIds)
+        : { data: [] }
+      const totalMembersByTeam = new Map<number, number>()
+      for (const m of memberRows ?? []) {
+        totalMembersByTeam.set(m.team_id, (totalMembersByTeam.get(m.team_id) ?? 0) + 1)
+      }
+      const teamInfoById = new Map((teamRows ?? []).map((t) => [t.id, t]))
+
+      const teams = teamIds
+        .map((tid) => {
+          const info = teamInfoById.get(tid)
+          const agg = byTeam.get(tid)!
+          return {
+            team_id: tid,
+            team_number: info?.team_number ?? null,
+            team_name: info?.team_name ?? 'Unknown Team',
+            deeds: agg.deeds,
+            active_members: agg.players.size,
+            total_members: totalMembersByTeam.get(tid) ?? 0,
+          }
+        })
+        .sort((a, b) => b.deeds - a.deeds)
+
+      return jsonResponse({ teams })
+    }
+
     // ── POST /admin/backfill-completed-deeds ──────────────────────────────────
     // One-time: reconstruct historical completed_deeds from existing logs.
     // Guarded: admin only, and aborts if completed_deeds already has rows.

@@ -4,9 +4,11 @@ import {
   getPlayerLeaderboard,
   getStreakLeaderboard,
   getImpactSummary,
+  getTeamLeaderboard,
   PlayerLeaderboardData,
   PlayerRankEntry,
   StreakLeaderboard,
+  TeamRankEntry,
   ImpactSummary,
   ImpactPeriod,
   GeoCountry,
@@ -19,7 +21,7 @@ import {
   Flame, Globe, Lock, ChevronLeft, Sparkles, Award, Grid3x3, UsersRound, Building2, Map, Eye,
 } from 'lucide-react';
 
-type View = 'players' | 'streaks' | 'deeds' | 'places';
+type View = 'players' | 'streaks' | 'deeds' | 'places' | 'teams';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 const initials = (s: string) =>
@@ -160,6 +162,13 @@ const DEMO_IMPACT: ImpactSummary = {
   participation: { active_players: 241, lifetime_players: 388, active_teams: 19, lifetime_teams: 27 },
   reach: { cities: 24, provinces: 11, countries: 5 },
 };
+const DEMO_TEAMS: { teams: TeamRankEntry[] } = {
+  teams: [
+    { team_id: 1, team_number: 1001, team_name: 'Kindness Crew', deeds: 312, active_members: 6, total_members: 8 },
+    { team_id: 2, team_number: 1002, team_name: 'Good Vibes Only', deeds: 245, active_members: 5, total_members: 6 },
+    { team_id: 3, team_number: 1003, team_name: 'Helping Hands', deeds: 178, active_members: 4, total_members: 5 },
+  ],
+};
 
 // ── main ────────────────────────────────────────────────────────────────────────
 const Leaderboard: React.FC = () => {
@@ -168,6 +177,7 @@ const Leaderboard: React.FC = () => {
   const isDemo = !authLoading && !user;
   const [data, setData] = useState<PlayerLeaderboardData | null>(null);
   const [streaks, setStreaks] = useState<StreakLeaderboard | null>(null);
+  const [teams, setTeams] = useState<{ teams: TeamRankEntry[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View>('players');
   const [streakMode, setStreakMode] = useState<'current' | 'longest'>('current');
@@ -183,14 +193,16 @@ const Leaderboard: React.FC = () => {
     if (!user) {
       setData(DEMO_DATA);
       setStreaks(DEMO_STREAKS);
+      setTeams(DEMO_TEAMS);
       setLoading(false);
       return;
     }
     setLoading(true);
-    Promise.allSettled([getPlayerLeaderboard(), getStreakLeaderboard()])
-      .then(([p, s]) => {
+    Promise.allSettled([getPlayerLeaderboard(), getStreakLeaderboard(), getTeamLeaderboard()])
+      .then(([p, s, t]) => {
         if (p.status === 'fulfilled') setData(p.value);
         if (s.status === 'fulfilled') setStreaks(s.value);
+        if (t.status === 'fulfilled') setTeams(t.value);
       })
       .finally(() => setLoading(false));
   }, [authLoading, user]);
@@ -230,6 +242,7 @@ const Leaderboard: React.FC = () => {
   const tabs: { key: View; label: string; icon: React.ReactNode }[] = [
     { key: 'players', label: 'Players', icon: <Trophy className="w-4 h-4" /> },
     { key: 'streaks', label: 'Streaks', icon: <Flame className="w-4 h-4" /> },
+    { key: 'teams', label: 'Teams', icon: <UsersRound className="w-4 h-4" /> },
     { key: 'deeds', label: 'Deeds', icon: <ListChecks className="w-4 h-4" /> },
     { key: 'places', label: 'Countries', icon: <MapPin className="w-4 h-4" /> },
   ];
@@ -239,6 +252,7 @@ const Leaderboard: React.FC = () => {
     : streaks?.longest_streak_leaders) ?? [];
   const streakDays = (e: any) => streakMode === 'current' ? e.current_streak_days : e.longest_streak_days;
   const maxStreak = streakList.length ? streakDays(streakList[0]) || 1 : 1;
+  const maxTeamDeeds = teams?.teams.length ? teams.teams[0].deeds || 1 : 1;
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col">
@@ -414,6 +428,36 @@ const Leaderboard: React.FC = () => {
                   })}
                 </Panel>
                 <p className="text-center text-xs text-slate-500">A streak grows by one each day you complete at least one Gr8Day Deed.</p>
+              </div>
+            )}
+
+            {/* ── TEAMS ───────────────────────────────────────────── */}
+            {view === 'teams' && (
+              <div className="space-y-3">
+                <Panel>
+                  <TableHead cols={['#', 'Team', 'Deeds', 'Members']} />
+                  {(teams?.teams ?? []).length === 0 ? (
+                    <Empty>No teams ranked yet.</Empty>
+                  ) : (teams?.teams ?? []).map((t, i) => (
+                    <div key={t.team_id} className="flex items-center gap-3 px-4 py-2.5 border-t border-slate-800/70">
+                      <span className="w-5 text-center text-sm font-semibold text-slate-500 tabular-nums">{i + 1}</span>
+                      <Monogram label={t.team_name} />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-white truncate">{t.team_name}</p>
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {t.team_number != null ? `Team #${t.team_number}` : ''}
+                        </p>
+                      </div>
+                      <div className="w-28 shrink-0">
+                        <p className="text-right text-sm font-bold text-white tabular-nums">{t.deeds.toLocaleString()}</p>
+                        <div className="mt-1"><RateBar ratio={t.deeds / maxTeamDeeds} /></div>
+                      </div>
+                      <div className="w-24 shrink-0 text-right">
+                        <p className="text-xs text-slate-400 tabular-nums">{t.total_members}</p>
+                      </div>
+                    </div>
+                  ))}
+                </Panel>
               </div>
             )}
 

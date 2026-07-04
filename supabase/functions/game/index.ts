@@ -3621,10 +3621,8 @@ Deno.serve(async (req: Request) => {
 
     // ── POST /admin/players ───────────────────────────────────────────────────
     if (method === 'POST' && path === '/admin/players') {
+      requireAdmin(authUser)
       const body = await req.json()
-      const { data: cfg } = await supabase
-        .from('game_configs').select('config_value').eq('config_key', 'admin_password').maybeSingle()
-      if (!cfg || cfg.config_value !== body.admin_password) return errorResponse('Invalid admin password', 403)
 
       const email = String(body.email ?? '').trim().toLowerCase()
       const username = String(body.username ?? '').trim()
@@ -3657,11 +3655,9 @@ Deno.serve(async (req: Request) => {
     // ── PUT /admin/players/:id ────────────────────────────────────────────────
     const adminPlayerPutMatch = method === 'PUT' && path.match(/^\/admin\/players\/([^/]+)$/)
     if (adminPlayerPutMatch) {
+      requireAdmin(authUser)
       const targetId = adminPlayerPutMatch[1]
       const body = await req.json()
-      const { data: cfg } = await supabase
-        .from('game_configs').select('config_value').eq('config_key', 'admin_password').maybeSingle()
-      if (!cfg || cfg.config_value !== body.admin_password) return errorResponse('Invalid admin password', 403)
 
       const { first_name, last_name, email, username, city, country_id, state_id, challenge_level, role } = body
 
@@ -4259,11 +4255,8 @@ Deno.serve(async (req: Request) => {
     // ── DELETE /admin/players/:id ─────────────────────────────────────────────
     const adminPlayerDeleteMatch = method === 'DELETE' && path.match(/^\/admin\/players\/([^/]+)$/)
     if (adminPlayerDeleteMatch) {
+      requireAdmin(authUser)
       const targetId = adminPlayerDeleteMatch[1]
-      const adminPw = new URL(req.url).searchParams.get('admin_password')
-      const { data: cfg } = await supabase
-        .from('game_configs').select('config_value').eq('config_key', 'admin_password').maybeSingle()
-      if (!cfg || cfg.config_value !== adminPw) return errorResponse('Invalid admin password', 403)
 
       await supabase.from('square_trades').delete().eq('from_user_id', targetId)
       await supabase.from('square_trades').delete().eq('to_user_id', targetId)

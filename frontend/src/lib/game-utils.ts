@@ -849,17 +849,17 @@ export async function deleteMyAccount(): Promise<void> {
 
 export async function adminCreatePlayer(data: {
   first_name?: string; last_name?: string; email: string;
-  username?: string; password: string; role?: string; admin_password: string;
+  username?: string; password: string; role?: string;
 }): Promise<{ user_id: string }> {
   return apiClient.post<{ user_id: string }>('/game/admin/players', data);
 }
 
-export async function adminUpdatePlayer(id: string, data: Record<string, unknown> & { admin_password: string }): Promise<void> {
+export async function adminUpdatePlayer(id: string, data: Record<string, unknown>): Promise<void> {
   await apiClient.put(`/game/admin/players/${id}`, data);
 }
 
-export async function adminDeletePlayer(id: string, admin_password: string): Promise<void> {
-  await apiClient.delete(`/game/admin/players/${id}?admin_password=${encodeURIComponent(admin_password)}`);
+export async function adminDeletePlayer(id: string): Promise<void> {
+  await apiClient.delete(`/game/admin/players/${id}`);
 }
 
 export async function registerProfile(payload: {

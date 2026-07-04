@@ -515,7 +515,7 @@ const AdminPanel: React.FC = () => {
   const handleAddPlayer = async () => {
     setPlayerFormLoading(true);
     try {
-      await adminCreatePlayer({ ...playerForm, country_id: playerForm.country_id ? Number(playerForm.country_id) : undefined, state_id: playerForm.state_id ? Number(playerForm.state_id) : undefined, challenge_level: playerForm.challenge_level ? Number(playerForm.challenge_level) : undefined, admin_password: password } as any);
+      await adminCreatePlayer({ ...playerForm, country_id: playerForm.country_id ? Number(playerForm.country_id) : undefined, state_id: playerForm.state_id ? Number(playerForm.state_id) : undefined, challenge_level: playerForm.challenge_level ? Number(playerForm.challenge_level) : undefined } as any);
       toast.success('Player created');
       setShowAddPlayer(false);
       setPlayerForm({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '', state_id: '', challenge_level: '' });
@@ -530,7 +530,7 @@ const AdminPanel: React.FC = () => {
   const handleEditPlayer = async (id: string) => {
     setPlayerFormLoading(true);
     try {
-      await adminUpdatePlayer(id, { ...playerForm, country_id: playerForm.country_id ? Number(playerForm.country_id) : null, state_id: playerForm.state_id ? Number(playerForm.state_id) : null, challenge_level: playerForm.challenge_level ? Number(playerForm.challenge_level) : null, admin_password: password });
+      await adminUpdatePlayer(id, { ...playerForm, country_id: playerForm.country_id ? Number(playerForm.country_id) : null, state_id: playerForm.state_id ? Number(playerForm.state_id) : null, challenge_level: playerForm.challenge_level ? Number(playerForm.challenge_level) : null });
       toast.success('Player updated');
       setEditingPlayer(null);
       await loadMembers();
@@ -544,7 +544,7 @@ const AdminPanel: React.FC = () => {
   const handleDeletePlayer = async (id: string, name: string) => {
     if (!window.confirm(`Delete player ${name}? This cannot be undone.`)) return;
     try {
-      await adminDeletePlayer(id, password);
+      await adminDeletePlayer(id);
       toast.success('Player deleted');
       await loadMembers();
     } catch (err: any) {

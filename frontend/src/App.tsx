@@ -32,21 +32,24 @@ const queryClient = new QueryClient();
 
 const AppRoutes = () => {
   const location = useLocation();
-  const isAdminPath = location.pathname.startsWith('/admin');
+  // /login is exempt alongside /admin: without it, an admin whose session
+  // expires while maintenance mode is on has no way to get a fresh login —
+  // /admin's own password screen never issues a real session token, only
+  // /login does. Every other route still shows the maintenance screen.
+  const isExemptPath = location.pathname.startsWith('/admin') || location.pathname.startsWith('/login');
   const [offline, setOffline] = useState(false); // fail-open: default false
   const [offlineUntil, setOfflineUntil] = useState<string | null>(null);
 
   useEffect(() => {
-    // /admin is permanently exempt from maintenance mode, so it never even
-    // makes this call — admin access can never depend on this fetch's
-    // timing, success, or the offline_mode value itself.
-    if (isAdminPath) return;
+    // Exempt paths never even make this call — access to them can never
+    // depend on this fetch's timing, success, or the offline_mode value itself.
+    if (isExemptPath) return;
     getOfflineStatus()
       .then((r) => { setOffline(r.offline_mode); setOfflineUntil(r.offline_until); })
       .catch(() => {}); // fail-open: leave false on any error
-  }, [isAdminPath]);
+  }, [isExemptPath]);
 
-  if (offline && !isAdminPath) {
+  if (offline && !isExemptPath) {
     return <OfflineScreen until={offlineUntil} />;
   }
 

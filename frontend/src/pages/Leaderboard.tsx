@@ -19,6 +19,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   ArrowLeft, MapPin, ListChecks, Trophy, ChevronRight, Loader2, Users,
   Flame, Globe, Lock, ChevronLeft, Sparkles, Award, Grid3x3, UsersRound, Building2, Map, Eye,
+  ChevronUp, ChevronDown,
 } from 'lucide-react';
 
 type View = 'players' | 'streaks' | 'deeds' | 'places' | 'teams';
@@ -185,7 +186,7 @@ const Leaderboard: React.FC = () => {
   const [stateNode, setStateNode] = useState<GeoState | null>(null);
   const [period, setPeriod] = useState<ImpactPeriod>('all');
   const [impact, setImpact] = useState<ImpactSummary | null>(null);
-  const [playerSort, setPlayerSort] = useState<'deeds' | 'name'>('deeds');
+  const [playerSort, setPlayerSort] = useState<{ key: 'name' | 'deeds' | 'last_played'; dir: 'asc' | 'desc' }>({ key: 'deeds', dir: 'desc' });
 
   useEffect(() => {
     if (authLoading) return;
@@ -231,13 +232,31 @@ const Leaderboard: React.FC = () => {
 
   const sortedPlayers = useMemo(() => {
     const list = [...players];
-    if (playerSort === 'name') {
-      list.sort((a, b) => nameOf(a).localeCompare(nameOf(b), undefined, { sensitivity: 'base' }));
+    const { key, dir } = playerSort;
+    const mul = dir === 'asc' ? 1 : -1;
+    if (key === 'name') {
+      list.sort((a, b) => mul * nameOf(a).localeCompare(nameOf(b), undefined, { sensitivity: 'base' }));
+    } else if (key === 'last_played') {
+      list.sort((a, b) => {
+        const at = a.last_played ? new Date(a.last_played).getTime() : null;
+        const bt = b.last_played ? new Date(b.last_played).getTime() : null;
+        if (at == null && bt == null) return 0;
+        if (at == null) return 1;
+        if (bt == null) return -1;
+        return mul * (at - bt);
+      });
     } else {
-      list.sort((a, b) => b.deeds - a.deeds);
+      list.sort((a, b) => mul * (a.deeds - b.deeds));
     }
     return list;
   }, [players, playerSort]);
+
+  const handlePlayerSortClick = (key: 'name' | 'deeds' | 'last_played') => {
+    setPlayerSort((prev) => {
+      if (prev.key === key) return { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' };
+      return { key, dir: key === 'name' ? 'asc' : 'desc' };
+    });
+  };
 
   const tabs: { key: View; label: string; icon: React.ReactNode }[] = [
     { key: 'players', label: 'Players', icon: <Trophy className="w-4 h-4" /> },
@@ -349,21 +368,13 @@ const Leaderboard: React.FC = () => {
             {/* ── PLAYERS ─────────────────────────────────────────── */}
             {view === 'players' && (
               <div className="space-y-3">
-                <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
-                  {([
-                    { key: 'deeds', label: 'Most Gr8Day Deeds' },
-                    { key: 'name', label: 'Name (A–Z)' },
-                  ] as const).map((s) => (
-                    <button key={s.key} onClick={() => setPlayerSort(s.key)}
-                      className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer ${
-                        playerSort === s.key ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                      }`}>
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
                 <Panel>
-                  <TableHead cols={['#', 'Player', 'Gr8Day Deeds', 'Last Deed']} />
+                  <TableHead
+                    cols={['#', 'Player', 'Gr8Day Deeds', 'Last Deed']}
+                    sortKeys={[null, 'name', 'deeds', 'last_played']}
+                    activeSort={playerSort}
+                    onSort={handlePlayerSortClick}
+                  />
                   {sortedPlayers.length === 0 ? (
                     <Empty>No players ranked yet.</Empty>
                   ) : sortedPlayers.map((p, i) => (
@@ -547,14 +558,35 @@ const fmtPlayed = (d?: string | null): string => {
 return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });  
 };
 
-const TableHead: React.FC<{ cols: string[] }> = ({ cols }) => (
-  <div className="flex items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
-    <span className="w-5 text-center">{cols[0]}</span>
-    <span className="flex-1">{cols[1]}</span>
-    {cols[2] != null && <span className="w-24 text-right">{cols[2]}</span>}
-    {cols[3] != null && <span className="w-24 text-right">{cols[3]}</span>}
-  </div>
-);
+const TableHead: React.FC<{
+  cols: string[];
+  sortKeys?: (string | null)[];
+  activeSort?: { key: string; dir: 'asc' | 'desc' };
+  onSort?: (key: string) => void;
+}> = ({ cols, sortKeys, activeSort, onSort }) => {
+  const cell = (label: string, idx: number, className: string) => {
+    const key = sortKeys?.[idx];
+    if (!key || !onSort) return <span className={className}>{label}</span>;
+    const isActive = activeSort?.key === key;
+    return (
+      <button
+        onClick={() => onSort(key)}
+        className={`${className} flex items-center gap-0.5 ${idx > 1 ? 'justify-end' : ''} cursor-pointer hover:text-slate-300 transition-colors ${isActive ? 'text-slate-300' : ''}`}
+      >
+        {label}
+        {isActive && (activeSort!.dir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+      </button>
+    );
+  };
+  return (
+    <div className="flex items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
+      {cell(cols[0], 0, 'w-5 text-center')}
+      {cell(cols[1], 1, 'flex-1')}
+      {cols[2] != null && cell(cols[2], 2, 'w-24 text-right')}
+      {cols[3] != null && cell(cols[3], 3, 'w-24 text-right')}
+    </div>
+  );
+};
 
 const Empty: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <p className="text-center text-slate-500 py-10 text-sm border-t border-slate-800/70">{children}</p>

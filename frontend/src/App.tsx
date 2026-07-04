@@ -32,16 +32,21 @@ const queryClient = new QueryClient();
 
 const AppRoutes = () => {
   const location = useLocation();
+  const isAdminPath = location.pathname.startsWith('/admin');
   const [offline, setOffline] = useState(false); // fail-open: default false
   const [offlineUntil, setOfflineUntil] = useState<string | null>(null);
 
   useEffect(() => {
+    // /admin is permanently exempt from maintenance mode, so it never even
+    // makes this call — admin access can never depend on this fetch's
+    // timing, success, or the offline_mode value itself.
+    if (isAdminPath) return;
     getOfflineStatus()
       .then((r) => { setOffline(r.offline_mode); setOfflineUntil(r.offline_until); })
       .catch(() => {}); // fail-open: leave false on any error
-  }, []);
+  }, [isAdminPath]);
 
-  if (offline && !location.pathname.startsWith('/admin')) {
+  if (offline && !isAdminPath) {
     return <OfflineScreen until={offlineUntil} />;
   }
 

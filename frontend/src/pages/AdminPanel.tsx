@@ -1026,6 +1026,7 @@ const AdminPanel: React.FC = () => {
         <td>${esc(m.province_state) || '—'}</td>
         <td>${esc(m.country) || '—'}</td>
         <td class="ctr">${m.challenge_level ?? '—'}</td>
+        <td class="ctr">${m.email_verified ? 'Y' : 'N'}</td>
         <td>${fmtDate(m.last_login)}</td>
       </tr>`).join('');
     const html = `<!DOCTYPE html>
@@ -1046,7 +1047,7 @@ const AdminPanel: React.FC = () => {
   <h1>Gr8Day Players</h1>
   <p class="meta">${list.length} player${list.length !== 1 ? 's' : ''} &nbsp;·&nbsp; ${filterDesc} &nbsp;·&nbsp; ${new Date().toLocaleDateString()}</p>
   <table>
-    <thead><tr><th>#</th><th>Name</th><th>Email</th><th>City</th><th>Province / State</th><th>Country</th><th>Challenge</th><th>Last Active</th></tr></thead>
+    <thead><tr><th>#</th><th>Name</th><th>Email</th><th>City</th><th>Province / State</th><th>Country</th><th>Challenge</th><th>Verified</th><th>Last Active</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
   <script>window.onload=function(){window.print();}</script>
@@ -1447,6 +1448,7 @@ const AdminPanel: React.FC = () => {
                         <th className="px-3 py-2">Email</th>
                         <th className="px-3 py-2">Location</th>
                         <th className="px-3 py-2 text-center">Challenge</th>
+                        <th className="px-3 py-2 text-center">Verified</th>
                         <th className="px-3 py-2 text-center">Actions</th>
                       </tr>
                     </thead>
@@ -1474,6 +1476,11 @@ const AdminPanel: React.FC = () => {
                                 <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-semibold">{m.challenge_level}</span>
                               ) : <span className="text-slate-300">—</span>}
                             </td>
+                            <td className="px-3 py-2 text-center">
+                              {m.email_verified
+                                ? <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-semibold">Y</span>
+                                : <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-semibold">N</span>}
+                            </td>
                             <td className="px-3 py-2 text-center whitespace-nowrap">
                               <button onClick={() => editingPlayer === m.id ? setEditingPlayer(null) : startEditPlayer(m)} className="text-indigo-600 hover:text-indigo-800 text-xs mr-2 font-medium">{editingPlayer === m.id ? 'Cancel' : 'Edit'}</button>
                               <button onClick={() => handleDeletePlayer(m.id, m.name || m.email || '')} className="text-red-500 hover:text-red-700 text-xs font-medium">Delete</button>
@@ -1481,7 +1488,7 @@ const AdminPanel: React.FC = () => {
                           </tr>
                           {editingPlayer === m.id && (
                             <tr className="bg-indigo-50">
-                              <td colSpan={6} className="px-4 py-4">
+                              <td colSpan={7} className="px-4 py-4">
                                 <div className="grid grid-cols-2 gap-3 text-sm">
                                   <input placeholder="First name" className="border rounded px-2 py-1.5 text-sm" value={playerForm.first_name} onChange={e => setPlayerForm(f => ({ ...f, first_name: e.target.value }))} />
                                   <input placeholder="Last name" className="border rounded px-2 py-1.5 text-sm" value={playerForm.last_name} onChange={e => setPlayerForm(f => ({ ...f, last_name: e.target.value }))} />

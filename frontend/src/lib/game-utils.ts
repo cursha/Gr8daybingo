@@ -783,6 +783,7 @@ export interface MemberItem {
   player_number: number | null;
   last_login: string | null;
   profile_completed: boolean;
+  email_verified: boolean;
 }
 
 export async function getAdminMembers(): Promise<{ members: MemberItem[] }> {

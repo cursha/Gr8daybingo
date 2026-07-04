@@ -2173,7 +2173,7 @@ Deno.serve(async (req: Request) => {
       requireAdmin(authUser)
       const { data } = await supabase
         .from('users')
-        .select('id, email, username, name, first_name, last_name, role, challenge_level, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed')
+        .select('id, email, username, name, first_name, last_name, role, challenge_level, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified')
         .order('player_number', { ascending: true })
       return jsonResponse({
         members: (data ?? []).map((u) => ({
@@ -2193,6 +2193,7 @@ Deno.serve(async (req: Request) => {
           player_number: u.player_number ?? null,
           last_login: u.last_login ?? null,
           profile_completed: !!u.profile_completed,
+          email_verified: !!u.email_verified,
         })),
       })
     }

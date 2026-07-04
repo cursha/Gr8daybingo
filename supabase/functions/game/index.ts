@@ -549,7 +549,7 @@ Deno.serve(async (req: Request) => {
         .from('deed_categories').select('name').eq('is_active', true)
       const activeCategoryNames = (activeCategories ?? []).map(c => c.name)
 
-      let deedQuery = supabase.from('good_deeds').select('*').eq('is_active', true)
+      let deedQuery = supabase.from('good_deeds').select('*').eq('is_active', true).eq('status', 'Approved')
       if (activeCategoryNames.length > 0) {
         deedQuery = deedQuery.in('category', activeCategoryNames)
       }
@@ -1060,6 +1060,7 @@ Deno.serve(async (req: Request) => {
         .select('id, deed_text, deed_text_long, category')
         .eq('quick_tap_eligible', true)
         .eq('is_active', true)
+        .eq('status', 'Approved')
         .order('deed_text')
       return jsonResponse({ deeds: data ?? [] })
     }
@@ -1069,12 +1070,12 @@ Deno.serve(async (req: Request) => {
       const user = requireAuth(authUser)
       const { data: custom } = await supabase
         .from('user_quick_tap_deeds')
-        .select('deed_id, position, good_deeds(id, deed_text, deed_text_long, category, quick_tap_eligible, is_active)')
+        .select('deed_id, position, good_deeds(id, deed_text, deed_text_long, category, quick_tap_eligible, is_active, status)')
         .eq('user_id', user.sub)
         .order('position')
       const customDeeds = (custom ?? [])
-        .map((r) => r.good_deeds as { id: number; deed_text: string; deed_text_long: string | null; category: string; quick_tap_eligible: boolean; is_active: boolean } | null)
-        .filter((d): d is NonNullable<typeof d> => d != null && d.quick_tap_eligible && d.is_active)
+        .map((r) => r.good_deeds as { id: number; deed_text: string; deed_text_long: string | null; category: string; quick_tap_eligible: boolean; is_active: boolean; status: string } | null)
+        .filter((d): d is NonNullable<typeof d> => d != null && d.quick_tap_eligible && d.is_active && d.status === 'Approved')
       if (customDeeds.length > 0) {
         return jsonResponse({ source: 'custom', deeds: customDeeds.map((d) => ({ id: d.id, deed_text: d.deed_text, deed_text_long: d.deed_text_long, category: d.category })) })
       }
@@ -1084,6 +1085,7 @@ Deno.serve(async (req: Request) => {
         .eq('quick_tap_eligible', true)
         .eq('quick_tap_default', true)
         .eq('is_active', true)
+        .eq('status', 'Approved')
         .order('deed_text')
       return jsonResponse({ source: 'default', deeds: defaults ?? [] })
     }
@@ -1095,7 +1097,7 @@ Deno.serve(async (req: Request) => {
       const deedIds: number[] = (body.deed_ids ?? []).map(Number).filter((n: number) => Number.isFinite(n) && n > 0)
       if (deedIds.length < 1 || deedIds.length > 3) return errorResponse('Choose 1 to 3 deeds', 400)
       const { data: valid } = await supabase
-        .from('good_deeds').select('id').in('id', deedIds).eq('quick_tap_eligible', true).eq('is_active', true)
+        .from('good_deeds').select('id').in('id', deedIds).eq('quick_tap_eligible', true).eq('is_active', true).eq('status', 'Approved')
       if ((valid ?? []).length !== deedIds.length) return errorResponse('One or more deeds are not eligible', 400)
       await supabase.from('user_quick_tap_deeds').delete().eq('user_id', user.sub)
       await supabase.from('user_quick_tap_deeds').insert(deedIds.map((id, i) => ({ user_id: user.sub, deed_id: id, position: i })))
@@ -1107,8 +1109,8 @@ Deno.serve(async (req: Request) => {
     if (method === 'POST' && quickTapMatch) {
       const user = requireAuth(authUser)
       const deedId = parseInt(quickTapMatch[1])
-      const { data: deed } = await supabase.from('good_deeds').select('is_active, quick_tap_eligible').eq('id', deedId).maybeSingle()
-      if (!deed?.is_active || !deed?.quick_tap_eligible) return errorResponse('Deed not available for Quick Tap', 400)
+      const { data: deed } = await supabase.from('good_deeds').select('is_active, quick_tap_eligible, status').eq('id', deedId).maybeSingle()
+      if (!deed?.is_active || !deed?.quick_tap_eligible || deed?.status !== 'Approved') return errorResponse('Deed not available for Quick Tap', 400)
       const gate = await checkDeedGate(supabase, user)
       if (!gate.allowed) return errorResponse(gate.message ?? 'Daily deed limit reached', 429)
       const completedId = await recordCompletedDeed(supabase, { playerId: user.sub, sourceType: 'quick_action', deedId })
@@ -2068,7 +2070,7 @@ Deno.serve(async (req: Request) => {
           id: d.id, deed_text: d.deed_text, deed_text_long: d.deed_text_long ?? null,
           category: d.category, is_active: d.is_active, complexity: d.complexity ?? null,
           quantity: d.quantity ?? 1, quick_tap_eligible: d.quick_tap_eligible ?? false,
-          quick_tap_default: d.quick_tap_default ?? false,
+          quick_tap_default: d.quick_tap_default ?? false, status: d.status ?? 'Draft',
         })),
       })
     }
@@ -2077,6 +2079,7 @@ Deno.serve(async (req: Request) => {
     if (method === 'POST' && path === '/admin/deeds') {
       requireAdmin(authUser)
       const body = await req.json()
+      const VALID_STATUSES = ['Draft', 'Review', 'Approved', 'Retired']
       const { data, error } = await supabase.from('good_deeds').insert({
         deed_text: body.deed_text ?? '',
         deed_text_long: body.deed_text_long || null,
@@ -2086,9 +2089,27 @@ Deno.serve(async (req: Request) => {
         quantity: body.quantity != null ? Math.max(1, Math.round(Number(body.quantity)) || 1) : 1,
         quick_tap_eligible: body.quick_tap_eligible === true,
         quick_tap_default: body.quick_tap_default === true,
+        status: VALID_STATUSES.includes(body.status) ? body.status : 'Draft',
       }).select().single()
       if (error) throw error
-      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active, complexity: data.complexity ?? null, quantity: data.quantity ?? 1, quick_tap_eligible: data.quick_tap_eligible ?? false, quick_tap_default: data.quick_tap_default ?? false })
+      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active, complexity: data.complexity ?? null, quantity: data.quantity ?? 1, quick_tap_eligible: data.quick_tap_eligible ?? false, quick_tap_default: data.quick_tap_default ?? false, status: data.status ?? 'Draft' })
+    }
+
+    // ── POST /admin/deeds/bulk-status ─────────────────────────────────────────
+    // Bulk-update the workflow status of multiple deeds at once (e.g. approving
+    // a whole reviewed batch, or bulk-retiring a category), separate from the
+    // single-deed PUT below.
+    if (method === 'POST' && path === '/admin/deeds/bulk-status') {
+      requireAdmin(authUser)
+      const body = await req.json()
+      const VALID_STATUSES = ['Draft', 'Review', 'Approved', 'Retired']
+      const ids: number[] = Array.isArray(body.ids) ? body.ids.map(Number).filter((n: number) => Number.isFinite(n) && n > 0) : []
+      const status = String(body.status ?? '')
+      if (ids.length === 0) return errorResponse('At least one deed id is required', 400)
+      if (!VALID_STATUSES.includes(status)) return errorResponse('status must be one of Draft, Review, Approved, Retired', 400)
+      const { error } = await supabase.from('good_deeds').update({ status }).in('id', ids)
+      if (error) throw error
+      return jsonResponse({ success: true, updated: ids.length })
     }
 
     // ── POST /admin/deeds/import ──────────────────────────────────────────────
@@ -2143,13 +2164,18 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      const validStatuses = new Set(['Draft', 'Review', 'Approved', 'Retired'])
+
       for (const row of rows) {
         const text = String(row.deed_text ?? '').trim()
         if (!text) { skipped++; continue }
         const complexityVal = (row.complexity != null && String(row.complexity).trim() !== '')
           ? (Number(row.complexity) || null)
           : null
-        const payload = {
+        // Blank/invalid status: leave existing rows untouched, default new rows to Draft.
+        const statusRaw = row.status != null ? String(row.status).trim() : ''
+        const statusVal = validStatuses.has(statusRaw) ? statusRaw : null
+        const payload: Record<string, unknown> = {
           deed_text: text,
           deed_text_long: row.deed_text_long ? String(row.deed_text_long).trim() || null : null,
           category: row.category ? String(row.category).trim() : null,
@@ -2166,9 +2192,11 @@ Deno.serve(async (req: Request) => {
 
         let resolvedId = matchedId
         if (matchedId > 0) {
+          if (statusVal) payload.status = statusVal
           const { error } = await supabase.from('good_deeds').update(payload).eq('id', matchedId)
           if (!error) updated++; else { skipped++; continue }
         } else {
+          payload.status = statusVal ?? 'Draft'
           const { data: inserted, error } = await supabase.from('good_deeds').insert(payload).select('id').single()
           if (!error && inserted) {
             created++
@@ -2281,11 +2309,12 @@ Deno.serve(async (req: Request) => {
       if ('quantity' in body) updates.quantity = body.quantity != null ? Math.max(1, Math.round(Number(body.quantity)) || 1) : 1
       if ('quick_tap_eligible' in body) updates.quick_tap_eligible = body.quick_tap_eligible === true
       if ('quick_tap_default' in body) updates.quick_tap_default = body.quick_tap_default === true
+      if ('status' in body && ['Draft', 'Review', 'Approved', 'Retired'].includes(body.status)) updates.status = body.status
       const { data, error } = await supabase.from('good_deeds')
         .update(updates).eq('id', parseInt(deedPutMatch.id)).select().maybeSingle()
       if (error) throw error
       if (!data) return errorResponse('Deed not found', 404)
-      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active, complexity: data.complexity ?? null, quantity: data.quantity ?? 1, quick_tap_eligible: data.quick_tap_eligible ?? false, quick_tap_default: data.quick_tap_default ?? false })
+      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active, complexity: data.complexity ?? null, quantity: data.quantity ?? 1, quick_tap_eligible: data.quick_tap_eligible ?? false, quick_tap_default: data.quick_tap_default ?? false, status: data.status ?? 'Draft' })
     }
 
     // ── DELETE /admin/deeds/:id ───────────────────────────────────────────────
@@ -2388,7 +2417,7 @@ Deno.serve(async (req: Request) => {
       if (pending.status === 'approved') return errorResponse('Already approved', 400)
       const { data: newDeed, error } = await supabase.from('good_deeds').insert({
         deed_text: pending.deed_text, deed_text_long: null,
-        category: pending.category ?? 'Community', is_active: true,
+        category: pending.category ?? 'Community', is_active: true, status: 'Approved',
       }).select().single()
       if (error) throw error
       await supabase.from('pending_deeds').update({ status: 'approved' }).eq('id', pending.id)
@@ -3880,7 +3909,7 @@ Deno.serve(async (req: Request) => {
           result.replaced = []
         } else {
           const existingDeedIds = new Set(cells.map((c) => c.deed_id).filter((id): id is number => id != null))
-          const { data: allDeeds } = await supabase.from('good_deeds').select('*').eq('is_active', true)
+          const { data: allDeeds } = await supabase.from('good_deeds').select('*').eq('is_active', true).eq('status', 'Approved')
           const { playerValueIds, deedTargetingMap } = await fetchTargetingData(supabase, user.sub)
           const basePool = (allDeeds ?? []).filter((d) => !existingDeedIds.has(d.id))
           // targetedPool is a mutable copy we splice from to avoid duplicate picks

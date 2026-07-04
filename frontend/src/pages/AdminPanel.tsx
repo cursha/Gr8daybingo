@@ -11,6 +11,7 @@ import {
   getAdminDeeds,
   createAdminDeed,
   updateAdminDeed,
+  bulkUpdateAdminDeedStatus,
   deleteAdminDeed,
   getAdminPendingDeeds,
   approvePendingDeed,
@@ -109,17 +110,21 @@ const AdminPanel: React.FC = () => {
 
   // Deeds state
   const [deeds, setDeeds] = useState<DeedItem[]>([]);
-  const [newDeed, setNewDeed] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false });
+  const [newDeed, setNewDeed] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false, status: 'Draft' });
   const [editingDeed, setEditingDeed] = useState<number | null>(null);
-  const [editDeedData, setEditDeedData] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false });
+  const [editDeedData, setEditDeedData] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false, status: 'Draft' });
   const [targetingAttributes, setTargetingAttributes] = useState<TargetingAttribute[]>([]);
   const [newDeedTargeting, setNewDeedTargeting] = useState<Set<number>>(new Set());
   const [editDeedTargeting, setEditDeedTargeting] = useState<Set<number>>(new Set());
+  const [selectedDeedIds, setSelectedDeedIds] = useState<Set<number>>(new Set());
+  const [bulkStatusValue, setBulkStatusValue] = useState('Approved');
+  const [bulkStatusLoading, setBulkStatusLoading] = useState(false);
 
   // Export / import state
   const [exportCategoryFilter, setExportCategoryFilter] = useState('all');
   const [exportComplexityFilter, setExportComplexityFilter] = useState('all');
-  const [exportSortBy, setExportSortBy] = useState<'category' | 'az'>('category');
+  const [exportStatusFilter, setExportStatusFilter] = useState('all');
+  const [exportSortBy, setExportSortBy] = useState<'category' | 'az' | 'status'>('category');
   const [importLoading, setImportLoading] = useState(false);
   const importInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -715,14 +720,30 @@ const AdminPanel: React.FC = () => {
         quantity: newDeed.quantity ? parseInt(newDeed.quantity) : 1,
         quick_tap_eligible: newDeed.quick_tap_eligible,
         quick_tap_default: newDeed.quick_tap_default,
+        status: newDeed.status,
       });
       await setDeedTargeting(created.id, [...newDeedTargeting]);
-      setNewDeed({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false });
+      setNewDeed({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false, status: 'Draft' });
       setNewDeedTargeting(new Set());
       toast.success('Gr8Day Deed added!');
       await loadData();
     } catch {
       toast.error('Failed to add Gr8Day Deed');
+    }
+  };
+
+  const handleBulkStatusUpdate = async () => {
+    if (selectedDeedIds.size === 0) return;
+    setBulkStatusLoading(true);
+    try {
+      await bulkUpdateAdminDeedStatus([...selectedDeedIds], bulkStatusValue);
+      toast.success(`${selectedDeedIds.size} deed${selectedDeedIds.size !== 1 ? 's' : ''} set to ${bulkStatusValue}`);
+      setSelectedDeedIds(new Set());
+      await loadData();
+    } catch {
+      toast.error('Failed to bulk-update status');
+    } finally {
+      setBulkStatusLoading(false);
     }
   };
 
@@ -775,6 +796,8 @@ const AdminPanel: React.FC = () => {
     return s;
   }
 
+  const STATUS_ORDER: Record<string, number> = { Draft: 0, Review: 1, Approved: 2, Retired: 3 };
+
   function getFilteredSortedDeeds(): DeedItem[] {
     let result = [...deeds];
     if (exportCategoryFilter && exportCategoryFilter !== 'all') result = result.filter((d) => d.category === exportCategoryFilter);
@@ -782,8 +805,13 @@ const AdminPanel: React.FC = () => {
       const num = parseInt(exportComplexityFilter);
       result = result.filter((d) => (d.complexity ?? null) === num);
     }
+    if (exportStatusFilter && exportStatusFilter !== 'all') {
+      result = result.filter((d) => (d.status ?? 'Draft') === exportStatusFilter);
+    }
     if (exportSortBy === 'category') {
       result.sort((a, b) => (a.category ?? '').localeCompare(b.category ?? '') || a.deed_text.localeCompare(b.deed_text));
+    } else if (exportSortBy === 'status') {
+      result.sort((a, b) => (STATUS_ORDER[a.status ?? 'Draft'] ?? 0) - (STATUS_ORDER[b.status ?? 'Draft'] ?? 0) || a.deed_text.localeCompare(b.deed_text));
     } else {
       result.sort((a, b) => a.deed_text.localeCompare(b.deed_text));
     }
@@ -820,7 +848,7 @@ const AdminPanel: React.FC = () => {
     // Targeting column slugs in display_order (matches import expectation).
     const targetingCols = attributes.map((a) => 'targeting_' + a.name.toLowerCase().replace(/\s+/g, '_'));
 
-    const header = ['id', 'category', 'complexity', 'quantity', 'deed_text', 'deed_text_long', 'is_active', 'quick_tap_eligible', 'quick_tap_default', ...targetingCols].join(',');
+    const header = ['id', 'category', 'complexity', 'quantity', 'deed_text', 'deed_text_long', 'is_active', 'status', 'quick_tap_eligible', 'quick_tap_default', ...targetingCols].join(',');
     const rows = filtered.map((d) => {
       const deedAttrs = deedTargeting.get(d.id);
       const targetingFields = targetingCols.map((slug) => toCsvField((deedAttrs?.get(slug) ?? []).join('|')));
@@ -832,6 +860,7 @@ const AdminPanel: React.FC = () => {
         toCsvField(d.deed_text),
         toCsvField(d.deed_text_long),
         toCsvField(d.is_active),
+        toCsvField(d.status ?? 'Draft'),
         toCsvField(d.quick_tap_eligible),
         toCsvField(d.quick_tap_default),
         ...targetingFields,
@@ -971,6 +1000,7 @@ const AdminPanel: React.FC = () => {
           complexity: row['complexity'] ? parseInt(row['complexity']) || null : null,
           quantity: row['quantity'] ? parseInt(row['quantity']) || 1 : 1,
           is_active: parseStrictBool(row['is_active']),
+          status: row['status'] || '',
           quick_tap_eligible: parseStrictBool(row['quick_tap_eligible']),
           quick_tap_default: parseStrictBool(row['quick_tap_default']),
         };
@@ -2176,7 +2206,7 @@ const AdminPanel: React.FC = () => {
             </p>
 
             {/* Filters */}
-            <div className="grid sm:grid-cols-3 gap-3">
+            <div className="grid sm:grid-cols-4 gap-3">
               <div>
                 <label className="text-xs font-medium text-slate-600 mb-1 block">Category</label>
                 <Select value={exportCategoryFilter} onValueChange={setExportCategoryFilter}>
@@ -2206,14 +2236,30 @@ const AdminPanel: React.FC = () => {
                 </Select>
               </div>
               <div>
+                <label className="text-xs font-medium text-slate-600 mb-1 block">Status</label>
+                <Select value={exportStatusFilter} onValueChange={setExportStatusFilter}>
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue placeholder="All statuses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All statuses</SelectItem>
+                    <SelectItem value="Draft">Draft</SelectItem>
+                    <SelectItem value="Review">Review</SelectItem>
+                    <SelectItem value="Approved">Approved</SelectItem>
+                    <SelectItem value="Retired">Retired</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
                 <label className="text-xs font-medium text-slate-600 mb-1 block">Sort by</label>
-                <Select value={exportSortBy} onValueChange={(v) => setExportSortBy(v as 'category' | 'az')}>
+                <Select value={exportSortBy} onValueChange={(v) => setExportSortBy(v as 'category' | 'az' | 'status')}>
                   <SelectTrigger className="h-8 text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="category">Category</SelectItem>
                     <SelectItem value="az">A – Z</SelectItem>
+                    <SelectItem value="status">Status</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -2267,6 +2313,7 @@ const AdminPanel: React.FC = () => {
               <p><span className="font-mono bg-white px-1 rounded">deed_text</span> — short text shown on the bingo square (required)</p>
               <p><span className="font-mono bg-white px-1 rounded">deed_text_long</span> — long description shown on hover (optional)</p>
               <p><span className="font-mono bg-white px-1 rounded">is_active</span>, <span className="font-mono bg-white px-1 rounded">quick_tap_eligible</span>, <span className="font-mono bg-white px-1 rounded">quick_tap_default</span> — must be the literal word <strong>true</strong> or <strong>false</strong> (any case, e.g. TRUE/False both work). Any other value (1, yes, blank, etc.) is treated as false.</p>
+              <p><span className="font-mono bg-white px-1 rounded">status</span> — one of <strong>Draft</strong>, <strong>Review</strong>, <strong>Approved</strong>, <strong>Retired</strong>. Only <strong>Approved</strong> deeds (with is_active true) are ever eligible for card generation or Quick Tap. Leaving this blank on a <strong>new</strong> row (new deed_text or id) defaults it to Draft. Leaving it blank on an <strong>existing</strong> row leaves that deed's current status unchanged — it does not reset it to Draft.</p>
               <p className="font-semibold text-slate-700 pt-1">Optional targeting columns (add these headers to restrict a deed to specific players):</p>
               <p><span className="font-mono bg-white px-1 rounded">targeting_age_bracket</span> — Teen, Early Adult, Adult, Senior (pipe-separated for multiple, e.g. <span className="font-mono">Adult|Senior</span>; blank = all ages)</p>
               <p><span className="font-mono bg-white px-1 rounded">targeting_relationship</span> — Single, Partnered (blank = all)</p>
@@ -2321,6 +2368,16 @@ const AdminPanel: React.FC = () => {
                   <option value="4">4</option>
                   <option value="5">5 – Hard</option>
                 </select>
+                <select
+                  value={newDeed.status}
+                  onChange={(e) => setNewDeed((prev) => ({ ...prev, status: e.target.value }))}
+                  className="w-28 border border-input rounded-md bg-background px-2 text-sm"
+                >
+                  <option value="Draft">Draft</option>
+                  <option value="Review">Review</option>
+                  <option value="Approved">Approved</option>
+                  <option value="Retired">Retired</option>
+                </select>
                 <div className="flex items-center gap-1">
                   <span className="text-xs text-slate-500 whitespace-nowrap">Do it</span>
                   <Input
@@ -2364,6 +2421,35 @@ const AdminPanel: React.FC = () => {
                 </Button>
               </div>
             </div>
+
+            {/* Bulk status update */}
+            {selectedDeedIds.size > 0 && (
+              <div className="flex flex-wrap items-center gap-2 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                <span className="text-sm font-medium text-indigo-800">
+                  {selectedDeedIds.size} deed{selectedDeedIds.size !== 1 ? 's' : ''} selected
+                </span>
+                <select
+                  value={bulkStatusValue}
+                  onChange={(e) => setBulkStatusValue(e.target.value)}
+                  className="border rounded px-2 py-1 text-sm"
+                >
+                  <option value="Draft">Draft</option>
+                  <option value="Review">Review</option>
+                  <option value="Approved">Approved</option>
+                  <option value="Retired">Retired</option>
+                </select>
+                <Button size="sm" onClick={handleBulkStatusUpdate} disabled={bulkStatusLoading} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                  {bulkStatusLoading ? 'Updating…' : `Set to ${bulkStatusValue}`}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDeedIds(new Set())}
+                  className="text-xs text-indigo-600 hover:underline ml-auto"
+                >
+                  Clear selection
+                </button>
+              </div>
+            )}
 
             {/* Gr8Day Deeds list */}
             <div className="border rounded-lg overflow-hidden">
@@ -2409,6 +2495,16 @@ const AdminPanel: React.FC = () => {
                             <option value="3">3 – Medium</option>
                             <option value="4">4</option>
                             <option value="5">5 – Hard</option>
+                          </select>
+                          <select
+                            value={editDeedData.status}
+                            onChange={(e) => setEditDeedData((prev) => ({ ...prev, status: e.target.value }))}
+                            className="w-24 h-8 text-sm border border-input rounded-md bg-background px-2"
+                          >
+                            <option value="Draft">Draft</option>
+                            <option value="Review">Review</option>
+                            <option value="Approved">Approved</option>
+                            <option value="Retired">Retired</option>
                           </select>
                           <div className="flex items-center gap-1">
                             <span className="text-xs text-slate-500 whitespace-nowrap">Do it</span>
@@ -2463,6 +2559,18 @@ const AdminPanel: React.FC = () => {
                       </div>
                     ) : (
                       <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedDeedIds.has(deed.id)}
+                          onChange={(e) => {
+                            setSelectedDeedIds((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(deed.id); else next.delete(deed.id);
+                              return next;
+                            });
+                          }}
+                          className="mt-1 accent-indigo-600"
+                        />
                         <div className="flex-1 min-w-0">
                           <p className="text-slate-800 font-medium">{deed.deed_text}</p>
                           {deed.deed_text_long ? (
@@ -2475,6 +2583,14 @@ const AdminPanel: React.FC = () => {
                             </p>
                           )}
                           <div className="flex flex-wrap items-center gap-1 mt-1">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                              deed.status === 'Approved' ? 'bg-emerald-50 text-emerald-700'
+                              : deed.status === 'Review' ? 'bg-amber-50 text-amber-700'
+                              : deed.status === 'Retired' ? 'bg-rose-50 text-rose-700'
+                              : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {deed.status ?? 'Draft'}
+                            </span>
                             {deed.category && (
                               <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">
                                 {deed.category}
@@ -2522,6 +2638,7 @@ const AdminPanel: React.FC = () => {
                                 quantity: deed.quantity != null ? String(deed.quantity) : '1',
                                 quick_tap_eligible: deed.quick_tap_eligible ?? false,
                                 quick_tap_default: deed.quick_tap_default ?? false,
+                                status: deed.status ?? 'Draft',
                               });
                               try {
                                 const res = await getDeedTargeting(deed.id);

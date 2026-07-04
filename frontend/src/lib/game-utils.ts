@@ -210,6 +210,7 @@ export interface DeedItem {
   quantity?: number | null;
   quick_tap_eligible?: boolean;
   quick_tap_default?: boolean;
+  status?: string;
 }
 
 export interface QuickTapDeed {
@@ -599,12 +600,17 @@ export async function createAdminDeed(deed: {
   quantity?: number;
   quick_tap_eligible?: boolean;
   quick_tap_default?: boolean;
+  status?: string;
 }) {
   return apiClient.post<DeedItem>('/game/admin/deeds', deed);
 }
 
 export async function updateAdminDeed(id: number, deed: Partial<DeedItem>) {
   return apiClient.put<DeedItem>(`/game/admin/deeds/${id}`, deed);
+}
+
+export async function bulkUpdateAdminDeedStatus(ids: number[], status: string) {
+  return apiClient.post<{ success: boolean; updated: number }>('/game/admin/deeds/bulk-status', { ids, status });
 }
 
 export async function deleteAdminDeed(id: number) {

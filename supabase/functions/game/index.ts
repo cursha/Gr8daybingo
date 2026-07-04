@@ -1782,6 +1782,13 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ prize_image_url: cfg['prize_image_url'] ?? '', prize_title: cfg['prize_title'] ?? "This Week's Prize" })
     }
 
+    // ── GET /public/offline-status ────────────────────────────────────────────
+    if (method === 'GET' && path === '/public/offline-status') {
+      const { data } = await supabase
+        .from('game_configs').select('config_value').eq('config_key', 'offline_mode').maybeSingle()
+      return jsonResponse({ offline_mode: data?.config_value === 'true' })
+    }
+
     // ── POST /admin/verify ────────────────────────────────────────────────────
     if (method === 'POST' && path === '/admin/verify') {
       const body = await req.json()

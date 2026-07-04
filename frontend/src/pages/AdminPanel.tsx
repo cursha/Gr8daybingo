@@ -1606,6 +1606,39 @@ const AdminPanel: React.FC = () => {
 
         {/* Game Settings */}
         <section id="section-game-settings">
+        {/* Maintenance Mode */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Lock className="w-5 h-5 text-amber-500" />
+              Maintenance Mode
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-slate-500">
+              When on, every player-facing page shows a "back soon" screen instead of the app. The Admin Panel stays accessible so you can turn it back off.
+            </p>
+            <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+              <span className="text-sm font-medium text-slate-700 flex-1">Site Status</span>
+              <select
+                value={editConfigs['offline_mode'] ?? 'false'}
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  setEditConfigs(prev => ({ ...prev, offline_mode: val }));
+                  try {
+                    await updateAdminConfig({ offline_mode: val });
+                    toast.success(val === 'true' ? 'Site is now in maintenance mode' : 'Site is back online');
+                  } catch { toast.error('Failed to save'); }
+                }}
+                className="border rounded px-2 py-1 text-sm font-semibold"
+              >
+                <option value="false">🟢 Online</option>
+                <option value="true">🔴 Maintenance Mode</option>
+              </select>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Game Mode Selection */}
         <Card>
           <CardHeader>

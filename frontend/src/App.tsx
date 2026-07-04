@@ -1,8 +1,11 @@
+import { useEffect, useState } from 'react';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { getOfflineStatus } from '@/lib/game-utils';
+import OfflineScreen from '@/components/OfflineScreen';
 import Index from './pages/Index';
 import GameBoard from './pages/GameBoard';
 import Wallet from './pages/Wallet';
@@ -27,32 +30,47 @@ import NotFound from './pages/NotFound';
 
 const queryClient = new QueryClient();
 
-const AppRoutes = () => (
-  <Routes>
-    <Route path="/" element={<Index />} />
-    <Route path="/login" element={<Login />} />
-    <Route path="/register" element={<Register />} />
-    <Route path="/game" element={<GameBoard />} />
-    <Route path="/wallet" element={<Wallet />} />
-    <Route path="/leaderboard" element={<Leaderboard />} />
-    <Route path="/admin" element={<AdminPanel />} />
-    {/* <Route path="/blog/*" element={<BlogRoutes />} /> */}
-    <Route path="/auth/callback" element={<AuthCallback />} />
-    <Route path="/auth/error" element={<AuthError />} />
-    <Route path="/terms" element={<TermsOfService />} />
-    <Route path="/privacy" element={<PrivacyPolicy />} />
-    <Route path="/forgot-password" element={<ForgotPassword />} />
-    <Route path="/reset-password" element={<ResetPassword />} />
-    <Route path="/verify-email" element={<VerifyEmail />} />
-    <Route path="/resend-verification" element={<ResendVerification />} />
-    <Route path="/prize-history" element={<PrizeHistory />} />
-    <Route path="/trade" element={<TradeSquares />} />
-    <Route path="/team" element={<TeamPage />} />
-    <Route path="/profile" element={<Profile />} />
-    <Route path="/welcome" element={<Welcome />} />
-    <Route path="*" element={<NotFound />} />
-  </Routes>
-);
+const AppRoutes = () => {
+  const location = useLocation();
+  const [offline, setOffline] = useState(false); // fail-open: default false
+
+  useEffect(() => {
+    getOfflineStatus()
+      .then((r) => setOffline(r.offline_mode))
+      .catch(() => {}); // fail-open: leave false on any error
+  }, []);
+
+  if (offline && !location.pathname.startsWith('/admin')) {
+    return <OfflineScreen />;
+  }
+
+  return (
+    <Routes>
+      <Route path="/" element={<Index />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route path="/game" element={<GameBoard />} />
+      <Route path="/wallet" element={<Wallet />} />
+      <Route path="/leaderboard" element={<Leaderboard />} />
+      <Route path="/admin" element={<AdminPanel />} />
+      {/* <Route path="/blog/*" element={<BlogRoutes />} /> */}
+      <Route path="/auth/callback" element={<AuthCallback />} />
+      <Route path="/auth/error" element={<AuthError />} />
+      <Route path="/terms" element={<TermsOfService />} />
+      <Route path="/privacy" element={<PrivacyPolicy />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route path="/resend-verification" element={<ResendVerification />} />
+      <Route path="/prize-history" element={<PrizeHistory />} />
+      <Route path="/trade" element={<TradeSquares />} />
+      <Route path="/team" element={<TeamPage />} />
+      <Route path="/profile" element={<Profile />} />
+      <Route path="/welcome" element={<Welcome />} />
+      <Route path="*" element={<NotFound />} />
+    </Routes>
+  );
+};
 
 const App = () => (
   <QueryClientProvider client={queryClient}>

@@ -87,6 +87,14 @@ const WIN_CONDITIONS = [
 
 const ADMIN_SESSION_KEY = 'admin_authenticated';
 
+const isoToLocalInput = (iso?: string): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
 const AdminPanel: React.FC = () => {
   const navigate = useNavigate();
   const [authenticated, setAuthenticated] = useState(
@@ -1635,6 +1643,22 @@ const AdminPanel: React.FC = () => {
                 <option value="false">🟢 Online</option>
                 <option value="true">🔴 Maintenance Mode</option>
               </select>
+            </div>
+            <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+              <span className="text-sm font-medium text-slate-700 flex-1">Back Online At (optional)</span>
+              <input
+                type="datetime-local"
+                value={isoToLocalInput(editConfigs['offline_until'])}
+                onChange={async (e) => {
+                  const iso = e.target.value ? new Date(e.target.value).toISOString() : '';
+                  setEditConfigs(prev => ({ ...prev, offline_until: iso }));
+                  try {
+                    await updateAdminConfig({ offline_until: iso });
+                    toast.success('Maintenance ETA saved');
+                  } catch { toast.error('Failed to save'); }
+                }}
+                className="border rounded px-2 py-1 text-sm"
+              />
             </div>
           </CardContent>
         </Card>

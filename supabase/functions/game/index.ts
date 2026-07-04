@@ -1785,8 +1785,14 @@ Deno.serve(async (req: Request) => {
     // ── GET /public/offline-status ────────────────────────────────────────────
     if (method === 'GET' && path === '/public/offline-status') {
       const { data } = await supabase
-        .from('game_configs').select('config_value').eq('config_key', 'offline_mode').maybeSingle()
-      return jsonResponse({ offline_mode: data?.config_value === 'true' })
+        .from('game_configs').select('config_key, config_value')
+        .in('config_key', ['offline_mode', 'offline_until'])
+      const cfg: Record<string, string> = {}
+      for (const r of data ?? []) cfg[r.config_key] = r.config_value ?? ''
+      return jsonResponse({
+        offline_mode: cfg['offline_mode'] === 'true',
+        offline_until: cfg['offline_until'] || null,
+      })
     }
 
     // ── POST /admin/verify ────────────────────────────────────────────────────

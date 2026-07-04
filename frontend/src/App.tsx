@@ -33,15 +33,16 @@ const queryClient = new QueryClient();
 const AppRoutes = () => {
   const location = useLocation();
   const [offline, setOffline] = useState(false); // fail-open: default false
+  const [offlineUntil, setOfflineUntil] = useState<string | null>(null);
 
   useEffect(() => {
     getOfflineStatus()
-      .then((r) => setOffline(r.offline_mode))
+      .then((r) => { setOffline(r.offline_mode); setOfflineUntil(r.offline_until); })
       .catch(() => {}); // fail-open: leave false on any error
   }, []);
 
   if (offline && !location.pathname.startsWith('/admin')) {
-    return <OfflineScreen />;
+    return <OfflineScreen until={offlineUntil} />;
   }
 
   return (

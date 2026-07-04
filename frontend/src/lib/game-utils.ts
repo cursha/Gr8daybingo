@@ -550,8 +550,8 @@ export async function getPublicPrize(): Promise<PrizeInfo> {
   return apiClient.get<PrizeInfo>('/game/public/prize', { skipAuth: true });
 }
 
-export async function getOfflineStatus(): Promise<{ offline_mode: boolean }> {
-  return apiClient.get<{ offline_mode: boolean }>('/game/public/offline-status', { skipAuth: true } as any);
+export async function getOfflineStatus(): Promise<{ offline_mode: boolean; offline_until: string | null }> {
+  return apiClient.get<{ offline_mode: boolean; offline_until: string | null }>('/game/public/offline-status', { skipAuth: true } as any);
 }
 
 export async function getWinConditions(): Promise<WinCondition[]> {

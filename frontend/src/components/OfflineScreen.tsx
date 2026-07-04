@@ -26,11 +26,11 @@ const OfflineScreen: React.FC<OfflineScreenProps> = ({ until }) => {
           <span className="font-black tracking-wide text-lg text-slate-800">Havagr8day!</span>
         </div>
         <h1 className="text-2xl font-bold text-slate-800">
-          {formatted ? `We're updating Gr8Day Bingo — back ${formatted}` : "We're updating Gr8Day Bingo — back soon!"}
+          We're refreshing our Gr8Day Deeds and adding more awesome!! Thanks for your patience — check back shortly.
         </h1>
-        <p className="text-slate-500 text-sm">
-          We're refreshing our Gr8Day Deeds. Thanks for your patience — check back shortly.
-        </p>
+        {formatted && (
+          <p className="text-slate-500 text-sm">(Back online: {formatted})</p>
+        )}
       </div>
     </div>
   );

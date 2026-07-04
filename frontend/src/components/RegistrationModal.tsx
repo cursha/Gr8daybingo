@@ -37,7 +37,6 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({ enforce = true, o
   const [city, setCity] = useState('');
   const [countryId, setCountryId] = useState<number | ''>('');
   const [stateId, setStateId] = useState<number | ''>('');
-  const [challengeLevel, setChallengeLevel] = useState('');
   const [bonusAmount, setBonusAmount] = useState<number>(15);
 
   const [countries, setCountries] = useState<CountryOption[]>([]);
@@ -76,7 +75,6 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({ enforce = true, o
           setCity((status as any)?.city ?? '');
           setCountryId((status as any)?.country_id ?? '');
           setStateId((status as any)?.state_id ?? '');
-          setChallengeLevel(status?.challenge_level != null ? String(status.challenge_level) : '');
           setOpen(true);
         }
       } catch {
@@ -118,7 +116,6 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({ enforce = true, o
         state_id: stateId || undefined,
         province_state: states.find((s) => s.id === stateId)?.name || undefined,
         country: selectedCountry?.name || undefined,
-        challenge_level: challengeLevel ? parseInt(challengeLevel) : null,
       });
       if (data?.bonus_granted) {
         toast.success(`🎉 Welcome! ${bonusLabel} has been credited to your wallet.`);
@@ -238,25 +235,6 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({ enforce = true, o
             <Label htmlFor="city">City</Label>
             <Input id="city" value={city} onChange={(e) => setCity(e.target.value)}
               placeholder="Your city" autoComplete="address-level2" />
-          </div>
-
-          {/* Challenge level */}
-          <div className="space-y-1.5">
-            <Label htmlFor="challengeLevel">Challenge Level</Label>
-            <select
-              id="challengeLevel"
-              value={challengeLevel}
-              onChange={(e) => setChallengeLevel(e.target.value)}
-              className="w-full h-10 border border-input rounded-md bg-background px-3 text-sm"
-            >
-              <option value="">No preference</option>
-              <option value="1">1 - Easiest</option>
-              <option value="2">2 - Easy</option>
-              <option value="3">3 - Medium</option>
-              <option value="4">4 - Hard</option>
-              <option value="5">5 - Hardest</option>
-            </select>
-            <p className="text-xs text-slate-500">How challenging you'd like your deeds to be.</p>
           </div>
 
           <Button type="submit" disabled={submitting}

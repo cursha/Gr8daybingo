@@ -158,68 +158,6 @@ function parseJsonArr(raw: string | null | undefined): number[] {
   try { return JSON.parse(raw ?? '[]') } catch { return [] }
 }
 
-// ── Player Progression Levels (Issue #15) ───────────────────────────────────
-interface PlayerLevelRow {
-  id: number; level_number: number; level_name: string;
-  required_bingos: number; is_active: boolean;
-}
-
-/** Highest level a player has earned, given their total bingos and the active
- *  threshold table. Level 1 is always unlocked. */
-function highestUnlockedLevel(totalBingos: number, levels: PlayerLevelRow[]): number {
-  let highest = 1
-  for (const lv of levels) {
-    if (lv.is_active && totalBingos >= (lv.required_bingos ?? 0)) {
-      highest = Math.max(highest, lv.level_number)
-    }
-  }
-  return highest
-}
-
-/** Resolve a player's level state: the active level table, their total bingos,
- *  the highest level they've unlocked, and their selected level (clamped so it
- *  can never exceed what they've earned). */
-async function getPlayerLevelState(
-  supabase: ReturnType<typeof getSupabase>,
-  userId: string,
-): Promise<{ levels: PlayerLevelRow[]; totalBingos: number; highestUnlocked: number; selected: number }> {
-  const { data: levelRows } = await supabase
-    .from('player_levels').select('*').eq('is_active', true).order('level_number')
-  const levels = (levelRows ?? []) as PlayerLevelRow[]
-
-  const { count } = await supabase
-    .from('player_cards')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .eq('is_bingo', true)
-  const totalBingos = count ?? 0
-
-  const highestUnlocked = highestUnlockedLevel(totalBingos, levels)
-
-  const { data: u } = await supabase
-    .from('users').select('challenge_level').eq('id', userId).maybeSingle()
-  const raw = u?.challenge_level ?? 1
-  const selected = Math.min(Math.max(raw, 1), highestUnlocked)
-
-  return { levels, totalBingos, highestUnlocked, selected }
-}
-
-/** Auto-promote challenge_level when a bingo crosses a new level threshold.
- *  Only fires when highestUnlocked actually increases; leaves manual play-down
- *  choices untouched on bingos that don't cross a new threshold. */
-async function maybeAutoLevelUp(
-  supabase: ReturnType<typeof getSupabase>,
-  userId: string,
-): Promise<{ leveled_up: boolean; new_level: number; previous_level: number }> {
-  const st = await getPlayerLevelState(supabase, userId)
-  const prevHighest = highestUnlockedLevel(Math.max(0, st.totalBingos - 1), st.levels)
-  if (st.highestUnlocked <= prevHighest) {
-    return { leveled_up: false, new_level: st.selected, previous_level: st.selected }
-  }
-  await supabase.from('users').update({ challenge_level: st.highestUnlocked }).eq('id', userId)
-  return { leveled_up: true, new_level: st.highestUnlocked, previous_level: st.selected }
-}
-
 /** Fetch a player's targeting value IDs and a map of deed_id → Set of targeting_value_ids. */
 async function fetchTargetingData(
   supabase: ReturnType<typeof getSupabase>,
@@ -275,13 +213,13 @@ const WIN_LABELS: Record<string, string> = {
 }
 function winLabel(cond: string): string { return WIN_LABELS[cond] ?? cond }
 
-/** First-time-bingo award: bonus + win email + level-up check. Called from
- *  every cell-completion path (mark-cell, purchase-cell, bet-ya-reveal,
- *  bet-ya-refer-friend) the instant a card transitions from not-bingo to
- *  bingo. This used to be copy-pasted at each call site — bet-ya-reveal once
- *  shipped without it entirely, which is exactly the failure mode a single
- *  shared entry point prevents. No-op (returns null) unless this call is the
- *  one that just flipped the card into bingo. */
+/** First-time-bingo award: bonus + win email. Called from every cell-completion
+ *  path (mark-cell, purchase-cell, bet-ya-reveal, bet-ya-refer-friend) the
+ *  instant a card transitions from not-bingo to bingo. This used to be
+ *  copy-pasted at each call site — bet-ya-reveal once shipped without it
+ *  entirely, which is exactly the failure mode a single shared entry point
+ *  prevents. No-op unless this call is the one that just flipped the card
+ *  into bingo. */
 async function awardBingoIfNewlyWon(
   supabase: ReturnType<typeof getSupabase>,
   opts: {
@@ -294,8 +232,8 @@ async function awardBingoIfNewlyWon(
     userEmail?: string | null
     userName?: string | null
   },
-): Promise<{ leveled_up: boolean; new_level: number; previous_level: number } | null> {
-  if (!opts.isBingoNow || opts.wasAlreadyBingo) return null
+): Promise<void> {
+  if (!opts.isBingoNow || opts.wasAlreadyBingo) return
   const drawSettings = await getDrawSettings(supabase)
   await awardBingoBonus(supabase, {
     playerId: opts.playerId, cardId: opts.cardId, weekYear: opts.weekYear, settings: drawSettings,
@@ -304,7 +242,6 @@ async function awardBingoIfNewlyWon(
     const tpl = bingoWinEmail(opts.userName ?? null, winLabel(opts.winCondition))
     await sendEmail({ to: opts.userEmail, subject: tpl.subject, html: tpl.html })
   }
-  return await maybeAutoLevelUp(supabase, opts.playerId)
 }
 
 /** Impact Board time filters: ISO start of the current month/quarter/year, or
@@ -636,17 +573,8 @@ Deno.serve(async (req: Request) => {
       const purchasableCount = rng.randint(1, 3)
       const referralFreeCount = 0
 
-      // Player Progression Levels (#15): restrict deeds to the player's selected
-      // level, with natural downward fallback (complexity <= selected). Deeds with
-      // no complexity set are treated as the easiest level, so always eligible.
-      const levelState = await getPlayerLevelState(supabase, user.sub)
-      const selectedLevel = levelState.selected
-      let levelDeeds = (deeds ?? []).filter((d) => (d.complexity ?? 1) <= selectedLevel)
-      // Never let level filtering starve the card; fall back to all active deeds.
-      if (levelDeeds.length < 24) levelDeeds = deeds ?? []
-
       const { playerValueIds, deedTargetingMap } = await fetchTargetingData(supabase, user.sub)
-      const targetedDeeds = filterDeedsByTargeting(levelDeeds, playerValueIds, deedTargetingMap, levelDeeds)
+      const targetedDeeds = filterDeedsByTargeting(deeds ?? [], playerValueIds, deedTargetingMap, deeds ?? [])
 
       const deedList = [...targetedDeeds]
       rng.shuffle(deedList)
@@ -763,7 +691,6 @@ Deno.serve(async (req: Request) => {
           purchased_cells: '[]',
           referral_cells: JSON.stringify(referralCellIndices),
           is_bingo: false,
-          card_level: selectedLevel,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -780,83 +707,7 @@ Deno.serve(async (req: Request) => {
         purchased_cells: [],
         referral_cells: referralCellIndices,
         is_bingo: false,
-        card_level: selectedLevel,
       })
-    }
-
-    // ── GET /my-levels (Issue #15): the player's level state ──────────────────
-    if (method === 'GET' && path === '/my-levels') {
-      const user = requireAuth(authUser)
-      const st = await getPlayerLevelState(supabase, user.sub)
-      return jsonResponse({
-        levels: st.levels.map((l) => ({
-          level_number: l.level_number,
-          level_name: l.level_name,
-          required_bingos: l.required_bingos,
-        })),
-        total_bingos: st.totalBingos,
-        highest_unlocked: st.highestUnlocked,
-        selected: st.selected,
-      })
-    }
-
-    // ── POST /my-level (Issue #15): set the player's selected play level ───────
-    if (method === 'POST' && path === '/my-level') {
-      const user = requireAuth(authUser)
-      const body = await req.json()
-      const level = parseInt(body.level)
-      if (isNaN(level) || level < 1) return errorResponse('A valid level is required.', 400)
-      const st = await getPlayerLevelState(supabase, user.sub)
-      if (level > st.highestUnlocked) {
-        return errorResponse(`You haven't unlocked Level ${level} yet.`, 403)
-      }
-      await supabase.from('users').update({ challenge_level: level }).eq('id', user.sub)
-      return jsonResponse({ success: true, selected: level })
-    }
-
-    // ── Admin: player level thresholds CRUD (Issue #15) ───────────────────────
-    if (method === 'GET' && path === '/admin/player-levels') {
-      requireAdmin(authUser)
-      const { data } = await supabase.from('player_levels').select('*').order('level_number')
-      return jsonResponse({ levels: data ?? [] })
-    }
-    if (method === 'POST' && path === '/admin/player-levels') {
-      requireAdmin(authUser)
-      const body = await req.json()
-      const level_number = parseInt(body.level_number)
-      const required_bingos = parseInt(body.required_bingos)
-      if (isNaN(level_number) || isNaN(required_bingos)) {
-        return errorResponse('level_number and required_bingos are required.', 400)
-      }
-      const { data, error } = await supabase.from('player_levels').insert({
-        level_number,
-        level_name: String(body.level_name ?? `Level ${level_number}`),
-        required_bingos,
-        is_active: body.is_active ?? true,
-      }).select().single()
-      if (error) throw error
-      return jsonResponse(data)
-    }
-    const playerLevelMatch = path.match(/^\/admin\/player-levels\/(\d+)$/)
-    if (method === 'PUT' && playerLevelMatch) {
-      requireAdmin(authUser)
-      const body = await req.json()
-      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
-      if (body.level_name != null) updates.level_name = String(body.level_name)
-      if (body.required_bingos != null) updates.required_bingos = parseInt(body.required_bingos)
-      if (body.is_active != null) updates.is_active = !!body.is_active
-      if (body.level_number != null) updates.level_number = parseInt(body.level_number)
-      const { data, error } = await supabase
-        .from('player_levels').update(updates).eq('id', parseInt(playerLevelMatch[1])).select().single()
-      if (error) throw error
-      return jsonResponse(data)
-    }
-    if (method === 'DELETE' && playerLevelMatch) {
-      requireAdmin(authUser)
-      const { error } = await supabase
-        .from('player_levels').delete().eq('id', parseInt(playerLevelMatch[1]))
-      if (error) throw error
-      return jsonResponse({ success: true })
     }
 
     // ── POST /mark-cell ───────────────────────────────────────────────────────
@@ -953,7 +804,7 @@ Deno.serve(async (req: Request) => {
       }
 
       // First time the card reaches Bingo: award bingo bonus + congratulate by email.
-      const markLevelUp = await awardBingoIfNewlyWon(supabase, {
+      await awardBingoIfNewlyWon(supabase, {
         playerId: user.sub, cardId: card_id, weekYear: card.week_year, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
@@ -965,7 +816,6 @@ Deno.serve(async (req: Request) => {
       const resp: Record<string, unknown> = { success: true, completed_cells: completed, is_bingo: isBingo }
       if (secretRewardAwarded !== null) resp.secret_reward = secretRewardAwarded
       if (isBingo && !card.is_bingo) resp.draw_entered = true
-      if (markLevelUp?.leveled_up) resp.level_up = { previous_level: markLevelUp.previous_level, new_level: markLevelUp.new_level }
       if (streakResult.streak_updated) {
         resp.streak_update = {
           current_streak_days: streakResult.current_streak_days,
@@ -1056,14 +906,13 @@ Deno.serve(async (req: Request) => {
       // First time the card reaches Bingo: award bingo bonus + congratulate by email.
       // Note: a purchased square is not a completed deed, so it earns NO deed entry,
       // but it CAN complete a bingo, which still earns the configured bonus.
-      const purchaseLevelUp = await awardBingoIfNewlyWon(supabase, {
+      await awardBingoIfNewlyWon(supabase, {
         playerId: user.sub, cardId: card_id, weekYear: card.week_year, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })
 
       const purchaseResp: Record<string, unknown> = { success: true, purchased_cells: purchased, new_balance: newBalance, is_bingo: isBingo }
-      if (purchaseLevelUp?.leveled_up) purchaseResp.level_up = { previous_level: purchaseLevelUp.previous_level, new_level: purchaseLevelUp.new_level }
       return jsonResponse(purchaseResp)
     }
 
@@ -1420,7 +1269,7 @@ Deno.serve(async (req: Request) => {
 
       const { data: allUsers } = await supabase
         .from('users')
-        .select('id, first_name, last_name, username, player_number, city, province_state, country_id, challenge_level, last_valid_deed_date')
+        .select('id, first_name, last_name, username, player_number, city, province_state, country_id, last_valid_deed_date')
 
       const { data: countries } = await supabase.from('countries').select('id, name, code')
       const countryMap: Record<number, { name: string; code: string }> = {}
@@ -2173,7 +2022,7 @@ Deno.serve(async (req: Request) => {
       requireAdmin(authUser)
       const { data } = await supabase
         .from('users')
-        .select('id, email, username, name, first_name, last_name, role, challenge_level, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified')
+        .select('id, email, username, name, first_name, last_name, role, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified')
         .order('player_number', { ascending: true })
       return jsonResponse({
         members: (data ?? []).map((u) => ({
@@ -2184,7 +2033,6 @@ Deno.serve(async (req: Request) => {
           username: u.username ?? null,
           email: u.email ?? null,
           role: u.role ?? 'user',
-          challenge_level: u.challenge_level ?? null,
           province_state: u.province_state ?? null,
           country: u.country ?? null,
           city: u.city ?? null,
@@ -3571,7 +3419,7 @@ Deno.serve(async (req: Request) => {
       const user = requireAuth(authUser)
       const { data: u } = await supabase
         .from('users')
-        .select('first_name, last_name, username, email, city, country_id, state_id, challenge_level, player_number')
+        .select('first_name, last_name, username, email, city, country_id, state_id, player_number')
         .eq('id', user.sub)
         .maybeSingle()
       if (!u) return errorResponse('User not found', 404)
@@ -3582,15 +3430,12 @@ Deno.serve(async (req: Request) => {
     if (method === 'PUT' && path === '/my-profile') {
       const user = requireAuth(authUser)
       const body = await req.json()
-      const { first_name, last_name, username, city, country_id, state_id, challenge_level } = body
+      const { first_name, last_name, username, city, country_id, state_id } = body
 
       if (username) {
         const { data: existing } = await supabase
           .from('users').select('id').eq('username', username).neq('id', user.sub).maybeSingle()
         if (existing) return errorResponse('Username is already taken', 409)
-      }
-      if (challenge_level != null && (challenge_level < 1 || challenge_level > 5)) {
-        return errorResponse('challenge_level must be between 1 and 5', 400)
       }
 
       await supabase.from('users').update({
@@ -3600,7 +3445,6 @@ Deno.serve(async (req: Request) => {
         ...(city !== undefined && { city }),
         ...(country_id !== undefined && { country_id }),
         ...(state_id !== undefined && { state_id }),
-        ...(challenge_level !== undefined && { challenge_level }),
       }).eq('id', user.sub)
 
       return jsonResponse({ success: true })
@@ -3660,7 +3504,7 @@ Deno.serve(async (req: Request) => {
       const targetId = adminPlayerPutMatch[1]
       const body = await req.json()
 
-      const { first_name, last_name, email, username, city, country_id, state_id, challenge_level, role } = body
+      const { first_name, last_name, email, username, city, country_id, state_id, role } = body
 
       if (email) {
         const { data: existing } = await supabase.from('users').select('id').eq('email', email).neq('id', targetId).maybeSingle()
@@ -3679,7 +3523,6 @@ Deno.serve(async (req: Request) => {
         ...(city !== undefined && { city }),
         ...(country_id !== undefined && { country_id }),
         ...(state_id !== undefined && { state_id }),
-        ...(challenge_level !== undefined && { challenge_level }),
         ...(role !== undefined && { role }),
       }).eq('id', targetId)
 
@@ -4024,14 +3867,11 @@ Deno.serve(async (req: Request) => {
           result.replaced = []
         } else {
           const existingDeedIds = new Set(cells.map((c) => c.deed_id).filter((id): id is number => id != null))
-          const levelState = await getPlayerLevelState(supabase, user.sub)
           const { data: allDeeds } = await supabase.from('good_deeds').select('*').eq('is_active', true)
           const { playerValueIds, deedTargetingMap } = await fetchTargetingData(supabase, user.sub)
           const basePool = (allDeeds ?? []).filter((d) => !existingDeedIds.has(d.id))
-          const levelPool = basePool.filter((d) => (d.complexity ?? 1) <= levelState.selected)
-          const sizedPool = levelPool.length >= toReplace.length ? levelPool : basePool
           // targetedPool is a mutable copy we splice from to avoid duplicate picks
-          const targetedPool = [...filterDeedsByTargeting(sizedPool, playerValueIds, deedTargetingMap, sizedPool)]
+          const targetedPool = [...filterDeedsByTargeting(basePool, playerValueIds, deedTargetingMap, basePool)]
           const replaced: { index: number; old_deed: string; new_deed: string }[] = []
           for (const targetCell of toReplace) {
             if (targetedPool.length === 0) break
@@ -4083,8 +3923,8 @@ Deno.serve(async (req: Request) => {
       // First time this card reaches Bingo (any win_condition — one_line, two_lines,
       // etc. are already evaluated as a single card-level threshold by checkBingo,
       // so this one award covers every line satisfied by the reveal): award bingo
-      // bonus + congratulate by email + check for a level-up, same as mark-cell.
-      const revealLevelUp = await awardBingoIfNewlyWon(supabase, {
+      // bonus + congratulate by email, same as mark-cell.
+      await awardBingoIfNewlyWon(supabase, {
         playerId: user.sub, cardId: card_id, weekYear: card.week_year, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
@@ -4093,7 +3933,6 @@ Deno.serve(async (req: Request) => {
       result.is_bingo = isBingo
       result.completed_cells = updatedCompleted
       if (isBingo && !card.is_bingo) result.draw_entered = true
-      if (revealLevelUp?.leveled_up) result.level_up = { previous_level: revealLevelUp.previous_level, new_level: revealLevelUp.new_level }
       return jsonResponse(result)
     }
 
@@ -4194,13 +4033,12 @@ Deno.serve(async (req: Request) => {
         completed_cells: updatedCompleted, is_bingo: isBingo,
       }
 
-      const referLevelUp = await awardBingoIfNewlyWon(supabase, {
+      await awardBingoIfNewlyWon(supabase, {
         playerId: user.sub, cardId: card_id, weekYear: card.week_year, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })
       if (isBingo && !card.is_bingo) result.draw_entered = true
-      if (referLevelUp?.leveled_up) result.level_up = { previous_level: referLevelUp.previous_level, new_level: referLevelUp.new_level }
 
       return jsonResponse(result)
     }

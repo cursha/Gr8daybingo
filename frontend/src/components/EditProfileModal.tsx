@@ -35,7 +35,6 @@ const EditProfileModal: React.FC<Props> = ({ onClose, onDeleted }) => {
   const [city, setCity] = useState('');
   const [countryId, setCountryId] = useState<number | null>(null);
   const [stateId, setStateId] = useState<number | null>(null);
-  const [challengeLevel, setChallengeLevel] = useState<number | null>(null);
 
   const [targetingAttributes, setTargetingAttributes] = useState<TargetingAttribute[]>([]);
   const [myTargeting, setMyTargeting] = useState<Set<number>>(new Set());
@@ -55,7 +54,6 @@ const EditProfileModal: React.FC<Props> = ({ onClose, onDeleted }) => {
       setCity(p.city ?? '');
       setCountryId(p.country_id);
       setStateId(p.state_id);
-      setChallengeLevel(p.challenge_level);
     }).catch(() => toast.error('Failed to load profile'));
 
     getCountries().then(setCountries).catch(() => {});
@@ -76,7 +74,7 @@ const EditProfileModal: React.FC<Props> = ({ onClose, onDeleted }) => {
     setSaving(true);
     try {
       await Promise.all([
-        updateMyProfile({ first_name: firstName, last_name: lastName, username, city, country_id: countryId, state_id: stateId, challenge_level: challengeLevel }),
+        updateMyProfile({ first_name: firstName, last_name: lastName, username, city, country_id: countryId, state_id: stateId }),
         saveMyTargeting([...myTargeting]),
       ]);
       toast.success('Profile updated!');
@@ -164,14 +162,6 @@ const EditProfileModal: React.FC<Props> = ({ onClose, onDeleted }) => {
                 {states.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
-          </div>
-
-          <div>
-            <label className="text-xs font-medium text-slate-600 mb-1 block">Challenge Level (1 = Easy · 5 = Hard)</label>
-            <select className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" value={challengeLevel ?? ''} onChange={e => setChallengeLevel(e.target.value ? Number(e.target.value) : null)}>
-              <option value="">No preference</option>
-              {[1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
           </div>
 
           <TargetingGroupsInput

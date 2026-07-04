@@ -126,7 +126,6 @@ const AdminPanel: React.FC = () => {
 
   // Member list state
   const [members, setMembers] = useState<MemberItem[]>([]);
-  const [memberChallengeFilter, setMemberChallengeFilter] = useState('all');
   const [memberCountryFilter, setMemberCountryFilter] = useState('all');
   const [memberStateFilter, setMemberStateFilter] = useState('all');
 
@@ -135,7 +134,7 @@ const AdminPanel: React.FC = () => {
   const [playerStates, setPlayerStates] = useState<StateOption[]>([]);
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<string | null>(null);
-  const [playerForm, setPlayerForm] = useState({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '' as string | number, state_id: '' as string | number, challenge_level: '' as string | number });
+  const [playerForm, setPlayerForm] = useState({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '' as string | number, state_id: '' as string | number });
   const [playerFormLoading, setPlayerFormLoading] = useState(false);
 
 
@@ -515,10 +514,10 @@ const AdminPanel: React.FC = () => {
   const handleAddPlayer = async () => {
     setPlayerFormLoading(true);
     try {
-      await adminCreatePlayer({ ...playerForm, country_id: playerForm.country_id ? Number(playerForm.country_id) : undefined, state_id: playerForm.state_id ? Number(playerForm.state_id) : undefined, challenge_level: playerForm.challenge_level ? Number(playerForm.challenge_level) : undefined } as any);
+      await adminCreatePlayer({ ...playerForm, country_id: playerForm.country_id ? Number(playerForm.country_id) : undefined, state_id: playerForm.state_id ? Number(playerForm.state_id) : undefined } as any);
       toast.success('Player created');
       setShowAddPlayer(false);
-      setPlayerForm({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '', state_id: '', challenge_level: '' });
+      setPlayerForm({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '', state_id: '' });
       await loadMembers();
     } catch (err: any) {
       toast.error(err?.message || 'Failed to create player');
@@ -530,7 +529,7 @@ const AdminPanel: React.FC = () => {
   const handleEditPlayer = async (id: string) => {
     setPlayerFormLoading(true);
     try {
-      await adminUpdatePlayer(id, { ...playerForm, country_id: playerForm.country_id ? Number(playerForm.country_id) : null, state_id: playerForm.state_id ? Number(playerForm.state_id) : null, challenge_level: playerForm.challenge_level ? Number(playerForm.challenge_level) : null });
+      await adminUpdatePlayer(id, { ...playerForm, country_id: playerForm.country_id ? Number(playerForm.country_id) : null, state_id: playerForm.state_id ? Number(playerForm.state_id) : null });
       toast.success('Player updated');
       setEditingPlayer(null);
       await loadMembers();
@@ -553,7 +552,7 @@ const AdminPanel: React.FC = () => {
   };
 
   const startEditPlayer = (m: MemberItem) => {
-    setPlayerForm({ first_name: m.first_name ?? '', last_name: m.last_name ?? '', email: m.email ?? '', username: m.username ?? '', password: '', role: m.role ?? 'user', city: (m as any).city ?? '', country_id: (m as any).country_id ?? '', state_id: (m as any).state_id ?? '', challenge_level: (m as any).challenge_level ?? '' });
+    setPlayerForm({ first_name: m.first_name ?? '', last_name: m.last_name ?? '', email: m.email ?? '', username: m.username ?? '', password: '', role: m.role ?? 'user', city: (m as any).city ?? '', country_id: (m as any).country_id ?? '', state_id: (m as any).state_id ?? '' });
     setEditingPlayer(m.id);
     if ((m as any).country_id) getStates(Number((m as any).country_id)).then(setPlayerStates).catch(() => {});
   };
@@ -984,12 +983,6 @@ const AdminPanel: React.FC = () => {
 
   const getFilteredMembers = (): MemberItem[] => {
     let result = [...members];
-    if (memberChallengeFilter === 'none') {
-      result = result.filter((m) => m.challenge_level == null);
-    } else if (memberChallengeFilter !== 'all') {
-      const lvl = parseInt(memberChallengeFilter);
-      result = result.filter((m) => m.challenge_level === lvl);
-    }
     if (memberCountryFilter !== 'all') {
       result = result.filter((m) => (m.country ?? '').toLowerCase() === memberCountryFilter.toLowerCase());
     }
@@ -1014,8 +1007,6 @@ const AdminPanel: React.FC = () => {
     const filterParts: string[] = [];
     if (memberCountryFilter !== 'all') filterParts.push(memberCountryFilter);
     if (memberStateFilter !== 'all') filterParts.push(memberStateFilter);
-    if (memberChallengeFilter === 'none') filterParts.push('No challenge level set');
-    else if (memberChallengeFilter !== 'all') filterParts.push(`Challenge level ${memberChallengeFilter}`);
     const filterDesc = filterParts.length > 0 ? filterParts.join(' · ') : 'All players';
     const rows = list.map((m) => `
       <tr>
@@ -1025,7 +1016,6 @@ const AdminPanel: React.FC = () => {
         <td>${esc(m.city) || '—'}</td>
         <td>${esc(m.province_state) || '—'}</td>
         <td>${esc(m.country) || '—'}</td>
-        <td class="ctr">${m.challenge_level ?? '—'}</td>
         <td class="ctr">${m.email_verified ? 'Y' : 'N'}</td>
         <td>${fmtDate(m.last_login)}</td>
       </tr>`).join('');
@@ -1047,7 +1037,7 @@ const AdminPanel: React.FC = () => {
   <h1>Gr8Day Players</h1>
   <p class="meta">${list.length} player${list.length !== 1 ? 's' : ''} &nbsp;·&nbsp; ${filterDesc} &nbsp;·&nbsp; ${new Date().toLocaleDateString()}</p>
   <table>
-    <thead><tr><th>#</th><th>Name</th><th>Email</th><th>City</th><th>Province / State</th><th>Country</th><th>Challenge</th><th>Verified</th><th>Last Active</th></tr></thead>
+    <thead><tr><th>#</th><th>Name</th><th>Email</th><th>City</th><th>Province / State</th><th>Country</th><th>Verified</th><th>Last Active</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
   <script>window.onload=function(){window.print();}</script>
@@ -1370,20 +1360,6 @@ const AdminPanel: React.FC = () => {
                     </SelectContent>
                   </Select>
                 )}
-                <Select value={memberChallengeFilter} onValueChange={setMemberChallengeFilter}>
-                  <SelectTrigger className="w-44 h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All challenge levels</SelectItem>
-                    <SelectItem value="1">Level 1 - Easiest</SelectItem>
-                    <SelectItem value="2">Level 2 - Easy</SelectItem>
-                    <SelectItem value="3">Level 3 - Medium</SelectItem>
-                    <SelectItem value="4">Level 4 - Hard</SelectItem>
-                    <SelectItem value="5">Level 5 - Hardest</SelectItem>
-                    <SelectItem value="none">No level set</SelectItem>
-                  </SelectContent>
-                </Select>
                 <Button variant="outline" size="sm" onClick={handlePrintMembers} disabled={members.length === 0}>
                   <Printer className="w-4 h-4 mr-1" /> Print / PDF
                 </Button>
@@ -1421,10 +1397,6 @@ const AdminPanel: React.FC = () => {
                       {playerStates.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                   )}
-                  <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.challenge_level} onChange={e => setPlayerForm(f => ({ ...f, challenge_level: e.target.value }))}>
-                    <option value="">Challenge level…</option>
-                    {[1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
-                  </select>
                 </div>
                 <div className="flex gap-2">
                   <button onClick={handleAddPlayer} disabled={playerFormLoading} className="bg-emerald-600 text-white text-xs px-4 py-1.5 rounded font-medium disabled:opacity-50">{playerFormLoading ? 'Creating…' : 'Create Player'}</button>
@@ -1447,7 +1419,6 @@ const AdminPanel: React.FC = () => {
                         <th className="px-3 py-2">Name</th>
                         <th className="px-3 py-2">Email</th>
                         <th className="px-3 py-2">Location</th>
-                        <th className="px-3 py-2 text-center">Challenge</th>
                         <th className="px-3 py-2 text-center">Verified</th>
                         <th className="px-3 py-2 text-center">Actions</th>
                       </tr>
@@ -1472,11 +1443,6 @@ const AdminPanel: React.FC = () => {
                               {[m.city, m.province_state, m.country].filter(Boolean).join(', ') || '—'}
                             </td>
                             <td className="px-3 py-2 text-center">
-                              {m.challenge_level != null ? (
-                                <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-semibold">{m.challenge_level}</span>
-                              ) : <span className="text-slate-300">—</span>}
-                            </td>
-                            <td className="px-3 py-2 text-center">
                               {m.email_verified
                                 ? <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-semibold">Y</span>
                                 : <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-semibold">N</span>}
@@ -1488,7 +1454,7 @@ const AdminPanel: React.FC = () => {
                           </tr>
                           {editingPlayer === m.id && (
                             <tr className="bg-indigo-50">
-                              <td colSpan={7} className="px-4 py-4">
+                              <td colSpan={6} className="px-4 py-4">
                                 <div className="grid grid-cols-2 gap-3 text-sm">
                                   <input placeholder="First name" className="border rounded px-2 py-1.5 text-sm" value={playerForm.first_name} onChange={e => setPlayerForm(f => ({ ...f, first_name: e.target.value }))} />
                                   <input placeholder="Last name" className="border rounded px-2 py-1.5 text-sm" value={playerForm.last_name} onChange={e => setPlayerForm(f => ({ ...f, last_name: e.target.value }))} />
@@ -1506,10 +1472,6 @@ const AdminPanel: React.FC = () => {
                                   <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.state_id} onChange={e => setPlayerForm(f => ({ ...f, state_id: e.target.value }))} disabled={playerStates.length === 0}>
                                     <option value="">Province/State…</option>
                                     {playerStates.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                  </select>
-                                  <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.challenge_level} onChange={e => setPlayerForm(f => ({ ...f, challenge_level: e.target.value }))}>
-                                    <option value="">Challenge level…</option>
-                                    {[1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
                                   </select>
                                 </div>
                                 <div className="mt-3 flex gap-2">

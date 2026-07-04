@@ -38,7 +38,7 @@ Deno.serve(async (req: Request) => {
         .from('users')
         .select(`
           profile_completed, signup_bonus_granted, first_name, last_name, email,
-          province_state, country, challenge_level, city,
+          province_state, country, city,
           country_id, state_id, player_number,
           countries(id, name, code),
           states(id, name, code)
@@ -57,7 +57,6 @@ Deno.serve(async (req: Request) => {
         email: data.email ?? null,
         province_state: data.province_state ?? null,
         country: data.country ?? null,
-        challenge_level: data.challenge_level ?? null,
         city: data.city ?? null,
         country_id: data.country_id ?? null,
         state_id: data.state_id ?? null,
@@ -90,12 +89,6 @@ Deno.serve(async (req: Request) => {
       const provinceState = body.province_state != null ? String(body.province_state).trim() : null
       const country = body.country != null ? String(body.country).trim() : null
 
-      let challengeLevel: number | null = null
-      if (body.challenge_level != null && String(body.challenge_level).trim() !== '') {
-        const lvl = Number(body.challenge_level)
-        if (Number.isFinite(lvl) && lvl >= 1 && lvl <= 5) challengeLevel = Math.round(lvl)
-      }
-
       const { data: dbUser, error: userErr } = await supabase
         .from('users')
         .select('*')
@@ -115,7 +108,6 @@ Deno.serve(async (req: Request) => {
         state_id: stateId,
         province_state: provinceState,
         country,
-        challenge_level: challengeLevel,
         profile_completed: true,
       }).eq('id', user.sub)
 

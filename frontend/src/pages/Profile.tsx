@@ -4,7 +4,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getMyProfile, getRegistrationStatus, getMyStreak, PlayerBadge, ProfileStatus, StreakData } from '@/lib/game-utils';
 import { ArrowLeft, Heart } from 'lucide-react';
 import StreakDisplay from '@/components/StreakDisplay';
-import PlayerLevelSelector from '@/components/PlayerLevelSelector';
 
 const HERO_BG = 'linear-gradient(135deg, #312e81 0%, #1e3a5f 50%, #064e3b 100%)';
 
@@ -104,9 +103,6 @@ const Profile: React.FC = () => {
             <p className="text-white/50 font-mono text-sm">GR8-{playerNumber}</p>
           )}
         </div>
-
-        {/* Player level (Issue #15) */}
-        <PlayerLevelSelector />
 
         {/* Loading state */}
         {loading && (

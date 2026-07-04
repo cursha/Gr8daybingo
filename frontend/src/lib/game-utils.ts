@@ -135,7 +135,6 @@ export interface BetYaRevealResult {
   completed_cells: number[];
   is_bingo: boolean;
   draw_entered?: boolean;
-  level_up?: { previous_level: number; new_level: number };
 }
 
 export async function revealBetYa(cardId: number): Promise<BetYaRevealResult> {
@@ -151,7 +150,6 @@ export interface BetYaReferFriendResult {
   completed_cells?: number[];
   is_bingo?: boolean;
   draw_entered?: boolean;
-  level_up?: { previous_level: number; new_level: number };
 }
 
 export async function submitBetYaReferFriend(cardId: number, email: string): Promise<BetYaReferFriendResult> {
@@ -774,7 +772,6 @@ export interface MemberItem {
   username: string | null;
   email: string | null;
   role: string;
-  challenge_level: number | null;
   province_state: string | null;
   country: string | null;
   city: string | null;
@@ -799,7 +796,6 @@ export interface ProfileStatus {
   email?: string | null;
   province_state?: string | null;
   country?: string | null;
-  challenge_level?: number | null;
   signup_bonus_amount?: number;
 }
 
@@ -828,7 +824,6 @@ export interface ProfileDetails {
   city: string | null;
   country_id: number | null;
   state_id: number | null;
-  challenge_level: number | null;
   player_number: number | null;
 }
 
@@ -872,7 +867,6 @@ export async function registerProfile(payload: {
   state_id?: number | '';
   province_state?: string;
   country?: string;
-  challenge_level?: number | null;
 }): Promise<RegisterProfileResult> {
   return apiClient.post<RegisterProfileResult>('/registration/register', payload);
 }
@@ -1006,76 +1000,3 @@ export function isCellCompleted(
   );
 }
 
-// ---------- Player Progression Levels (Issue #15) ----------
-export interface PlayerLevel {
-  id?: number;
-  level_number: number;
-  level_name: string;
-  required_bingos: number;
-  is_active?: boolean;
-}
-
-export interface MyLevelInfo {
-  levels: PlayerLevel[];
-  total_bingos: number;
-  highest_unlocked: number;
-  selected: number;
-}
-
-export async function getMyLevels(): Promise<MyLevelInfo> {
-  return apiClient.get<MyLevelInfo>('/game/my-levels');
-}
-
-export async function setMyPlayLevel(
-  level: number
-): Promise<{ success: boolean; selected: number }> {
-  return apiClient.post('/game/my-level', { level });
-}
-
-/**
- * Pure mirror of the backend unlock rule: the highest level a player has earned
- * for a given bingo count. Level 1 is always unlocked. Kept pure so it can be
- * unit-tested and reused for optimistic UI.
- */
-export function computeHighestUnlocked(
-  totalBingos: number,
-  levels: PlayerLevel[]
-): number {
-  let highest = 1;
-  for (const lv of levels) {
-    if ((lv.is_active ?? true) && totalBingos >= (lv.required_bingos ?? 0)) {
-      highest = Math.max(highest, lv.level_number);
-    }
-  }
-  return highest;
-}
-
-/** The levels a player may currently select (1 .. highest unlocked). */
-export function selectableLevels(highestUnlocked: number): number[] {
-  return Array.from({ length: Math.max(1, highestUnlocked) }, (_, i) => i + 1);
-}
-
-// Admin CRUD for the level thresholds
-export async function adminGetPlayerLevels(): Promise<{ levels: PlayerLevel[] }> {
-  return apiClient.get('/game/admin/player-levels');
-}
-
-export async function adminCreatePlayerLevel(payload: {
-  level_number: number;
-  level_name?: string;
-  required_bingos: number;
-  is_active?: boolean;
-}): Promise<PlayerLevel> {
-  return apiClient.post('/game/admin/player-levels', payload);
-}
-
-export async function adminUpdatePlayerLevel(
-  id: number,
-  payload: Partial<PlayerLevel>
-): Promise<PlayerLevel> {
-  return apiClient.put(`/game/admin/player-levels/${id}`, payload);
-}
-
-export async function adminDeletePlayerLevel(id: number): Promise<{ success: boolean }> {
-  return apiClient.delete(`/game/admin/player-levels/${id}`);
-}

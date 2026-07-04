@@ -67,6 +67,7 @@ import {
 import BingoCell from '@/components/BingoCell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -1063,8 +1064,7 @@ const AdminPanel: React.FC = () => {
             <CardTitle>Gr8Day Admin Access</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Input
-              type="password"
+            <PasswordInput
               placeholder="Enter admin password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

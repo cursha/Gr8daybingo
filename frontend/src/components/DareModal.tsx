@@ -63,7 +63,7 @@ const DareModal: React.FC<DareModalProps> = ({ result, onClose, onSubmitReferral
         </button>
 
         <div className="text-center z-10">
-          <p className="text-xs font-bold tracking-[0.3em] text-white/50 uppercase mb-1">I Dare Ya!</p>
+          <p className="text-xs font-bold tracking-[0.3em] text-white/50 uppercase mb-1">I Bet Ya!</p>
           <p className="text-4xl mb-1">{style.emoji}</p>
           <p className={`text-2xl font-black ${style.text} drop-shadow`}>{result.label}</p>
         </div>

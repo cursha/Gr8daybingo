@@ -201,7 +201,7 @@ function filterDeedsByTargeting<T extends { id: number }>(
   return filtered.length >= minCount ? filtered : fallback
 }
 
-/** Free-space cells (the I DARE YA centre) always count toward Bingo, even
+/** Free-space cells (the I BET YA centre) always count toward Bingo, even
  *  though they are never "marked". Returns their indices from the card data. */
 function freeSpaceIndices(cells: Cell[]): number[] {
   return cells.filter((c) => c.is_free_space).map((c) => c.index)
@@ -643,8 +643,8 @@ Deno.serve(async (req: Request) => {
       for (let i = 0; i < 25; i++) {
         if (i === 12) {
           cells.push({
-            index: 12, deed_text: 'I Dare Ya!',
-            deed_text_long: 'Tap the centre square to take the I DARE YA challenge — you might win a little, lose a little, or get dared to refer a friend. The centre is a free space and always counts toward your Bingo.',
+            index: 12, deed_text: 'I Bet Ya!',
+            deed_text_long: 'Tap the centre square to take the I BET YA challenge — you might win a little, lose a little, or get dared to refer a friend. The centre is a free space and always counts toward your Bingo.',
             deed_id: null, is_free_space: true, is_purchasable: false, purchase_price: null,
             is_referral_free: false, is_secret: false, secret_reward: null, quantity: 1,
             bet_ya_outcome_type: betYaOutcomeType,
@@ -4088,7 +4088,23 @@ Deno.serve(async (req: Request) => {
     // ── GET /admin/bet-ya-outcomes ────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/bet-ya-outcomes') {
       requireAdmin(authUser)
-      const { data } = await supabase.from('bet_ya_outcomes').select('*').order('id')
+      let { data } = await supabase.from('bet_ya_outcomes').select('*').order('id')
+      // If the table has been emptied out (e.g. all rows manually deleted
+      // outside the admin API), reseed an equal split across all six outcome
+      // types rather than leaving card generation with no active pool to draw from.
+      if (!data || data.length === 0) {
+        const EQUAL_SPLIT_DEFAULTS = [
+          { label: 'Free Square!', action_type: 'free_square', odds_percent: 16.67, credit_amount: 0, remove_amount: 0, reward_amount: 0 },
+          { label: 'Refer a Friend!', action_type: 'refer_friend', odds_percent: 16.67, credit_amount: 0, remove_amount: 0, reward_amount: 5 },
+          { label: 'Fund Credit!', action_type: 'fund_credit', odds_percent: 16.67, credit_amount: 10, remove_amount: 0, reward_amount: 0 },
+          { label: 'Oops, Pay Up!', action_type: 'remove_funds', odds_percent: 16.67, credit_amount: 0, remove_amount: 0.5, reward_amount: 0 },
+          { label: 'Mix It Up!', action_type: 'replace_three', odds_percent: 16.66, credit_amount: 0, remove_amount: 0, reward_amount: 0 },
+          { label: 'No Effect', action_type: 'nothing', odds_percent: 16.66, credit_amount: 0, remove_amount: 0, reward_amount: 0 },
+        ].map((row) => ({ ...row, is_active: true, updated_at: new Date().toISOString() }))
+        const { data: seeded, error: seedErr } = await supabase.from('bet_ya_outcomes').insert(EQUAL_SPLIT_DEFAULTS).select()
+        if (seedErr) return errorResponse(seedErr.message, 500)
+        data = seeded
+      }
       return jsonResponse({ outcomes: data ?? [] })
     }
 
@@ -4111,6 +4127,21 @@ Deno.serve(async (req: Request) => {
       return null
     }
 
+    // Guards against admin typos (e.g. a stray minus sign) silently corrupting
+    // wallet payouts or the odds draw — every numeric field on a bet_ya_outcomes
+    // row must be non-negative, and odds_percent must be a valid percentage.
+    function validateBetYaNumeric(
+      oddsPercent: number, creditAmount: number, removeAmount: number, rewardAmount: number,
+    ): string | null {
+      if (!Number.isFinite(oddsPercent) || oddsPercent < 0 || oddsPercent > 100) {
+        return 'odds_percent must be between 0 and 100'
+      }
+      if (!Number.isFinite(creditAmount) || creditAmount < 0) return 'credit_amount must be >= 0'
+      if (!Number.isFinite(removeAmount) || removeAmount < 0) return 'remove_amount must be >= 0'
+      if (!Number.isFinite(rewardAmount) || rewardAmount < 0) return 'reward_amount must be >= 0'
+      return null
+    }
+
     // ── POST /admin/bet-ya-outcomes ───────────────────────────────────────────
     if (method === 'POST' && path === '/admin/bet-ya-outcomes') {
       requireAdmin(authUser)
@@ -4118,6 +4149,11 @@ Deno.serve(async (req: Request) => {
       const VALID_TYPES = ['free_square','refer_friend','fund_credit','remove_funds','replace_three','nothing']
       if (!VALID_TYPES.includes(body.action_type)) return errorResponse('Invalid action_type', 400)
       const oddsPercent = Number(body.odds_percent ?? 0)
+      const creditAmount = Number(body.credit_amount ?? 0)
+      const removeAmount = Number(body.remove_amount ?? 0)
+      const rewardAmount = Number(body.reward_amount ?? 5)
+      const numErr = validateBetYaNumeric(oddsPercent, creditAmount, removeAmount, rewardAmount)
+      if (numErr) return errorResponse(numErr, 400)
       const isActive = body.is_active !== false
       const sumErr = await assertActiveOddsSumTo100(null, isActive, oddsPercent)
       if (sumErr) return errorResponse(sumErr, 400)
@@ -4125,9 +4161,9 @@ Deno.serve(async (req: Request) => {
         label: String(body.label ?? '').trim(),
         odds_percent: oddsPercent,
         action_type: body.action_type,
-        credit_amount: Number(body.credit_amount ?? 0),
-        remove_amount: Number(body.remove_amount ?? 0),
-        reward_amount: Number(body.reward_amount ?? 5),
+        credit_amount: creditAmount,
+        remove_amount: removeAmount,
+        reward_amount: rewardAmount,
         is_active: isActive,
         updated_at: new Date().toISOString(),
       }).select().single()
@@ -4156,6 +4192,11 @@ Deno.serve(async (req: Request) => {
         updates.action_type = body.action_type
       }
       const pendingPercent = (updates.odds_percent as number | undefined) ?? Number(existingRow.odds_percent)
+      const pendingCredit = (updates.credit_amount as number | undefined) ?? Number(existingRow.credit_amount)
+      const pendingRemove = (updates.remove_amount as number | undefined) ?? Number(existingRow.remove_amount)
+      const pendingReward = (updates.reward_amount as number | undefined) ?? Number(existingRow.reward_amount)
+      const numErr = validateBetYaNumeric(pendingPercent, pendingCredit, pendingRemove, pendingReward)
+      if (numErr) return errorResponse(numErr, 400)
       const pendingIsActive = (updates.is_active as boolean | undefined) ?? Boolean(existingRow.is_active)
       const sumErr = await assertActiveOddsSumTo100(id, pendingIsActive, pendingPercent)
       if (sumErr) return errorResponse(sumErr, 400)

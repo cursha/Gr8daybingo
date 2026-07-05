@@ -108,7 +108,7 @@ export function gameAnnouncementEmail(opts: {
             <td style="padding:8px 10px;color:#475569">A surprise hidden square — could be good or bad. Tap to reveal!</td>
           </tr>
           <tr style="background:#f1f5f9">
-            <td style="padding:8px 10px;font-weight:bold;color:#7C3AED">I Dare Ya<br/><span style="font-size:12px;color:#94a3b8">(Centre Square)</span></td>
+            <td style="padding:8px 10px;font-weight:bold;color:#7C3AED">I Bet Ya<br/><span style="font-size:12px;color:#94a3b8">(Centre Square)</span></td>
             <td style="padding:8px 10px;color:#475569">Spin the centre square for a random challenge or reward.</td>
           </tr>
           <tr>

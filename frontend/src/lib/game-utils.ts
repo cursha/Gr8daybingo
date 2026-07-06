@@ -564,6 +564,18 @@ export async function adminVerify(password: string) {
   return apiClient.post<{ success: boolean }>('/game/admin/verify', { password });
 }
 
+export async function adminUnlock(token: string) {
+  return apiClient.get<{ success: boolean }>(`/game/admin/unlock?token=${encodeURIComponent(token)}`, { skipAuth: true } as any);
+}
+
+export async function adminRequestPasswordReset() {
+  return apiClient.post<{ success: boolean }>('/game/admin/request-password-reset', {}, { skipAuth: true } as any);
+}
+
+export async function adminResetPassword(token: string, newPassword: string) {
+  return apiClient.post<{ success: boolean }>('/game/admin/reset-password', { token, new_password: newPassword }, { skipAuth: true } as any);
+}
+
 export async function getAdminConfig() {
   return withRetry(() => apiClient.get<Record<string, string>>('/game/admin/config'));
 }

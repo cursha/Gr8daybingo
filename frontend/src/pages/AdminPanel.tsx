@@ -6,6 +6,7 @@ import {
   PrizeClaim,
   TeamItem,
   adminVerify,
+  adminRequestPasswordReset,
   getAdminConfig,
   updateAdminConfig,
   getAdminDeeds,
@@ -220,10 +221,27 @@ const AdminPanel: React.FC = () => {
       setAuthenticated(true);
       sessionStorage.setItem(ADMIN_SESSION_KEY, 'true');
       toast.success('Admin access granted');
-    } catch {
-      toast.error('Invalid password');
+    } catch (err: any) {
+      if (err?.status === 423) {
+        toast.error('Too many failed attempts — check your email for an unlock link.');
+      } else {
+        toast.error('Invalid password');
+      }
     } finally {
       setAuthLoading(false);
+    }
+  };
+
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+  const handleForgotPassword = async () => {
+    setForgotPasswordLoading(true);
+    try {
+      await adminRequestPasswordReset();
+    } catch {
+      // Always show the same generic confirmation below — nothing to enumerate here.
+    } finally {
+      setForgotPasswordLoading(false);
+      toast.success('If an admin alert email is configured, a reset link was just sent to it.');
     }
   };
 
@@ -1118,6 +1136,14 @@ const AdminPanel: React.FC = () => {
             <Button variant="ghost" className="w-full" onClick={() => navigate('/')}>
               <ArrowLeft className="w-4 h-4 mr-1" /> Back to Home
             </Button>
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              disabled={forgotPasswordLoading}
+              className="w-full text-center text-sm text-indigo-600 hover:text-indigo-700 underline underline-offset-2"
+            >
+              Forgot password?
+            </button>
           </CardContent>
         </Card>
       </div>

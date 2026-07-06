@@ -122,6 +122,25 @@ export function gameAnnouncementEmail(opts: {
   }
 }
 
+export function newGameLaunchEmail(firstName: string | null): { subject: string; html: string } {
+  const hi = firstName && firstName.trim() ? firstName.trim() : 'there'
+  return {
+    subject: 'A new game just started!',
+    html: layout(`
+      <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">Hey ${hi},</h2>
+      <p>I am letting you know we just launched a new game so go check it out.</p>
+      <p style="text-align:center;margin:24px 0">
+        <a href="${SITE_URL}/game" style="display:inline-block;background:#DC2626;color:#fff;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none;border:2px solid #FCD34D">Play Now</a>
+      </p>
+      <p>Have a great (gr8) day</p>
+      <p style="margin-top:20px">
+        <strong>Curt Skene</strong><br/>
+        <span style="color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:0.05em">Founder</span>
+      </p>
+    `),
+  }
+}
+
 export function verifyEmailEmail(verifyUrl: string): { subject: string; html: string } {
   return {
     subject: 'Verify your Havagr8day Bingo email address',
@@ -148,6 +167,35 @@ export function passwordResetEmail(resetUrl: string): { subject: string; html: s
         <a href="${resetUrl}" style="display:inline-block;background:#DC2626;color:#fff;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none">Reset Password</a>
       </p>
       <p style="color:#64748b;font-size:13px">If you didn't request this, you can safely ignore this email.</p>
+    `),
+  }
+}
+
+export function adminLockoutEmail(unlockUrl: string): { subject: string; html: string } {
+  return {
+    subject: 'Havagr8day Bingo — Admin login locked',
+    html: layout(`
+      <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">Admin login locked</h2>
+      <p>5 failed admin login attempts were detected on Havagr8day Bingo.</p>
+      <p>Admin login is now locked as a precaution. If this was you, click below to unlock it:</p>
+      <p style="text-align:center;margin:24px 0">
+        <a href="${unlockUrl}" style="display:inline-block;background:#DC2626;color:#fff;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none;border:2px solid #FCD34D">Unlock Admin Login</a>
+      </p>
+      <p style="color:#64748b;font-size:13px">This link expires in 24 hours. If this wasn't you, no action is needed — the lock stays in place until unlocked.</p>
+    `),
+  }
+}
+
+export function adminPasswordResetEmail(resetUrl: string): { subject: string; html: string } {
+  return {
+    subject: 'Havagr8day Bingo — Admin password reset',
+    html: layout(`
+      <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">Reset admin password</h2>
+      <p>A password reset was requested for the Havagr8day Bingo admin panel.</p>
+      <p style="text-align:center;margin:24px 0">
+        <a href="${resetUrl}" style="display:inline-block;background:#DC2626;color:#fff;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none;border:2px solid #FCD34D">Reset Admin Password</a>
+      </p>
+      <p style="color:#64748b;font-size:13px">This link expires in 1 hour. If you didn't request this, ignore this email — your password stays unchanged.</p>
     `),
   }
 }

@@ -1,7 +1,7 @@
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { getAuthUser, requireAuth, requireAdmin } from '../_shared/auth.ts'
 import { getSupabase, getSubPath, matchPath } from '../_shared/db.ts'
-import { sendEmail, passwordResetEmail, referralInviteEmail, bingoWinEmail, prizeClaimConfirmationEmail, gameAnnouncementEmail } from '../_shared/email.ts'
+import { sendEmail, passwordResetEmail, adminLockoutEmail, adminPasswordResetEmail, referralInviteEmail, bingoWinEmail, prizeClaimConfirmationEmail, gameAnnouncementEmail, newGameLaunchEmail } from '../_shared/email.ts'
 import {
   getDrawSettings, awardDeedEntry, awardBingoBonus,
   reverseDeedEntry, reverseBingoBonus, manualAdjust, runWeeklyDraw,
@@ -205,6 +205,51 @@ function filterDeedsByTargeting<T extends { id: number }>(
  *  though they are never "marked". Returns their indices from the card data. */
 function freeSpaceIndices(cells: Cell[]): number[] {
   return cells.filter((c) => c.is_free_space).map((c) => c.index)
+}
+
+/** Runs `promise` after the response is sent instead of making the caller wait
+ *  on it, using the edge runtime's background-task hook when available (so the
+ *  work still completes even after the request finishes) and otherwise just
+ *  letting it run detached. Never lets a failure surface to the caller. */
+function backgroundTask(promise: Promise<unknown>): void {
+  const edgeRuntime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime
+  const safe = promise.catch((err) => console.error('[background] task failed', err))
+  if (edgeRuntime?.waitUntil) edgeRuntime.waitUntil(safe)
+}
+
+/** Sends the "new game launch" email to every verified player, once per game
+ *  cycle — see /generate-card, which is the only caller and only invokes this
+ *  once it has atomically won the per-week_year claim in
+ *  game_launch_notifications. Never throws: failures are logged per-recipient
+ *  so one bad address can't take down the rest of the batch. */
+async function sendGameLaunchEmails(supabase: ReturnType<typeof getSupabase>, weekYear: string): Promise<void> {
+  const { data: players, error: playersErr } = await supabase
+    .from('users')
+    .select('email, first_name, name, username')
+    .eq('email_verified', true)
+    .eq('role', 'user')
+
+  if (playersErr) {
+    console.error('[game-launch-email] failed to load recipients', playersErr)
+    return
+  }
+  if (!players || players.length === 0) return
+
+  let sent = 0
+  let failed = 0
+  for (const player of players) {
+    const firstName = player.first_name ?? player.name ?? player.username ?? null
+    try {
+      const tpl = newGameLaunchEmail(firstName)
+      const result = await sendEmail({ to: player.email, subject: tpl.subject, html: tpl.html })
+      if (result.sent) sent++
+      else failed++
+    } catch (err) {
+      failed++
+      console.error('[game-launch-email] send failed for', player.email, err)
+    }
+  }
+  console.log(`[game-launch-email] week ${weekYear}: sent=${sent} failed=${failed}`)
 }
 
 const WIN_LABELS: Record<string, string> = {
@@ -697,6 +742,19 @@ Deno.serve(async (req: Request) => {
         .select()
         .single()
       if (cardErr) throw cardErr
+
+      // Whichever card generation is first to claim this week_year fires the
+      // one-time "new game launched" email to every verified player. The
+      // PRIMARY KEY on game_launch_notifications is the real atomicity
+      // guarantee — a concurrent second claim for the same week_year fails
+      // this insert and simply never sends. Backgrounded so a Resend outage
+      // or slow batch can never delay this player's own card generation.
+      const { error: launchClaimErr } = await supabase
+        .from('game_launch_notifications')
+        .insert({ week_year: weekYear })
+      if (!launchClaimErr) {
+        backgroundTask(sendGameLaunchEmails(supabase, weekYear))
+      }
 
       return jsonResponse({
         card_id: newCard.id,
@@ -1800,11 +1858,142 @@ Deno.serve(async (req: Request) => {
     // ── POST /admin/verify ────────────────────────────────────────────────────
     if (method === 'POST' && path === '/admin/verify') {
       const body = await req.json()
+
+      const { data: lockout } = await supabase
+        .from('admin_lockout').select('*').eq('id', 1).maybeSingle()
+
+      if (lockout?.locked) {
+        return errorResponse('Admin login locked. Check your email for an unlock link.', 423)
+      }
+
       const { data: cfg } = await supabase
         .from('game_configs').select('config_value').eq('config_key', 'admin_password').maybeSingle()
+
       if (!cfg || cfg.config_value !== body.password) {
+        const newCount = (lockout?.failed_attempts ?? 0) + 1
+
+        if (newCount >= 5) {
+          const tokenBytes = new Uint8Array(32)
+          crypto.getRandomValues(tokenBytes)
+          const unlockToken = Array.from(tokenBytes).map(b => b.toString(16).padStart(2, '0')).join('')
+          const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+
+          await supabase.from('admin_lockout').update({
+            failed_attempts: newCount,
+            locked: true,
+            unlock_token: unlockToken,
+            unlock_token_expires_at: expiresAt,
+            updated_at: new Date().toISOString(),
+          }).eq('id', 1)
+
+          const { data: recipients } = await supabase
+            .from('admin_alert_recipients').select('email').eq('is_active', true)
+
+          if (recipients && recipients.length > 0) {
+            const unlockUrl = `https://havagr8day.com/admin/unlock?token=${unlockToken}`
+            const tpl = adminLockoutEmail(unlockUrl)
+            await Promise.all(recipients.map((r) => sendEmail({ to: r.email, subject: tpl.subject, html: tpl.html })))
+          }
+        } else {
+          await supabase.from('admin_lockout').update({
+            failed_attempts: newCount,
+            updated_at: new Date().toISOString(),
+          }).eq('id', 1)
+        }
+
+        // Same 403 whether this guess was merely wrong or the one that just
+        // tripped the lock — an attacker shouldn't be able to distinguish the
+        // two. 423 only fires on a *subsequent* attempt once already locked.
         return errorResponse('Invalid admin password', 403)
       }
+
+      // Correct password — reset counter
+      await supabase.from('admin_lockout').update({
+        failed_attempts: 0,
+        updated_at: new Date().toISOString(),
+      }).eq('id', 1)
+
+      return jsonResponse({ success: true })
+    }
+
+    // ── GET /admin/unlock ──────────────────────────────────────────────────────
+    if (method === 'GET' && path === '/admin/unlock') {
+      const token = url.searchParams.get('token')
+      if (!token) return errorResponse('Missing token', 400)
+
+      const { data: lockout } = await supabase
+        .from('admin_lockout').select('*').eq('id', 1).maybeSingle()
+
+      if (!lockout?.locked || lockout.unlock_token !== token) {
+        return errorResponse('Link invalid or already used', 400)
+      }
+      if (new Date(lockout.unlock_token_expires_at) < new Date()) {
+        return errorResponse('Link expired', 400)
+      }
+
+      await supabase.from('admin_lockout').update({
+        locked: false,
+        failed_attempts: 0,
+        unlock_token: null,
+        unlock_token_expires_at: null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', 1)
+
+      return jsonResponse({ success: true })
+    }
+
+    // ── POST /admin/request-password-reset ────────────────────────────────────
+    if (method === 'POST' && path === '/admin/request-password-reset') {
+      // Token creation always happens, independent of whether anyone is
+      // configured to receive the email — an empty admin_alert_recipients
+      // table must never suppress the underlying reset-token write.
+      const tokenBytes = new Uint8Array(32)
+      crypto.getRandomValues(tokenBytes)
+      const token = Array.from(tokenBytes).map(b => b.toString(16).padStart(2, '0')).join('')
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString() // 1 hour
+
+      await supabase.from('admin_password_reset_tokens').insert({ token, expires_at: expiresAt })
+
+      const { data: recipients } = await supabase
+        .from('admin_alert_recipients').select('email').eq('is_active', true)
+
+      if (recipients && recipients.length > 0) {
+        const resetUrl = `https://havagr8day.com/admin/reset-password?token=${token}`
+        const tpl = adminPasswordResetEmail(resetUrl)
+        await Promise.all(recipients.map((r) => sendEmail({ to: r.email, subject: tpl.subject, html: tpl.html })))
+      }
+
+      // Always return success — nothing meaningful to enumerate with a single admin.
+      return jsonResponse({ success: true })
+    }
+
+    // ── POST /admin/reset-password ─────────────────────────────────────────────
+    if (method === 'POST' && path === '/admin/reset-password') {
+      const body = await req.json()
+      const token = String(body.token ?? '').trim()
+      const newPassword = String(body.new_password ?? '').trim()
+      if (!token || !newPassword) return errorResponse('Token and new password required', 400)
+
+      const { data: resetRow } = await supabase
+        .from('admin_password_reset_tokens').select('*').eq('token', token).maybeSingle()
+
+      if (!resetRow || resetRow.used_at || new Date(resetRow.expires_at) < new Date()) {
+        return errorResponse('Link invalid or expired', 400)
+      }
+
+      await supabase.from('game_configs')
+        .update({ config_value: newPassword, updated_at: new Date().toISOString() })
+        .eq('config_key', 'admin_password')
+
+      await supabase.from('admin_password_reset_tokens')
+        .update({ used_at: new Date().toISOString() }).eq('id', resetRow.id)
+
+      // Resetting the password is also a legitimate way out of a lockout.
+      await supabase.from('admin_lockout').update({
+        locked: false, failed_attempts: 0, unlock_token: null, unlock_token_expires_at: null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', 1)
+
       return jsonResponse({ success: true })
     }
 

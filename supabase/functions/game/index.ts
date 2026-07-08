@@ -3112,6 +3112,50 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ week_year: wy, require_participation: ds.requireParticipation, players: rows })
     }
 
+    // ── GET /admin/completed-deeds?player_id=X ────────────────────────────────
+    // Recent completed-deed history for one player, with enough context
+    // (display text, whether it's already reversed) to drive the admin
+    // reverse-deed UI. is_hidden_from_impact_board doubles as "already
+    // reversed" — /admin/reverse-deed sets it true when it reverses a deed.
+    if (method === 'GET' && path === '/admin/completed-deeds') {
+      requireAdmin(authUser)
+      const playerId = url.searchParams.get('player_id')
+      if (!playerId) return errorResponse('player_id is required', 400)
+
+      const { data: deeds } = await supabase
+        .from('completed_deeds')
+        .select('id, source_type, deed_id, quick_deed_id, category, completed_at, is_hidden_from_impact_board')
+        .eq('player_id', playerId)
+        .order('completed_at', { ascending: false })
+        .limit(50)
+
+      const deedIds = [...new Set((deeds ?? []).map((d) => d.deed_id).filter((id): id is number => id != null))]
+      const quickDeedIds = [...new Set((deeds ?? []).map((d) => d.quick_deed_id).filter((id): id is number => id != null))]
+
+      const { data: goodDeeds } = deedIds.length > 0
+        ? await supabase.from('good_deeds').select('id, deed_text').in('id', deedIds)
+        : { data: [] as { id: number; deed_text: string }[] }
+      const { data: quickDeeds } = quickDeedIds.length > 0
+        ? await supabase.from('quick_deeds').select('id, label').in('id', quickDeedIds)
+        : { data: [] as { id: number; label: string }[] }
+
+      const textByDeed = new Map((goodDeeds ?? []).map((d) => [d.id, d.deed_text]))
+      const textByQuick = new Map((quickDeeds ?? []).map((d) => [d.id, d.label]))
+
+      return jsonResponse({
+        deeds: (deeds ?? []).map((d) => ({
+          id: d.id,
+          deed_text: d.deed_id != null ? (textByDeed.get(d.deed_id) ?? 'Unknown deed')
+            : d.quick_deed_id != null ? (textByQuick.get(d.quick_deed_id) ?? 'Unknown quick deed')
+            : 'Unknown deed',
+          source_type: d.source_type,
+          category: d.category,
+          completed_at: d.completed_at,
+          reversed: !!d.is_hidden_from_impact_board,
+        })),
+      })
+    }
+
     // ── POST /admin/reverse-deed ──────────────────────────────────────────────
     // Reverse a completed deed: remove its draw entry and, if reversing it also
     // un-completes the card's bingo, remove the related bingo bonus too.

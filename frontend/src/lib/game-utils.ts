@@ -977,6 +977,29 @@ export async function adminSearchPlayersByLastName(lastName: string): Promise<Ad
   return data.matches;
 }
 
+// ── Admin: draw entry adjustment & deed reversal ────────────────────────────
+
+export interface AdminCompletedDeed {
+  id: number;
+  deed_text: string;
+  source_type: 'bingo_card' | 'quick_action';
+  category: string | null;
+  completed_at: string;
+  reversed: boolean;
+}
+
+export async function adminGetCompletedDeeds(playerId: string): Promise<{ deeds: AdminCompletedDeed[] }> {
+  return apiClient.get(`/game/admin/completed-deeds?player_id=${encodeURIComponent(playerId)}`);
+}
+
+export async function adminReverseDeed(completedDeedId: number, reason?: string): Promise<{ success: boolean; deed_entry_reversed: boolean; bingo_bonus_reversed: boolean }> {
+  return apiClient.post('/game/admin/reverse-deed', { completed_deed_id: completedDeedId, reason });
+}
+
+export async function adminDrawAdjust(playerId: string, amount: number, reason: string): Promise<{ success: boolean }> {
+  return apiClient.post('/game/admin/draw-adjust', { player_id: playerId, amount, reason });
+}
+
 // ── Streak API ────────────────────────────────────────────────────────────────
 
 export async function getMyStreak(): Promise<StreakData> {

@@ -54,6 +54,10 @@ import {
   AdminPlayerMatch,
   adminGetPlayerCard,
   adminSearchPlayersByLastName,
+  AdminCompletedDeed,
+  adminGetCompletedDeeds,
+  adminReverseDeed,
+  adminDrawAdjust,
   CardData,
   CellData,
   TargetingAttribute,
@@ -179,6 +183,14 @@ const AdminPanel: React.FC = () => {
   const [cardViewerResult, setCardViewerResult] = useState<AdminPlayerCardResult | null>(null);
   const [cardViewerMatches, setCardViewerMatches] = useState<AdminPlayerMatch[]>([]);
   const [cardViewerLoading, setCardViewerLoading] = useState(false);
+
+  // Draw entry adjustment & deed reversal (for the currently-viewed player)
+  const [completedDeeds, setCompletedDeeds] = useState<AdminCompletedDeed[]>([]);
+  const [completedDeedsLoading, setCompletedDeedsLoading] = useState(false);
+  const [reversingDeedId, setReversingDeedId] = useState<number | null>(null);
+  const [adjustAmount, setAdjustAmount] = useState('');
+  const [adjustReason, setAdjustReason] = useState('');
+  const [adjustLoading, setAdjustLoading] = useState(false);
 
   // Streak milestones state
   const [streakMilestones, setStreakMilestones] = useState<StreakMilestone[]>([]);
@@ -471,6 +483,67 @@ const AdminPanel: React.FC = () => {
       toast.error(err?.message || 'Failed to load card');
     } finally {
       setCardViewerLoading(false);
+    }
+  };
+
+  const loadCompletedDeeds = async (playerId: string) => {
+    setCompletedDeedsLoading(true);
+    try {
+      const res = await adminGetCompletedDeeds(playerId);
+      setCompletedDeeds(res.deeds || []);
+    } catch {
+      // silent
+    } finally {
+      setCompletedDeedsLoading(false);
+    }
+  };
+
+  // Load this player's deed history whenever a new player card is viewed.
+  useEffect(() => {
+    if (cardViewerResult?.player.id) {
+      loadCompletedDeeds(cardViewerResult.player.id);
+    } else {
+      setCompletedDeeds([]);
+    }
+  }, [cardViewerResult?.player.id]);
+
+  const handleReverseDeed = async (deedId: number) => {
+    if (!confirm('Reverse this completed deed? This removes its draw entry (and the bingo bonus, if reversing it un-completes the card) and hides it from the Impact Board.')) return;
+    setReversingDeedId(deedId);
+    try {
+      const res = await adminReverseDeed(deedId);
+      toast.success(
+        res.bingo_bonus_reversed
+          ? 'Deed reversed — bingo bonus also reversed'
+          : res.deed_entry_reversed
+          ? 'Deed reversed'
+          : 'Deed hidden (no draw entry existed to reverse)'
+      );
+      if (cardViewerResult?.player.id) await loadCompletedDeeds(cardViewerResult.player.id);
+      await loadDrawLeaderboard();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to reverse deed');
+    } finally {
+      setReversingDeedId(null);
+    }
+  };
+
+  const handleDrawAdjust = async () => {
+    if (!cardViewerResult?.player.id) return;
+    const amount = parseInt(adjustAmount.trim());
+    if (!Number.isFinite(amount) || amount === 0) { toast.error('Enter a non-zero whole number'); return; }
+    if (!adjustReason.trim()) { toast.error('A reason is required'); return; }
+    setAdjustLoading(true);
+    try {
+      await adminDrawAdjust(cardViewerResult.player.id, amount, adjustReason.trim());
+      toast.success(`Draw entries ${amount > 0 ? 'added' : 'removed'}`);
+      setAdjustAmount('');
+      setAdjustReason('');
+      await loadDrawLeaderboard();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to adjust draw entries');
+    } finally {
+      setAdjustLoading(false);
     }
   };
 
@@ -1355,6 +1428,68 @@ const AdminPanel: React.FC = () => {
                     <p className="text-xs text-slate-500">Best Streak</p>
                     <p className="font-semibold text-indigo-600">{cardViewerResult.player.longest_streak_days} days</p>
                   </div>
+                </div>
+
+                {/* Draw entry manual adjustment */}
+                <div className="border border-purple-200 bg-purple-50 rounded-lg p-3 space-y-2">
+                  <p className="text-xs font-bold text-purple-700 uppercase tracking-wider">Adjust Draw Entries</p>
+                  <div className="flex flex-wrap gap-2 items-start">
+                    <Input
+                      type="number"
+                      placeholder="Amount (+/-)"
+                      value={adjustAmount}
+                      onChange={(e) => setAdjustAmount(e.target.value)}
+                      className="w-36 h-8 text-sm bg-white"
+                    />
+                    <Input
+                      placeholder="Reason (required)"
+                      value={adjustReason}
+                      onChange={(e) => setAdjustReason(e.target.value)}
+                      className="flex-1 min-w-[180px] h-8 text-sm bg-white"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={handleDrawAdjust}
+                      disabled={adjustLoading || !adjustAmount.trim() || !adjustReason.trim()}
+                      className="bg-purple-600 hover:bg-purple-700 text-white"
+                    >
+                      {adjustLoading ? 'Applying…' : 'Apply'}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-purple-600">Positive adds entries, negative removes them (floored at zero). Every adjustment is logged with the reason above.</p>
+                </div>
+
+                {/* Recent completed deeds — reverse-deed UI */}
+                <div className="border rounded-lg overflow-hidden">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider px-3 pt-3 pb-1">Recent Completed Deeds</p>
+                  {completedDeedsLoading ? (
+                    <div className="text-center py-6 text-slate-400 text-sm">Loading…</div>
+                  ) : completedDeeds.length === 0 ? (
+                    <div className="text-center py-6 text-slate-400 text-sm">No completed deeds yet.</div>
+                  ) : (
+                    <div className="max-h-[280px] overflow-y-auto divide-y">
+                      {completedDeeds.map((d) => (
+                        <div key={d.id} className={`px-3 py-2 text-sm flex items-center justify-between gap-3 ${d.reversed ? 'opacity-50' : ''}`}>
+                          <div className="min-w-0">
+                            <p className="text-slate-800 truncate">{d.deed_text}</p>
+                            <p className="text-xs text-slate-400">
+                              {d.source_type === 'quick_action' ? 'Quick Tap' : 'Bingo card'}
+                              {d.category ? ` · ${d.category}` : ''} · {new Date(d.completed_at).toLocaleString()}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={d.reversed || reversingDeedId === d.id}
+                            onClick={() => handleReverseDeed(d.id)}
+                            className="flex-shrink-0 text-rose-600 hover:text-rose-700"
+                          >
+                            {d.reversed ? 'Reversed' : reversingDeedId === d.id ? 'Reversing…' : 'Reverse'}
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {cardViewerResult.card === null ? (

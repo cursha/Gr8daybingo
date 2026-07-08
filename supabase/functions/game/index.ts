@@ -1995,7 +1995,10 @@ Deno.serve(async (req: Request) => {
       const { data: cfg } = await supabase
         .from('game_configs').select('config_value').eq('config_key', 'admin_password').maybeSingle()
 
-      if (!cfg || cfg.config_value !== body.password) {
+      // config_value is a bcrypt hash (migration 20260711000000) — never a
+      // plaintext comparison, matching every other credential in this codebase.
+      const passwordValid = cfg?.config_value ? await bcrypt.compare(String(body.password ?? ''), cfg.config_value) : false
+      if (!passwordValid) {
         const newCount = (lockout?.failed_attempts ?? 0) + 1
 
         if (newCount >= 5) {
@@ -2107,8 +2110,9 @@ Deno.serve(async (req: Request) => {
         return errorResponse('Link invalid or expired', 400)
       }
 
+      const newPasswordHash = await bcrypt.hash(newPassword, 10)
       await supabase.from('game_configs')
-        .update({ config_value: newPassword, updated_at: new Date().toISOString() })
+        .update({ config_value: newPasswordHash, updated_at: new Date().toISOString() })
         .eq('config_key', 'admin_password')
 
       await supabase.from('admin_password_reset_tokens')
@@ -2124,9 +2128,12 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── GET /admin/config ─────────────────────────────────────────────────────
+    // admin_password is deliberately excluded — it's a bcrypt hash, not a
+    // setting, and has its own dedicated verify/reset-password flow. Never
+    // surface it through the generic settings editor.
     if (method === 'GET' && path === '/admin/config') {
       requireAdmin(authUser)
-      const { data } = await supabase.from('game_configs').select('*')
+      const { data } = await supabase.from('game_configs').select('*').neq('config_key', 'admin_password')
       const configs: Record<string, { value: string; description: string }> = {}
       for (const c of data ?? []) configs[c.config_key] = { value: c.config_value ?? '', description: c.description ?? '' }
       return jsonResponse({ configs })
@@ -2137,6 +2144,10 @@ Deno.serve(async (req: Request) => {
       requireAdmin(authUser)
       const body = await req.json()
       for (const [key, value] of Object.entries(body.configs ?? {})) {
+        // Never let the generic settings editor write admin_password as
+        // plaintext — that's exactly the hole /admin/reset-password's bcrypt
+        // hashing exists to close.
+        if (key === 'admin_password') continue
         const { data: existing } = await supabase
           .from('game_configs').select('id').eq('config_key', key).maybeSingle()
         if (existing) {

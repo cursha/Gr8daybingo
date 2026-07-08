@@ -19,6 +19,11 @@ Deno.serve(async (req: Request) => {
   try {
     const authUser = await getAuthUser(req)
 
+    // admin_password is a bcrypt hash with its own dedicated verify/reset
+    // flow (game/index.ts POST /admin/verify, /admin/reset-password) — never
+    // let this generic config CRUD read, overwrite (as plaintext), or delete it.
+    const SENSITIVE_KEYS = new Set(['admin_password'])
+
     // GET / — list all game configs as "backend_vars"
     if (method === 'GET' && (path === '/' || path === '')) {
       requireAdmin(authUser)
@@ -29,6 +34,7 @@ Deno.serve(async (req: Request) => {
 
       const backendVars: Record<string, { key: string; value: string; description: string }> = {}
       for (const row of data ?? []) {
+        if (SENSITIVE_KEYS.has(row.config_key)) continue
         backendVars[row.config_key] = {
           key: row.config_key,
           value: row.config_value ?? '',
@@ -42,6 +48,7 @@ Deno.serve(async (req: Request) => {
     const putMatch = matchPath('/backend/:key', path)
     if (method === 'PUT' && putMatch) {
       requireAdmin(authUser)
+      if (SENSITIVE_KEYS.has(putMatch.key)) return errorResponse('This setting cannot be changed here', 403)
       const body = await req.json()
       const value = String(body.value ?? '')
       const { error } = await supabase
@@ -58,6 +65,7 @@ Deno.serve(async (req: Request) => {
     const postMatch = matchPath('/backend/:key', path)
     if (method === 'POST' && postMatch) {
       requireAdmin(authUser)
+      if (SENSITIVE_KEYS.has(postMatch.key)) return errorResponse('This setting cannot be changed here', 403)
       const body = await req.json()
       const value = String(body.value ?? '')
       const { error } = await supabase
@@ -76,6 +84,7 @@ Deno.serve(async (req: Request) => {
     const deleteMatch = matchPath('/backend/:key', path)
     if (method === 'DELETE' && deleteMatch) {
       requireAdmin(authUser)
+      if (SENSITIVE_KEYS.has(deleteMatch.key)) return errorResponse('This setting cannot be changed here', 403)
       const { data: existing } = await supabase
         .from('game_configs')
         .select('id')

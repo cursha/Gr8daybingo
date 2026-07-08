@@ -101,7 +101,7 @@ export function gameAnnouncementEmail(opts: {
         <table style="width:100%;border-collapse:collapse;font-size:14px">
           <tr style="background:#f1f5f9">
             <td style="padding:8px 10px;border-radius:6px 0 0 6px;font-weight:bold;color:#4F46E5">Pick Three</td>
-            <td style="padding:8px 10px;border-radius:0 6px 6px 0;color:#475569">Spend a little to mark up to 3 squares instantly — no deed required.</td>
+            <td style="padding:8px 10px;border-radius:0 6px 6px 0;color:#475569">Once per game, instantly swap 3 unplayed squares for 3 new challenges — free.</td>
           </tr>
           <tr>
             <td style="padding:8px 10px;font-weight:bold;color:#DC2626">💣 Bomb Button<br/><span style="font-size:12px;color:#94a3b8">(Hidden Square)</span></td>

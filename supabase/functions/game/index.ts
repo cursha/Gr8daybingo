@@ -586,6 +586,7 @@ Deno.serve(async (req: Request) => {
           referral_cells: parseJsonArr(existing.referral_cells),
           is_bingo: existing.is_bingo ?? false,
           draw_entered: drawEntry != null,
+          pick_three_used: existing.pick_three_used ?? false,
         })
       }
 
@@ -765,6 +766,7 @@ Deno.serve(async (req: Request) => {
         purchased_cells: [],
         referral_cells: referralCellIndices,
         is_bingo: false,
+        pick_three_used: false,
       })
     }
 
@@ -972,6 +974,92 @@ Deno.serve(async (req: Request) => {
 
       const purchaseResp: Record<string, unknown> = { success: true, purchased_cells: purchased, new_balance: newBalance, is_bingo: isBingo }
       return jsonResponse(purchaseResp)
+    }
+
+    // ── POST /pick-three ───────────────────────────────────────────────────────
+    // Free, once-per-card power-up: the player chooses exactly 3 of their own
+    // unplayed squares to swap for new deeds. Unlike the I-Bet-Ya replace_three
+    // outcome (which randomly picks cells and explicitly excludes the hidden
+    // secret square), the player can't tell which square is secret — sanitizeCells
+    // never sends is_secret/secret_reward for an unrevealed cell — so the secret
+    // square is a normal, selectable candidate here. If it's among the 3 chosen,
+    // its exact reward carries over onto the new deed at that same index instead
+    // of being lost, so the player never notices anything but a new deed there.
+    if (method === 'POST' && path === '/pick-three') {
+      const user = requireAuth(authUser)
+      const body = await req.json()
+      const cardId = Number(body.card_id)
+      const indices: number[] = Array.isArray(body.cell_indices) ? [...new Set(body.cell_indices.map(Number))] : []
+      if (!Number.isFinite(cardId)) return errorResponse('card_id is required', 400)
+      if (indices.length !== 3 || indices.some((i) => !Number.isInteger(i))) {
+        return errorResponse('cell_indices must contain exactly 3 distinct square indices', 400)
+      }
+
+      const { data: card } = await supabase
+        .from('player_cards').select('*').eq('id', cardId).eq('user_id', user.sub).maybeSingle()
+      if (!card) return errorResponse('Card not found', 404)
+      if (card.pick_three_used) return errorResponse('Pick Three has already been used on this card', 400)
+
+      const cells: Cell[] = JSON.parse(card.card_data)
+      const completed = parseJsonArr(card.completed_cells) as number[]
+      const purchased = parseJsonArr(card.purchased_cells) as number[]
+      const referral = parseJsonArr(card.referral_cells) as number[]
+      const allMarked = new Set([...completed, ...purchased, ...referral])
+
+      // Eligible = an ordinary unplayed deed square. Deliberately does NOT
+      // exclude is_secret (see header comment) — every other exclusion mirrors
+      // replace_three's rule.
+      const eligibleIndices = new Set(
+        cells
+          .filter((c) => c.index !== 12 && !c.is_free_space && !c.is_purchasable && !c.is_referral_free && !allMarked.has(c.index))
+          .map((c) => c.index)
+      )
+      const invalid = indices.filter((i) => !eligibleIndices.has(i))
+      if (invalid.length > 0) {
+        return errorResponse('One or more selected squares are not eligible for Pick Three', 400)
+      }
+
+      const existingDeedIds = new Set(cells.map((c) => c.deed_id).filter((id): id is number => id != null))
+      const { data: allDeeds } = await supabase.from('good_deeds').select('*').eq('is_active', true).eq('status', 'Approved')
+      const { playerValueIds, deedTargetingMap } = await fetchTargetingData(supabase, user.sub)
+      const basePool = (allDeeds ?? []).filter((d) => !existingDeedIds.has(d.id))
+      const targetedPool = [...filterDeedsByTargeting(basePool, playerValueIds, deedTargetingMap, basePool)]
+
+      const replaced: { index: number; old_deed: string; new_deed: string }[] = []
+      for (const index of indices) {
+        if (targetedPool.length === 0) break
+        const targetCell = cells[index]
+        const buf = new Uint32Array(1); crypto.getRandomValues(buf)
+        const pick = Math.floor((buf[0] / 4_294_967_296) * targetedPool.length)
+        const newDeed = targetedPool.splice(pick, 1)[0]
+        existingDeedIds.add(newDeed.id)
+        cells[index] = {
+          ...targetCell,
+          deed_text: newDeed.deed_text,
+          deed_text_long: newDeed.deed_text_long ?? null,
+          deed_id: newDeed.id,
+          quantity: newDeed.quantity ?? 1,
+          category: newDeed.category ?? null,
+          // Carry the secret payload forward untouched if this was the hidden
+          // square; otherwise make sure the new deed is definitely not secret.
+          is_secret: targetCell.is_secret === true,
+          secret_reward: targetCell.is_secret === true ? targetCell.secret_reward : null,
+          secret_revealed: false,
+        }
+        replaced.push({ index, old_deed: targetCell.deed_text, new_deed: newDeed.deed_text })
+      }
+
+      await supabase.from('player_cards').update({
+        card_data: JSON.stringify(cells),
+        pick_three_used: true,
+        updated_at: new Date().toISOString(),
+      }).eq('id', cardId)
+
+      return jsonResponse({
+        success: true,
+        replaced,
+        cells: sanitizeCells(cells, completed),
+      })
     }
 
     // ── POST /submit-referral ─────────────────────────────────────────────────

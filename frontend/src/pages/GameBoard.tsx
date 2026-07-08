@@ -14,6 +14,7 @@ import {
   markCell,
   unmarkCell,
   purchaseCell,
+  pickThree,
   submitReferral,
   getWallet,
   suggestDeed,
@@ -51,7 +52,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, CheckCircle2, XCircle, Shield, Lock, PartyPopper, Medal, LogOut, Printer, ChevronDown } from 'lucide-react';
+import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, CheckCircle2, XCircle, Shield, Lock, PartyPopper, Medal, LogOut, Printer, ChevronDown, Shuffle } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { downloadBingoCardPdf, downloadTeamCardsPdf, TeamMemberCard } from '@/lib/bingo-pdf';
 
@@ -83,6 +84,9 @@ const GameBoard: React.FC = () => {
   const { user, loading: authLoading, logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [card, setCard] = useState<CardData | null>(null);
+  const [pickThreeMode, setPickThreeMode] = useState(false);
+  const [pickThreeSelection, setPickThreeSelection] = useState<Set<number>>(new Set());
+  const [pickThreeLoading, setPickThreeLoading] = useState(false);
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
   const [referralEmail, setReferralEmail] = useState('');
@@ -303,6 +307,58 @@ const GameBoard: React.FC = () => {
       toast.error(err?.message || 'Failed to purchase cell');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  // Same "unplayed, non-special" rule the backend enforces — kept in sync with
+  // POST /pick-three's eligibility filter in game/index.ts. Deliberately does
+  // NOT exclude secret squares: the client never even knows which cell (if
+  // any) is secret, since sanitizeCells hides that until it's revealed.
+  const isPickThreeEligible = (cellIndex: number): boolean => {
+    if (!card) return false;
+    const cell = card.cells[cellIndex];
+    if (!cell || cellIndex === 12 || cell.is_free_space || cell.is_purchasable || cell.is_referral_free) return false;
+    return !card.completed_cells.includes(cellIndex)
+      && !card.purchased_cells.includes(cellIndex)
+      && !card.referral_cells.includes(cellIndex);
+  };
+
+  const handleStartPickThree = () => {
+    if (!card || card.is_bingo || card.pick_three_used) return;
+    setPickThreeMode(true);
+    setPickThreeSelection(new Set());
+  };
+
+  const handleCancelPickThree = () => {
+    setPickThreeMode(false);
+    setPickThreeSelection(new Set());
+  };
+
+  const handleTogglePickThree = (cellIndex: number) => {
+    setPickThreeSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(cellIndex)) {
+        next.delete(cellIndex);
+      } else if (next.size < 3) {
+        next.add(cellIndex);
+      }
+      return next;
+    });
+  };
+
+  const handleConfirmPickThree = async () => {
+    if (!card || pickThreeSelection.size !== 3) return;
+    setPickThreeLoading(true);
+    try {
+      const result = await pickThree(card.card_id, [...pickThreeSelection]);
+      setCard((prev) => (prev ? { ...prev, cells: result.cells, pick_three_used: true } : null));
+      toast.success('3 squares swapped for new challenges!');
+      setPickThreeMode(false);
+      setPickThreeSelection(new Set());
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to use Pick Three');
+    } finally {
+      setPickThreeLoading(false);
     }
   };
 
@@ -869,6 +925,43 @@ const GameBoard: React.FC = () => {
           </div>
         )}
 
+        {/* ========== PICK THREE ========== */}
+        {card && !card.is_bingo && (
+          <div className="mb-4">
+            {pickThreeMode ? (
+              <div className="rounded-xl border-2 border-purple-400/60 bg-purple-500/10 backdrop-blur-sm p-3 flex flex-col sm:flex-row items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-purple-200">Pick Three: tap 3 unplayed squares to swap</p>
+                  <p className="text-xs text-purple-300">{pickThreeSelection.size} / 3 selected</p>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <Button variant="outline" size="sm" onClick={handleCancelPickThree} disabled={pickThreeLoading}>
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleConfirmPickThree}
+                    disabled={pickThreeLoading || pickThreeSelection.size !== 3}
+                    className="bg-purple-600 hover:bg-purple-700 text-white"
+                  >
+                    {pickThreeLoading ? 'Swapping…' : 'Confirm Swap'}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              !card.pick_three_used && (
+                <Button
+                  variant="outline"
+                  onClick={handleStartPickThree}
+                  className="w-full sm:w-auto border-purple-400/60 text-purple-200 hover:bg-purple-500/10"
+                >
+                  <Shuffle className="w-4 h-4 mr-2" /> Pick Three — Swap 3 Squares
+                </Button>
+              )
+            )}
+          </div>
+        )}
+
         {/* ========== BINGO CARD ========== */}
         {card && (
           <div className="mb-6">
@@ -931,6 +1024,10 @@ const GameBoard: React.FC = () => {
                           onDare={handleBetYaReveal}
                           dareUsed={card.cells.find(c => c.index === 12)?.bet_ya_revealed === true}
                           winCondition={card.win_condition}
+                          pickThreeMode={pickThreeMode}
+                          pickThreeEligible={isPickThreeEligible(cell.index)}
+                          pickThreeSelected={pickThreeSelection.has(cell.index)}
+                          onTogglePickThree={handleTogglePickThree}
                         />
                       </div>
                     </div>

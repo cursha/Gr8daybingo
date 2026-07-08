@@ -23,6 +23,13 @@ interface BingoCellProps {
   onDare?: (index: number) => void;
   dareUsed?: boolean;
   winCondition?: string;
+  /** Pick Three: when active, taps toggle selection instead of the normal
+   *  mark/purchase/dare flow. Eligibility is computed by the parent (same
+   *  "unplayed, non-special" rule the backend enforces). */
+  pickThreeMode?: boolean;
+  pickThreeEligible?: boolean;
+  pickThreeSelected?: boolean;
+  onTogglePickThree?: (index: number) => void;
 }
 
 const BingoCell: React.FC<BingoCellProps> = ({
@@ -40,6 +47,10 @@ const BingoCell: React.FC<BingoCellProps> = ({
   onDare,
   dareUsed = false,
   winCondition,
+  pickThreeMode = false,
+  pickThreeEligible = false,
+  pickThreeSelected = false,
+  onTogglePickThree,
 }) => {
   const [pendingConfirm, setPendingConfirm] = useState(false);
   const [pendingPurchase, setPendingPurchase] = useState(false);
@@ -104,6 +115,10 @@ const BingoCell: React.FC<BingoCellProps> = ({
 
   const handleClick = () => {
     if (locked) return;
+    if (pickThreeMode) {
+      if (pickThreeEligible) onTogglePickThree?.(cell.index);
+      return;
+    }
     if (isCentreSquare) {
       if (!dareUsed) onDare?.(cell.index);
       return;
@@ -137,7 +152,9 @@ const BingoCell: React.FC<BingoCellProps> = ({
     <button
       ref={buttonRef}
       onClick={handleClick}
-      disabled={locked || (isFree && !isCentreSquare) || cell.is_referral_free || (cell.is_purchasable && isPurchased) || (isCentreSquare && dareUsed)}
+      disabled={locked || (pickThreeMode
+        ? !pickThreeEligible
+        : (isFree && !isCentreSquare) || cell.is_referral_free || (cell.is_purchasable && isPurchased) || (isCentreSquare && dareUsed))}
       aria-label={
         isFree
           ? 'Free space'
@@ -154,6 +171,9 @@ const BingoCell: React.FC<BingoCellProps> = ({
         transition-all duration-200 ease-out
         overflow-hidden select-none
         ${locked && !isCompleted && !isFree ? 'opacity-50 grayscale cursor-not-allowed' : ''}
+        ${pickThreeMode && !pickThreeEligible ? 'opacity-40 grayscale cursor-not-allowed' : ''}
+        ${pickThreeMode && pickThreeEligible && pickThreeSelected ? 'ring-4 ring-purple-500 ring-inset' : ''}
+        ${pickThreeMode && pickThreeEligible && !pickThreeSelected ? 'ring-2 ring-purple-300 ring-inset hover:ring-purple-400 cursor-pointer' : ''}
         ${isCentreSquare
           ? dareUsed
             ? 'bg-slate-700 cursor-not-allowed opacity-60'
@@ -278,6 +298,13 @@ const BingoCell: React.FC<BingoCellProps> = ({
           </div>
         </div>
       ), document.body)}
+
+      {/* ===== PICK THREE SELECTION BADGE ===== */}
+      {pickThreeMode && pickThreeEligible && pickThreeSelected && (
+        <span className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] font-black flex items-center justify-center shadow">
+          ✓
+        </span>
+      )}
 
       {/* ===== CENTRE SQUARE — I BET YA! ===== */}
       {isCentreSquare && (

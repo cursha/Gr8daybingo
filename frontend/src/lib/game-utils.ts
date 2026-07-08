@@ -110,6 +110,7 @@ export interface CardData {
   referral_cells: number[];
   is_bingo: boolean;
   draw_entered?: boolean;
+  pick_three_used?: boolean;
 }
 
 export type BetYaActionType = 'free_square' | 'refer_friend' | 'fund_credit' | 'remove_funds' | 'replace_three' | 'nothing';
@@ -430,6 +431,18 @@ export async function purchaseCell(cardId: number, cellIndex: number) {
     '/game/purchase-cell',
     { card_id: cardId, cell_index: cellIndex }
   );
+}
+
+export interface PickThreeResult {
+  success: boolean;
+  replaced: { index: number; old_deed: string; new_deed: string }[];
+  cells: CellData[];
+}
+
+export async function pickThree(cardId: number, cellIndices: number[]) {
+  return apiClient.post<PickThreeResult>('/game/pick-three', {
+    card_id: cardId, cell_indices: cellIndices,
+  });
 }
 
 export async function submitReferral(email: string) {

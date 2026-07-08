@@ -564,8 +564,12 @@ export async function getPublicPrize(): Promise<PrizeInfo> {
   return apiClient.get<PrizeInfo>('/game/public/prize', { skipAuth: true });
 }
 
+// Deliberately does NOT pass skipAuth: true — a logged-in test player's
+// Offline Mode exemption is checked server-side off their token, so this
+// call needs to send it when one exists. Still works fine for logged-out
+// visitors: apiClient only attaches the header if a token is actually stored.
 export async function getOfflineStatus(): Promise<{ offline_mode: boolean; offline_until: string | null }> {
-  return apiClient.get<{ offline_mode: boolean; offline_until: string | null }>('/game/public/offline-status', { skipAuth: true } as any);
+  return apiClient.get<{ offline_mode: boolean; offline_until: string | null }>('/game/public/offline-status');
 }
 
 export async function getWinConditions(): Promise<WinCondition[]> {
@@ -834,6 +838,7 @@ export interface MemberItem {
   profile_completed: boolean;
   email_verified: boolean;
   is_trusted: boolean;
+  is_test: boolean;
 }
 
 export async function getAdminMembers(): Promise<{ members: MemberItem[] }> {

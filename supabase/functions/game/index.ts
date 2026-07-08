@@ -1954,14 +1954,29 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── GET /public/offline-status ────────────────────────────────────────────
+    // Deliberately not requireAuth-gated — anonymous/logged-out visitors call
+    // this too. But if a valid player token WAS sent, a player flagged
+    // is_test is exempt from Offline Mode: this response just reports
+    // offline_mode: false for them, so Curt can pause the app for everyone
+    // else while specific testers keep playing normally. Checked live off the
+    // DB (not baked into the login token), so flipping the flag takes effect
+    // immediately without the tester needing to log out and back in.
     if (method === 'GET' && path === '/public/offline-status') {
       const { data } = await supabase
         .from('game_configs').select('config_key, config_value')
         .in('config_key', ['offline_mode', 'offline_until'])
       const cfg: Record<string, string> = {}
       for (const r of data ?? []) cfg[r.config_key] = r.config_value ?? ''
+      let offlineMode = cfg['offline_mode'] === 'true'
+
+      if (offlineMode && authUser?.sub) {
+        const { data: testRow } = await supabase
+          .from('users').select('is_test').eq('id', authUser.sub).maybeSingle()
+        if (testRow?.is_test) offlineMode = false
+      }
+
       return jsonResponse({
-        offline_mode: cfg['offline_mode'] === 'true',
+        offline_mode: offlineMode,
         offline_until: cfg['offline_until'] || null,
       })
     }
@@ -2337,7 +2352,7 @@ Deno.serve(async (req: Request) => {
       requireAdmin(authUser)
       const { data } = await supabase
         .from('users')
-        .select('id, email, username, name, first_name, last_name, role, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified, is_trusted')
+        .select('id, email, username, name, first_name, last_name, role, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified, is_trusted, is_test')
         .order('player_number', { ascending: true })
       return jsonResponse({
         members: (data ?? []).map((u) => ({
@@ -2358,6 +2373,7 @@ Deno.serve(async (req: Request) => {
           profile_completed: !!u.profile_completed,
           email_verified: !!u.email_verified,
           is_trusted: !!u.is_trusted,
+          is_test: !!u.is_test,
         })),
       })
     }
@@ -3947,6 +3963,7 @@ Deno.serve(async (req: Request) => {
         ...(state_id !== undefined && { state_id }),
         ...(role !== undefined && { role }),
         ...('is_trusted' in body && { is_trusted: body.is_trusted === true }),
+        ...('is_test' in body && { is_test: body.is_test === true }),
       }).eq('id', targetId)
 
       if (playerUpdateErr) {

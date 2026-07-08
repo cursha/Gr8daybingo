@@ -35,6 +35,12 @@ import {
   setMyQuickTaps,
   StreakData,
   StreakMilestoneHit,
+  BlackoutState,
+  getMyCardStatus,
+  revealBlackoutCell,
+  passBlackoutCell,
+  pauseBlackout,
+  resumeBlackout,
 } from '@/lib/game-utils';
 import BingoCell from '@/components/BingoCell';
 import CelebrationOverlay from '@/components/CelebrationOverlay';
@@ -53,7 +59,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, CheckCircle2, XCircle, Shield, Lock, PartyPopper, Medal, LogOut, Printer, ChevronDown, Shuffle } from 'lucide-react';
+import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Lock, PartyPopper, Medal, LogOut, Printer, ChevronDown, Shuffle } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { downloadBingoCardPdf, downloadTeamCardsPdf, TeamMemberCard } from '@/lib/bingo-pdf';
 
@@ -80,11 +86,98 @@ const WIN_CONDITION_DESCRIPTIONS: Record<string, string> = {
   fill_card: 'Complete every square on the entire card',
 };
 
+// A Blackout square is always in exactly one of these states, by construction
+// server-side: still hidden, permanently blocked (passed on), open in the
+// current group (revealed but not yet resolved), or completed. No purchase,
+// referral, secret, or I-Bet-Ya treatment applies to any Blackout square.
+const BlackoutTile: React.FC<{
+  cell: CardData['cells'][number];
+  isCompleted: boolean;
+  isBlocked: boolean;
+  isOpen: boolean;
+  canReveal: boolean;
+  revealing: boolean;
+  passing: boolean;
+  onReveal: () => void;
+  onComplete: () => void;
+  onPass: () => void;
+}> = ({ cell, isCompleted, isBlocked, isOpen, canReveal, revealing, passing, onReveal, onComplete, onPass }) => {
+  if (cell.is_hidden) {
+    return (
+      <button
+        onClick={onReveal}
+        disabled={!canReveal || revealing}
+        className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900 hover:from-slate-700 hover:to-slate-800 border border-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+        aria-label="Hidden square — tap to reveal"
+      >
+        <span className="text-white/20 text-lg sm:text-2xl">?</span>
+      </button>
+    );
+  }
+
+  if (isBlocked) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-0.5 bg-black/60 border border-rose-900/40">
+        <span className="text-rose-500/60 text-base sm:text-xl">✕</span>
+        <span className="text-[7px] sm:text-[9px] font-bold text-rose-500/50 uppercase tracking-widest">Passed</span>
+      </div>
+    );
+  }
+
+  if (isCompleted) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-0.5 px-1 bg-gradient-to-br from-emerald-400 to-green-500">
+        <Check className="w-4 h-4 sm:w-6 sm:h-6 text-white drop-shadow" strokeWidth={3} />
+        <span className="text-[7px] sm:text-[9px] text-center leading-tight font-bold text-white/90 line-clamp-2 px-0.5">
+          {cell.deed_text}
+        </span>
+      </div>
+    );
+  }
+
+  // Open in the current group — needs a decision.
+  if (isOpen) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-1 px-1 py-1 bg-gradient-to-br from-amber-50 to-amber-100 border-2 border-amber-400">
+        <span className="text-[7px] sm:text-[9px] text-center leading-tight font-semibold text-slate-700 line-clamp-3">
+          {cell.deed_text}
+        </span>
+        <div className="flex gap-1">
+          <button
+            onClick={onComplete}
+            disabled={passing}
+            className="text-[7px] sm:text-[9px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded px-1.5 py-0.5 disabled:opacity-50"
+          >
+            Done
+          </button>
+          <button
+            onClick={onPass}
+            disabled={passing}
+            className="text-[7px] sm:text-[9px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded px-1.5 py-0.5 disabled:opacity-50"
+          >
+            {passing ? '…' : 'Pass'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Should be unreachable — every non-hidden, non-blocked, non-completed
+  // square is by construction part of the active group.
+  return <div className="w-full h-full bg-slate-900" />;
+};
+
 const GameBoard: React.FC = () => {
   const navigate = useNavigate();
   const { user, loading: authLoading, logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [card, setCard] = useState<CardData | null>(null);
+  const [showModePicker, setShowModePicker] = useState(false);
+  const [pickedMode, setPickedMode] = useState<'classic' | 'blackout' | null>(null);
+  const [modeConfirming, setModeConfirming] = useState(false);
+  const [blackoutRevealing, setBlackoutRevealing] = useState(false);
+  const [blackoutPassingCell, setBlackoutPassingCell] = useState<number | null>(null);
+  const [blackoutPausing, setBlackoutPausing] = useState(false);
   const [pickThreeMode, setPickThreeMode] = useState(false);
   const [pickThreeSelection, setPickThreeSelection] = useState<Set<number>>(new Set());
   const [pickThreeLoading, setPickThreeLoading] = useState(false);
@@ -169,12 +262,24 @@ const GameBoard: React.FC = () => {
     try {
       setLoading(true);
       setCellProgress({});
-      const [cardData, walletData] = await Promise.all([
-        generateCard(),
+      const [status, walletData] = await Promise.all([
+        getMyCardStatus(),
         getWallet(),
       ]);
-      setCard(cardData);
       setWallet(walletData);
+
+      // No card yet this week, and Blackout is being offered as a choice —
+      // show the picker BEFORE ever calling generate-card. Once a card
+      // exists, that single call is the lock: generate-card just returns it
+      // unchanged, so the picker must never show again after this point.
+      if (!status.has_card && status.blackout_offered) {
+        setShowModePicker(true);
+        setLoading(false);
+        return;
+      }
+
+      const cardData = await generateCard(status.has_card ? undefined : 'classic');
+      setCard(cardData);
       if (cardData.is_bingo) {
         setShowCelebration(true);
       }
@@ -184,6 +289,23 @@ const GameBoard: React.FC = () => {
       setLoading(false);
     }
   }, []);
+
+  const handleConfirmMode = async () => {
+    if (!pickedMode) return;
+    setModeConfirming(true);
+    try {
+      const cardData = await generateCard(pickedMode);
+      setCard(cardData);
+      setShowModePicker(false);
+      if (cardData.is_bingo) {
+        setShowCelebration(true);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to start your game');
+    } finally {
+      setModeConfirming(false);
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -209,11 +331,21 @@ const GameBoard: React.FC = () => {
             ? { ...c, secret_revealed: true }
             : c
         );
+        // Blackout: this square just resolved (completed) — mirror the
+        // backend's group-closing logic locally so the "reveal" button
+        // reappears the instant the group empties, no extra fetch needed.
+        const nextBlackout = prev.blackout && prev.blackout.active_group
+          ? (() => {
+              const remaining = prev.blackout!.active_group!.filter((i) => i !== cellIndex);
+              return { ...prev.blackout!, active_group: remaining.length > 0 ? remaining : null };
+            })()
+          : prev.blackout;
         return {
           ...prev,
           cells: nextCells,
           completed_cells: result.completed_cells,
           is_bingo: result.is_bingo,
+          blackout: nextBlackout,
         };
       });
 
@@ -251,6 +383,74 @@ const GameBoard: React.FC = () => {
       toast.error(err?.message || 'Failed to mark cell');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleBlackoutReveal = async (cellIndex: number) => {
+    if (!card || blackoutRevealing) return;
+    setBlackoutRevealing(true);
+    try {
+      const result = await revealBlackoutCell(cellIndex);
+      setCard((prev) => {
+        if (!prev) return null;
+        const revealedByIndex = new Map(result.revealed.map((c) => [c.index, c]));
+        const nextCells = prev.cells.map((c) => revealedByIndex.get(c.index) ?? c);
+        return {
+          ...prev,
+          cells: nextCells,
+          blackout: prev.blackout
+            ? { ...prev.blackout, hidden_cells: result.hidden_cells, active_group: result.active_group }
+            : prev.blackout,
+        };
+      });
+      toast.success(result.revealed.length > 1 ? `${result.revealed.length} squares revealed!` : 'Square revealed!');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to reveal square');
+    } finally {
+      setBlackoutRevealing(false);
+    }
+  };
+
+  const handleBlackoutPass = async (cellIndex: number) => {
+    if (!card || blackoutPassingCell != null) return;
+    setBlackoutPassingCell(cellIndex);
+    try {
+      const result = await passBlackoutCell(cellIndex);
+      setCard((prev) =>
+        prev && prev.blackout
+          ? { ...prev, blackout: { ...prev.blackout, blocked_cells: result.blocked_cells, active_group: result.active_group } }
+          : prev
+      );
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to pass on square');
+    } finally {
+      setBlackoutPassingCell(null);
+    }
+  };
+
+  const handleBlackoutPause = async () => {
+    if (!card || blackoutPausing) return;
+    setBlackoutPausing(true);
+    try {
+      await pauseBlackout();
+      setCard((prev) => (prev && prev.blackout ? { ...prev, blackout: { ...prev.blackout, is_paused: true } } : prev));
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to pause');
+    } finally {
+      setBlackoutPausing(false);
+    }
+  };
+
+  const handleBlackoutResume = async () => {
+    if (!card || blackoutPausing) return;
+    setBlackoutPausing(true);
+    try {
+      await resumeBlackout();
+      setCard((prev) => (prev && prev.blackout ? { ...prev, blackout: { ...prev.blackout, is_paused: false } } : prev));
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to resume');
+    } finally {
+      setBlackoutPausing(false);
     }
   };
 
@@ -608,6 +808,54 @@ const GameBoard: React.FC = () => {
         <div className="flex flex-col items-center gap-4">
           <div className="animate-spin rounded-full h-12 w-12 border-4 border-indigo-400 border-t-transparent" />
           <span className="text-indigo-300 font-medium animate-pulse">Loading your card...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (showModePicker) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-950 via-purple-950 to-slate-900 p-4">
+        <div className="w-full max-w-md bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 space-y-5">
+          <div className="text-center space-y-1">
+            <h1 className="text-xl font-black text-white">Choose Your Game</h1>
+            <p className="text-sm text-indigo-200/70">This locks in for the whole week once you confirm.</p>
+          </div>
+          <div className="grid grid-cols-1 gap-3">
+            <button
+              onClick={() => setPickedMode('classic')}
+              className={`text-left rounded-xl border-2 p-4 transition-all duration-150 ${
+                pickedMode === 'blackout'
+                  ? 'opacity-40 border-white/10 bg-white/5 text-white/50'
+                  : pickedMode === 'classic'
+                    ? 'border-emerald-400 bg-emerald-500/15 text-white'
+                    : 'border-white/20 bg-white/5 text-white hover:border-white/40'
+              }`}
+            >
+              <p className="font-bold">Regular Bingo</p>
+              <p className="text-xs opacity-80 mt-0.5">The classic card — every square visible from the start.</p>
+            </button>
+            <button
+              onClick={() => setPickedMode('blackout')}
+              className={`text-left rounded-xl border-2 p-4 transition-all duration-150 ${
+                pickedMode === 'classic'
+                  ? 'opacity-40 border-white/10 bg-white/5 text-white/50'
+                  : pickedMode === 'blackout'
+                    ? 'border-amber-400 bg-amber-500/15 text-white'
+                    : 'border-white/20 bg-white/5 text-white hover:border-white/40'
+              }`}
+            >
+              <p className="font-bold">Blackout Bingo</p>
+              <p className="text-xs opacity-80 mt-0.5">Every square starts hidden. Reveal a few at a time, complete or pass on each.</p>
+            </button>
+          </div>
+          <Button
+            onClick={handleConfirmMode}
+            disabled={!pickedMode || modeConfirming}
+            className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold"
+          >
+            {modeConfirming ? 'Starting…' : 'Confirm'}
+          </Button>
         </div>
       </div>
     );
@@ -1023,41 +1271,97 @@ const GameBoard: React.FC = () => {
                     backgroundColor: 'rgba(99, 102, 241, 0.4)',
                   }}
                 >
-                  {card.cells.map((cell) => (
-                    <div
-                      key={cell.index}
-                      className="relative w-full"
-                      style={{ aspectRatio: '1 / 1' }}
-                    >
-                      <div className="absolute inset-0">
-                        <BingoCell
-                          cell={cell}
-                          completedCells={card.completed_cells}
-                          purchasedCells={card.purchased_cells}
-                          referralCells={card.referral_cells}
-                          onMark={handleMark}
-                          onPurchase={handlePurchase}
-                          locked={card.is_bingo}
-                          prizeImageUrl={prize?.prize_image_url}
-                          progress={cellProgress[cell.index] ?? 0}
-                          onProgressChange={(idx, p) =>
-                            setCellProgress((prev) => ({ ...prev, [idx]: p }))
-                          }
-                          onUnmark={handleUnmark}
-                          onDare={handleBetYaReveal}
-                          dareUsed={card.cells.find(c => c.index === 12)?.bet_ya_revealed === true}
-                          winCondition={card.win_condition}
-                          pickThreeMode={pickThreeMode}
-                          pickThreeEligible={isPickThreeEligible(cell.index)}
-                          pickThreeSelected={pickThreeSelection.has(cell.index)}
-                          onTogglePickThree={handleTogglePickThree}
-                        />
+                  {card.game_mode === 'blackout' ? (
+                    card.cells.map((cell) => {
+                      const isCompleted = card.completed_cells.includes(cell.index);
+                      const isBlocked = card.blackout?.blocked_cells.includes(cell.index) ?? false;
+                      const isOpen = card.blackout?.active_group?.includes(cell.index) ?? false;
+                      const canReveal = !card.is_bingo && !card.blackout?.is_paused && !card.blackout?.active_group;
+                      return (
+                        <div key={cell.index} className="relative w-full" style={{ aspectRatio: '1 / 1' }}>
+                          <div className="absolute inset-0">
+                            <BlackoutTile
+                              cell={cell}
+                              isCompleted={isCompleted}
+                              isBlocked={isBlocked}
+                              isOpen={isOpen}
+                              canReveal={canReveal}
+                              revealing={blackoutRevealing}
+                              passing={blackoutPassingCell === cell.index}
+                              onReveal={() => handleBlackoutReveal(cell.index)}
+                              onComplete={() => handleMark(cell.index)}
+                              onPass={() => handleBlackoutPass(cell.index)}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    card.cells.map((cell) => (
+                      <div
+                        key={cell.index}
+                        className="relative w-full"
+                        style={{ aspectRatio: '1 / 1' }}
+                      >
+                        <div className="absolute inset-0">
+                          <BingoCell
+                            cell={cell}
+                            completedCells={card.completed_cells}
+                            purchasedCells={card.purchased_cells}
+                            referralCells={card.referral_cells}
+                            onMark={handleMark}
+                            onPurchase={handlePurchase}
+                            locked={card.is_bingo}
+                            prizeImageUrl={prize?.prize_image_url}
+                            progress={cellProgress[cell.index] ?? 0}
+                            onProgressChange={(idx, p) =>
+                              setCellProgress((prev) => ({ ...prev, [idx]: p }))
+                            }
+                            onUnmark={handleUnmark}
+                            onDare={handleBetYaReveal}
+                            dareUsed={card.cells.find(c => c.index === 12)?.bet_ya_revealed === true}
+                            winCondition={card.win_condition}
+                            pickThreeMode={pickThreeMode}
+                            pickThreeEligible={isPickThreeEligible(cell.index)}
+                            pickThreeSelected={pickThreeSelection.has(cell.index)}
+                            onTogglePickThree={handleTogglePickThree}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
             </div>
+
+            {/* Blackout: Pause only shows between groups (no timer runs mid-group,
+                so there's nothing meaningful to "pause" while one is open —
+                Pass, rendered inline on each open square, is the only way out
+                of an active group). */}
+            {card.game_mode === 'blackout' && !card.is_bingo && (
+              <div className="mt-3 flex justify-center">
+                {card.blackout?.is_paused ? (
+                  <Button
+                    onClick={handleBlackoutResume}
+                    disabled={blackoutPausing}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                  >
+                    {blackoutPausing ? 'Resuming…' : '▶ Resume'}
+                  </Button>
+                ) : !card.blackout?.active_group ? (
+                  <Button
+                    variant="outline"
+                    onClick={handleBlackoutPause}
+                    disabled={blackoutPausing}
+                    className="border-white/20 text-white/70 hover:text-white hover:bg-white/10"
+                  >
+                    {blackoutPausing ? 'Pausing…' : '⏸ Pause'}
+                  </Button>
+                ) : (
+                  <p className="text-xs text-amber-300/80 text-center">Resolve every open square (complete or pass) to reveal again.</p>
+                )}
+              </div>
+            )}
           </div>
         )}
 

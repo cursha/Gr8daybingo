@@ -49,6 +49,10 @@ export interface CellData {
   secret_revealed?: boolean;
   quantity?: number;
   category?: string | null;
+  // Blackout: a still-hidden square arrives with every deed field null and
+  // this flag set — the deed content is genuinely absent from the response,
+  // not just visually covered client-side.
+  is_hidden?: boolean;
   // I Bet Ya — present on center cell (index 12) in classic mode
   bet_ya_outcome_type?: string | null;
   bet_ya_label?: string | null;
@@ -100,6 +104,13 @@ export interface MarkCellResult {
   streak_update?: StreakUpdate;
 }
 
+export interface BlackoutState {
+  hidden_cells: number[];
+  blocked_cells: number[];
+  active_group: number[] | null;
+  is_paused: boolean;
+}
+
 export interface CardData {
   card_id: number;
   week_year: string;
@@ -111,6 +122,8 @@ export interface CardData {
   is_bingo: boolean;
   draw_entered?: boolean;
   pick_three_used?: boolean;
+  game_mode?: 'classic' | 'blackout';
+  blackout?: BlackoutState | null;
 }
 
 export type BetYaActionType = 'free_square' | 'refer_friend' | 'fund_credit' | 'remove_funds' | 'replace_three' | 'nothing';
@@ -222,8 +235,28 @@ export interface QuickTapDeed {
 }
 
 // API calls
-export async function generateCard(): Promise<CardData> {
-  return withRetry(() => apiClient.post<CardData>('/game/generate-card', {}));
+export async function generateCard(gameMode?: 'classic' | 'blackout'): Promise<CardData> {
+  return withRetry(() => apiClient.post<CardData>('/game/generate-card', gameMode ? { game_mode: gameMode } : {}));
+}
+
+export async function getMyCardStatus(): Promise<{ has_card: boolean; blackout_offered: boolean }> {
+  return apiClient.get('/game/my-card-status');
+}
+
+export async function revealBlackoutCell(cellIndex: number): Promise<{ revealed: CellData[]; hidden_cells: number[]; active_group: number[] }> {
+  return apiClient.post('/game/blackout/reveal', { cell_index: cellIndex });
+}
+
+export async function passBlackoutCell(cellIndex: number): Promise<{ success: boolean; blocked_cells: number[]; active_group: number[] | null }> {
+  return apiClient.post('/game/blackout/pass', { cell_index: cellIndex });
+}
+
+export async function pauseBlackout(): Promise<{ success: boolean }> {
+  return apiClient.post('/game/blackout/pause', {});
+}
+
+export async function resumeBlackout(): Promise<{ success: boolean }> {
+  return apiClient.post('/game/blackout/resume', {});
 }
 
 export async function resetCard(): Promise<CardData> {

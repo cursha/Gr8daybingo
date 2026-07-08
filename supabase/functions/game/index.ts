@@ -33,8 +33,21 @@ interface Cell {
 // ── Security: strip secret fields before sending cells to client ─────────────
 // is_secret/secret_reward and bet_ya outcome details must never be exposed
 // until the respective square has been revealed by the player.
-function sanitizeCells(cells: Cell[], completedCells: number[]): unknown[] {
+function sanitizeCells(cells: Cell[], completedCells: number[], hiddenCells?: number[]): unknown[] {
+  const hiddenSet = new Set(hiddenCells ?? [])
   return cells.map((c) => {
+    // Blackout fog: a still-hidden square's deed content must never reach the
+    // client — otherwise a player could read the network response and know
+    // what's under a square before revealing it.
+    if (hiddenSet.has(c.index)) {
+      return {
+        index: c.index, is_free_space: false, is_purchasable: false, purchase_price: null,
+        is_referral_free: false, is_secret: false, secret_reward: null, quantity: 1,
+        category: null, deed_text: null, deed_text_long: null, deed_id: null,
+        is_hidden: true,
+      }
+    }
+
     const secretRevealed = c.secret_revealed === true || completedCells.includes(c.index)
     const { is_secret, secret_reward, secret_revealed,
             bet_ya_outcome_type, bet_ya_label, bet_ya_action_value,
@@ -510,15 +523,45 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    // ── GET /my-card-status ───────────────────────────────────────────────────
+    // Lets the frontend decide whether to show the Blackout mode picker
+    // BEFORE ever calling /generate-card — a card, once it exists, is the
+    // lock on mode choice (generate-card just returns it unchanged), so the
+    // picker must never show once has_card is true.
+    if (method === 'GET' && path === '/my-card-status') {
+      const user = requireAuth(authUser)
+      const { data: existing } = await supabase
+        .from('player_cards').select('id').eq('user_id', user.sub).eq('week_year', getCurrentWeekYear()).maybeSingle()
+      const { data: boCfg } = await supabase
+        .from('game_configs').select('config_value').eq('config_key', 'blackout_enabled').maybeSingle()
+      return jsonResponse({
+        has_card: existing != null,
+        blackout_offered: boCfg?.config_value === 'true',
+      })
+    }
+
     // ── POST /generate-card ───────────────────────────────────────────────────
     if (method === 'POST' && path === '/generate-card') {
       const user = requireAuth(authUser)
       const weekYear = getCurrentWeekYear()
+      const body = await req.json().catch(() => ({}))
 
       // Read admin win condition
       const { data: wcCfg } = await supabase
         .from('game_configs').select('config_value').eq('config_key', 'win_condition').maybeSingle()
       const adminWinCondition = wcCfg?.config_value ?? 'one_line'
+
+      // Blackout: a fog-of-war layer, not a different win condition — same
+      // checkBingo/win_condition as classic. blackout_enabled controls
+      // whether it's OFFERED as a choice this cycle, not forced on everyone.
+      const { data: boCfg } = await supabase
+        .from('game_configs').select('config_value').eq('config_key', 'blackout_enabled').maybeSingle()
+      const blackoutOffered = boCfg?.config_value === 'true'
+      const requestedMode = body.game_mode === 'blackout' ? 'blackout' : 'classic'
+      if (requestedMode === 'blackout' && !blackoutOffered) {
+        return errorResponse('Blackout is not available this week', 400)
+      }
+      const gameMode = blackoutOffered ? requestedMode : 'classic'
 
       // Check for existing card this week
       const { data: existing } = await supabase
@@ -598,10 +641,22 @@ Deno.serve(async (req: Request) => {
         const { data: drawEntry } = await supabase
           .from('draw_entries').select('id').eq('user_id', user.sub).eq('week_year', existing.week_year).maybeSingle()
 
+        let blackoutState: { hidden_cells: number[]; blocked_cells: number[]; active_group: number[] | null; is_paused: boolean } | null = null
+        if (existing.game_mode === 'blackout') {
+          const { data: bs } = await supabase.from('blackout_state').select('*').eq('card_id', existing.id).maybeSingle()
+          blackoutState = {
+            hidden_cells: bs?.hidden_cells ?? [],
+            blocked_cells: bs?.blocked_cells ?? [],
+            active_group: bs?.active_group ?? null,
+            is_paused: bs?.is_paused ?? false,
+          }
+        }
+
         return jsonResponse({
           card_id: existing.id,
           week_year: existing.week_year,
-          cells: sanitizeCells(cells, completedIdx),
+          game_mode: existing.game_mode ?? 'classic',
+          cells: sanitizeCells(cells, completedIdx, blackoutState?.hidden_cells),
           win_condition: existing.win_condition,
           completed_cells: completedIdx,
           purchased_cells: parseJsonArr(existing.purchased_cells),
@@ -609,6 +664,7 @@ Deno.serve(async (req: Request) => {
           is_bingo: existing.is_bingo ?? false,
           draw_entered: drawEntry != null,
           pick_three_used: existing.pick_three_used ?? false,
+          blackout: blackoutState,
         })
       }
 
@@ -622,131 +678,159 @@ Deno.serve(async (req: Request) => {
         deedQuery = deedQuery.in('category', activeCategoryNames)
       }
       const { data: deeds } = await deedQuery
-      if (!deeds || deeds.length < 24) {
+      // Blackout needs a 25th deed too (the center is just another square —
+      // no I-Bet-Ya, no free space), so it needs one more than classic.
+      const deedsNeeded = gameMode === 'blackout' ? 25 : 24
+      if (!deeds || deeds.length < deedsNeeded) {
         return errorResponse('Not enough active deeds in the selected categories to generate a card', 400)
       }
 
-      const { data: cfgRows } = await supabase.from('game_configs').select('config_key, config_value')
-      const cfg: Record<string, string> = {}
-      for (const r of cfgRows ?? []) cfg[r.config_key] = r.config_value ?? ''
-
-      const dollar1Pct = parseInt(cfg['dollar1_pct'] ?? '50')
-      const dollar2Pct = parseInt(cfg['dollar2_pct'] ?? '30')
-      const secret1Pct = parseInt(cfg['secret_reward_1_pct'] ?? '50')
-      const secret2Pct = parseInt(cfg['secret_reward_2_pct'] ?? '30')
-
       const seed = await sha256Hex(`${user.email ?? user.sub}:${weekYear}`)
       const rng = new SeededRandom(seed)
-
-      const purchasableCount = rng.randint(1, 3)
-      const referralFreeCount = 0
 
       const { playerValueIds, deedTargetingMap } = await fetchTargetingData(supabase, user.sub)
       const targetedDeeds = filterDeedsByTargeting(deeds ?? [], playerValueIds, deedTargetingMap, deeds ?? [])
 
       const deedList = [...targetedDeeds]
       rng.shuffle(deedList)
-      const selectedDeeds = deedList.slice(0, 24)
 
-      // Position assignment
-      const availablePos = Array.from({ length: 25 }, (_, i) => i).filter((i) => i !== 12)
-      rng.shuffle(availablePos)
-      const purchasablePos = availablePos.slice(0, purchasableCount)
-      const remaining = availablePos.slice(purchasableCount)
-      const referralPos = remaining.slice(0, referralFreeCount)
-      const afterReferral = remaining.slice(referralFreeCount)
+      let cells: Cell[]
+      let referralCellIndices: number[]
 
-      let secretPosition: number | null = afterReferral.length > 0
-        ? afterReferral[0]
-        : availablePos.find((p) => !purchasablePos.includes(p) && !referralPos.includes(p)) ?? null
+      if (gameMode === 'blackout') {
+        // No special squares at all — no center free space, no purchasable,
+        // no secret, no referral-free. Every one of the 25 cells is a plain
+        // deed square, and every one starts hidden (blackout_state, below).
+        const selectedDeeds = deedList.slice(0, 25)
+        cells = Array.from({ length: 25 }, (_, i) => ({
+          index: i,
+          deed_text: selectedDeeds[i].deed_text,
+          deed_text_long: selectedDeeds[i].deed_text_long ?? null,
+          deed_id: selectedDeeds[i].id,
+          is_free_space: false,
+          is_purchasable: false,
+          purchase_price: null,
+          is_referral_free: false,
+          is_secret: false,
+          secret_reward: null,
+          quantity: selectedDeeds[i].quantity ?? 1,
+          category: selectedDeeds[i].category ?? null,
+        }))
+        referralCellIndices = []
+      } else {
+        const { data: cfgRows } = await supabase.from('game_configs').select('config_key, config_value')
+        const cfg: Record<string, string> = {}
+        for (const r of cfgRows ?? []) cfg[r.config_key] = r.config_value ?? ''
 
-      let secretReward: number | null = null
-      if (secretPosition !== null) {
-        const roll = rng.randint(1, 100)
-        secretReward = roll <= secret1Pct ? 1.0 : roll <= secret1Pct + secret2Pct ? 2.0 : 5.0
-      }
+        const dollar1Pct = parseInt(cfg['dollar1_pct'] ?? '50')
+        const dollar2Pct = parseInt(cfg['dollar2_pct'] ?? '30')
+        const secret1Pct = parseInt(cfg['secret_reward_1_pct'] ?? '50')
+        const secret2Pct = parseInt(cfg['secret_reward_2_pct'] ?? '30')
 
-      const prices: number[] = purchasablePos.map(() => {
-        const roll = rng.randint(1, 100)
-        return roll <= dollar1Pct ? 0.5 : roll <= dollar1Pct + dollar2Pct ? 1.0 : 2.0
-      })
+        const purchasableCount = rng.randint(1, 3)
+        const referralFreeCount = 0
+        const selectedDeeds = deedList.slice(0, 24)
 
-      // Snapshot one I Bet Ya outcome onto the center cell (classic modes only).
-      // fill_card (blackout) leaves the center as a plain free space.
-      interface BetYaRow {
-        id: number; label: string; odds_percent: number; action_type: string
-        credit_amount: number; remove_amount: number; reward_amount: number
-      }
-      let betYaOutcomeType: string | null = null
-      let betYaLabel: string | null = null
-      let betYaActionValue: number | null = null
-      if (adminWinCondition !== 'fill_card') {
-        const { data: betYaRows } = await supabase
-          .from('bet_ya_outcomes').select('id, label, odds_percent, action_type, credit_amount, remove_amount, reward_amount')
-          .eq('is_active', true)
-        const pool = (betYaRows ?? []) as BetYaRow[]
-        if (pool.length > 0) {
-          const total = pool.reduce((s, r) => s + Number(r.odds_percent), 0)
-          const randBuf = new Uint32Array(1)
-          crypto.getRandomValues(randBuf)
-          let roll = (randBuf[0] / 4_294_967_296) * total
-          let picked = pool[pool.length - 1]
-          for (const r of pool) {
-            roll -= Number(r.odds_percent)
-            if (roll <= 0) { picked = r; break }
+        // Position assignment
+        const availablePos = Array.from({ length: 25 }, (_, i) => i).filter((i) => i !== 12)
+        rng.shuffle(availablePos)
+        const purchasablePos = availablePos.slice(0, purchasableCount)
+        const remaining = availablePos.slice(purchasableCount)
+        const referralPos = remaining.slice(0, referralFreeCount)
+        const afterReferral = remaining.slice(referralFreeCount)
+
+        let secretPosition: number | null = afterReferral.length > 0
+          ? afterReferral[0]
+          : availablePos.find((p) => !purchasablePos.includes(p) && !referralPos.includes(p)) ?? null
+
+        let secretReward: number | null = null
+        if (secretPosition !== null) {
+          const roll = rng.randint(1, 100)
+          secretReward = roll <= secret1Pct ? 1.0 : roll <= secret1Pct + secret2Pct ? 2.0 : 5.0
+        }
+
+        const prices: number[] = purchasablePos.map(() => {
+          const roll = rng.randint(1, 100)
+          return roll <= dollar1Pct ? 0.5 : roll <= dollar1Pct + dollar2Pct ? 1.0 : 2.0
+        })
+
+        // Snapshot one I Bet Ya outcome onto the center cell (classic modes only).
+        // fill_card (blackout) leaves the center as a plain free space.
+        interface BetYaRow {
+          id: number; label: string; odds_percent: number; action_type: string
+          credit_amount: number; remove_amount: number; reward_amount: number
+        }
+        let betYaOutcomeType: string | null = null
+        let betYaLabel: string | null = null
+        let betYaActionValue: number | null = null
+        if (adminWinCondition !== 'fill_card') {
+          const { data: betYaRows } = await supabase
+            .from('bet_ya_outcomes').select('id, label, odds_percent, action_type, credit_amount, remove_amount, reward_amount')
+            .eq('is_active', true)
+          const pool = (betYaRows ?? []) as BetYaRow[]
+          if (pool.length > 0) {
+            const total = pool.reduce((s, r) => s + Number(r.odds_percent), 0)
+            const randBuf = new Uint32Array(1)
+            crypto.getRandomValues(randBuf)
+            let roll = (randBuf[0] / 4_294_967_296) * total
+            let picked = pool[pool.length - 1]
+            for (const r of pool) {
+              roll -= Number(r.odds_percent)
+              if (roll <= 0) { picked = r; break }
+            }
+            betYaOutcomeType = picked.action_type
+            betYaLabel = picked.label
+            // Freeze the one dollar amount relevant to this outcome type at
+            // generation time — the reveal endpoint just reads bet_ya_action_value.
+            betYaActionValue = picked.action_type === 'fund_credit' ? Number(picked.credit_amount)
+              : picked.action_type === 'remove_funds' ? Number(picked.remove_amount)
+              : picked.action_type === 'refer_friend' ? Number(picked.reward_amount)
+              : 0
           }
-          betYaOutcomeType = picked.action_type
-          betYaLabel = picked.label
-          // Freeze the one dollar amount relevant to this outcome type at
-          // generation time — the reveal endpoint just reads bet_ya_action_value.
-          betYaActionValue = picked.action_type === 'fund_credit' ? Number(picked.credit_amount)
-            : picked.action_type === 'remove_funds' ? Number(picked.remove_amount)
-            : picked.action_type === 'refer_friend' ? Number(picked.reward_amount)
-            : 0
         }
-      }
 
-      const cells: Cell[] = []
-      let deedIdx = 0
-      for (let i = 0; i < 25; i++) {
-        if (i === 12) {
-          cells.push({
-            index: 12, deed_text: 'I Bet Ya!',
-            deed_text_long: 'Tap the centre square to take the I BET YA challenge — you might win a little, lose a little, or get dared to refer a friend. The centre is a free space and always counts toward your Bingo.',
-            deed_id: null, is_free_space: true, is_purchasable: false, purchase_price: null,
-            is_referral_free: false, is_secret: false, secret_reward: null, quantity: 1, category: null,
-            bet_ya_outcome_type: betYaOutcomeType,
-            bet_ya_label: betYaLabel,
-            bet_ya_action_value: betYaActionValue,
-            bet_ya_revealed: false,
-          })
-        } else {
-          const deed = selectedDeeds[deedIdx++]
-          const isPurchasable = purchasablePos.includes(i)
-          const priceIdx = purchasablePos.indexOf(i)
-          const isSecret = i === secretPosition
-          cells.push({
-            index: i,
-            deed_text: deed.deed_text,
-            deed_text_long: deed.deed_text_long ?? null,
-            deed_id: deed.id,
-            is_free_space: false,
-            is_purchasable: isPurchasable,
-            purchase_price: isPurchasable ? prices[priceIdx] : null,
-            is_referral_free: referralPos.includes(i),
-            is_secret: isSecret,
-            secret_reward: isSecret ? secretReward : null,
-            quantity: deed.quantity ?? 1,
-            category: deed.category ?? null,
-          })
+        cells = []
+        let deedIdx = 0
+        for (let i = 0; i < 25; i++) {
+          if (i === 12) {
+            cells.push({
+              index: 12, deed_text: 'I Bet Ya!',
+              deed_text_long: 'Tap the centre square to take the I BET YA challenge — you might win a little, lose a little, or get dared to refer a friend. The centre is a free space and always counts toward your Bingo.',
+              deed_id: null, is_free_space: true, is_purchasable: false, purchase_price: null,
+              is_referral_free: false, is_secret: false, secret_reward: null, quantity: 1, category: null,
+              bet_ya_outcome_type: betYaOutcomeType,
+              bet_ya_label: betYaLabel,
+              bet_ya_action_value: betYaActionValue,
+              bet_ya_revealed: false,
+            })
+          } else {
+            const deed = selectedDeeds[deedIdx++]
+            const isPurchasable = purchasablePos.includes(i)
+            const priceIdx = purchasablePos.indexOf(i)
+            const isSecret = i === secretPosition
+            cells.push({
+              index: i,
+              deed_text: deed.deed_text,
+              deed_text_long: deed.deed_text_long ?? null,
+              deed_id: deed.id,
+              is_free_space: false,
+              is_purchasable: isPurchasable,
+              purchase_price: isPurchasable ? prices[priceIdx] : null,
+              is_referral_free: referralPos.includes(i),
+              is_secret: isSecret,
+              secret_reward: isSecret ? secretReward : null,
+              quantity: deed.quantity ?? 1,
+              category: deed.category ?? null,
+            })
+          }
         }
-      }
 
-      // Check validated referrals to pre-mark referral squares
-      const { data: validRefs } = await supabase
-        .from('referrals').select('id').eq('user_id', user.sub).eq('is_validated', true)
-      const allReferralPositions = cells.filter((c) => c.is_referral_free).map((c) => c.index)
-      const referralCellIndices = (validRefs?.length ?? 0) > 0 ? allReferralPositions : []
+        // Check validated referrals to pre-mark referral squares
+        const { data: validRefs } = await supabase
+          .from('referrals').select('id').eq('user_id', user.sub).eq('is_validated', true)
+        const allReferralPositions = cells.filter((c) => c.is_referral_free).map((c) => c.index)
+        referralCellIndices = (validRefs?.length ?? 0) > 0 ? allReferralPositions : []
+      }
 
       const { data: newCard, error: cardErr } = await supabase
         .from('player_cards')
@@ -756,6 +840,7 @@ Deno.serve(async (req: Request) => {
           card_seed: seed,
           card_data: JSON.stringify(cells),
           win_condition: adminWinCondition,
+          game_mode: gameMode,
           completed_cells: '[]',
           purchased_cells: '[]',
           referral_cells: JSON.stringify(referralCellIndices),
@@ -766,6 +851,19 @@ Deno.serve(async (req: Request) => {
         .select()
         .single()
       if (cardErr) throw cardErr
+
+      let blackoutState: { hidden_cells: number[]; blocked_cells: number[]; active_group: number[] | null; is_paused: boolean } | null = null
+      if (gameMode === 'blackout') {
+        const allIndices = Array.from({ length: 25 }, (_, i) => i)
+        await supabase.from('blackout_state').insert({
+          card_id: newCard.id,
+          hidden_cells: allIndices,
+          blocked_cells: [],
+          active_group: null,
+          is_paused: false,
+        })
+        blackoutState = { hidden_cells: allIndices, blocked_cells: [], active_group: null, is_paused: false }
+      }
 
       // Whichever card generation is first to claim this week_year fires the
       // one-time "new game launched" email to every verified player. The
@@ -783,13 +881,15 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({
         card_id: newCard.id,
         week_year: newCard.week_year,
-        cells: sanitizeCells(cells, []),
+        game_mode: gameMode,
+        cells: sanitizeCells(cells, [], blackoutState?.hidden_cells),
         win_condition: adminWinCondition,
         completed_cells: [],
         purchased_cells: [],
         referral_cells: referralCellIndices,
         is_bingo: false,
         pick_three_used: false,
+        blackout: blackoutState,
       })
     }
 
@@ -815,6 +915,18 @@ Deno.serve(async (req: Request) => {
       const purchased = parseJsonArr(card.purchased_cells)
       const referral = parseJsonArr(card.referral_cells)
       if (completed.includes(cell_index)) return errorResponse('Cell already marked', 400)
+
+      // Blackout: a square can only be completed once it's been revealed and
+      // is sitting in the current open group — otherwise the fog mechanic
+      // would be trivially bypassable by marking a still-hidden cell directly.
+      let blackoutActiveGroup: number[] | null = null
+      if (card.game_mode === 'blackout') {
+        const { data: bs } = await supabase.from('blackout_state').select('active_group').eq('card_id', card_id).maybeSingle()
+        blackoutActiveGroup = bs?.active_group ?? null
+        if (!blackoutActiveGroup || !blackoutActiveGroup.includes(cell_index)) {
+          return errorResponse('That square is not open in your current group', 400)
+        }
+      }
 
       // Referral gating: non-referred players are capped at N deeds / 24h.
       const gate = await checkDeedGate(supabase, user)
@@ -857,6 +969,17 @@ Deno.serve(async (req: Request) => {
         is_bingo: isBingo,
         updated_at: new Date().toISOString(),
       }).eq('id', card_id)
+
+      // Blackout: this square is resolved (completed) — remove it from the
+      // open group, closing the group (active_group -> null) once every
+      // square in it has been either completed or passed.
+      if (card.game_mode === 'blackout' && blackoutActiveGroup) {
+        const remaining = blackoutActiveGroup.filter((i) => i !== cell_index)
+        await supabase.from('blackout_state').update({
+          active_group: remaining.length > 0 ? remaining : null,
+          updated_at: new Date().toISOString(),
+        }).eq('card_id', card_id)
+      }
 
       // Log the mark action
       await supabase.from('cell_mark_log').insert({
@@ -917,6 +1040,7 @@ Deno.serve(async (req: Request) => {
         .from('player_cards').select('*')
         .eq('user_id', user.sub).eq('week_year', weekYear).maybeSingle()
       if (!card) return errorResponse('No card to reset', 404)
+      if (card.game_mode === 'blackout') return errorResponse('Not available in Blackout mode', 400)
 
       await supabase.from('player_cards').update({
         completed_cells: '[]',
@@ -936,6 +1060,161 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    // ── POST /blackout/reveal ─────────────────────────────────────────────────
+    // Reveals one hidden cell plus 0-3 more via 8-directional flood-fill
+    // through hidden cells only (table-driven odds). No timer: the player
+    // just can't reveal again until every square in the resulting group is
+    // resolved (completed via /mark-cell, or passed via /blackout/pass).
+    if (method === 'POST' && path === '/blackout/reveal') {
+      const user = requireAuth(authUser)
+      const body = await req.json()
+      const cellIndex = parseInt(body.cell_index)
+      if (!Number.isFinite(cellIndex) || cellIndex < 0 || cellIndex > 24) {
+        return errorResponse('cell_index required', 400)
+      }
+
+      const { data: card } = await supabase
+        .from('player_cards').select('id, card_data, game_mode')
+        .eq('user_id', user.sub).eq('week_year', getCurrentWeekYear()).maybeSingle()
+      if (!card || card.game_mode !== 'blackout') return errorResponse('Not a Blackout card', 400)
+
+      const { data: state } = await supabase.from('blackout_state').select('*').eq('card_id', card.id).maybeSingle()
+      if (!state) return errorResponse('Blackout state missing', 500)
+      if (state.is_paused) return errorResponse('Resume before revealing', 400)
+      if (state.active_group && state.active_group.length > 0) {
+        return errorResponse('Resolve every square in your current group before revealing again', 400)
+      }
+
+      const hidden: number[] = state.hidden_cells ?? []
+      if (!hidden.includes(cellIndex)) return errorResponse('That square is not hidden', 400)
+
+      // Roll the admin-configured table for 0-3 extra squares.
+      const { data: probCfg } = await supabase
+        .from('game_configs').select('config_value').eq('config_key', 'blackout_reveal_probability').maybeSingle()
+      let weights: Record<string, number>
+      try { weights = JSON.parse(probCfg?.config_value ?? '{}') } catch { weights = {} }
+      const defaults: Record<string, number> = { '0': 55, '1': 25, '2': 15, '3': 5 }
+      const randBuf = new Uint32Array(1)
+      crypto.getRandomValues(randBuf)
+      const roll = (randBuf[0] / 4_294_967_296) * 100
+      let cum = 0, extra = 0
+      for (const k of ['0', '1', '2', '3']) {
+        cum += Number(weights[k] ?? defaults[k])
+        if (roll <= cum) { extra = Number(k); break }
+      }
+
+      // Flood-fill from cellIndex through hidden cells only, 8-directional,
+      // stopping at walls/edges — never crosses an already-revealed cell.
+      const revealed = new Set<number>([cellIndex])
+      const frontier = [cellIndex]
+      const hiddenSet = new Set(hidden)
+      hiddenSet.delete(cellIndex)
+      while (revealed.size < 1 + extra && frontier.length > 0) {
+        const cur = frontier.shift()!
+        const row = Math.floor(cur / 5), col = cur % 5
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            if (dr === 0 && dc === 0) continue
+            if (revealed.size >= 1 + extra) break
+            const r = row + dr, c = col + dc
+            if (r < 0 || r > 4 || c < 0 || c > 4) continue
+            const n = r * 5 + c
+            if (hiddenSet.has(n)) { revealed.add(n); hiddenSet.delete(n); frontier.push(n) }
+          }
+        }
+      }
+
+      // Minimum Hidden Squares Remaining floor: trim the expansion (never the
+      // clicked square itself) if it would drop hidden count below the floor.
+      const { data: floorCfg } = await supabase
+        .from('game_configs').select('config_value').eq('config_key', 'blackout_min_hidden_remaining').maybeSingle()
+      const floor = parseInt(floorCfg?.config_value ?? '3')
+      const newHiddenCount = hidden.length - revealed.size
+      if (newHiddenCount < floor) {
+        for (const idx of [...revealed]) {
+          if (idx !== cellIndex) revealed.delete(idx)
+        }
+      }
+
+      let newHidden = hidden.filter((i) => !revealed.has(i))
+      // Endgame: exactly one hidden square left anywhere auto-reveals too —
+      // never leave a single square dangling with nothing left to trigger it.
+      if (newHidden.length === 1) {
+        revealed.add(newHidden[0])
+        newHidden = []
+      }
+
+      await supabase.from('blackout_state').update({
+        hidden_cells: newHidden,
+        active_group: [...revealed],
+        updated_at: new Date().toISOString(),
+      }).eq('card_id', card.id)
+
+      const cells: Cell[] = JSON.parse(card.card_data)
+      const revealedCells = [...revealed].map((i) => cells[i])
+      return jsonResponse({ revealed: revealedCells, hidden_cells: newHidden, active_group: [...revealed] })
+    }
+
+    // ── POST /blackout/pass ───────────────────────────────────────────────────
+    // Passes on one square within the current open group — permanently
+    // blocks that square. The group closes (active_group -> null) once every
+    // square in it has been resolved, by completion or by pass.
+    if (method === 'POST' && path === '/blackout/pass') {
+      const user = requireAuth(authUser)
+      const body = await req.json()
+      const cellIndex = parseInt(body.cell_index)
+      if (!Number.isFinite(cellIndex)) return errorResponse('cell_index required', 400)
+
+      const { data: card } = await supabase
+        .from('player_cards').select('id, game_mode')
+        .eq('user_id', user.sub).eq('week_year', getCurrentWeekYear()).maybeSingle()
+      if (!card || card.game_mode !== 'blackout') return errorResponse('Not a Blackout card', 400)
+
+      const { data: state } = await supabase.from('blackout_state').select('*').eq('card_id', card.id).maybeSingle()
+      const activeGroup: number[] = state?.active_group ?? []
+      if (!activeGroup.includes(cellIndex)) return errorResponse('That square is not open in your current group', 400)
+
+      const remaining = activeGroup.filter((i) => i !== cellIndex)
+      const blocked = [...(state?.blocked_cells ?? []), cellIndex]
+      await supabase.from('blackout_state').update({
+        blocked_cells: blocked,
+        active_group: remaining.length > 0 ? remaining : null,
+        updated_at: new Date().toISOString(),
+      }).eq('card_id', card.id)
+
+      return jsonResponse({ success: true, blocked_cells: blocked, active_group: remaining.length > 0 ? remaining : null })
+    }
+
+    // ── POST /blackout/pause ──────────────────────────────────────────────────
+    // Only allowed between groups — there's nothing to "pause" mid-group
+    // since there's no timer; this is purely a stepping-away state.
+    if (method === 'POST' && path === '/blackout/pause') {
+      const user = requireAuth(authUser)
+      const { data: card } = await supabase
+        .from('player_cards').select('id, game_mode')
+        .eq('user_id', user.sub).eq('week_year', getCurrentWeekYear()).maybeSingle()
+      if (!card || card.game_mode !== 'blackout') return errorResponse('Not a Blackout card', 400)
+
+      const { data: state } = await supabase.from('blackout_state').select('active_group').eq('card_id', card.id).maybeSingle()
+      if (state?.active_group && state.active_group.length > 0) {
+        return errorResponse('Resolve every square in your current group before pausing', 400)
+      }
+      await supabase.from('blackout_state').update({ is_paused: true, updated_at: new Date().toISOString() }).eq('card_id', card.id)
+      return jsonResponse({ success: true })
+    }
+
+    // ── POST /blackout/resume ─────────────────────────────────────────────────
+    if (method === 'POST' && path === '/blackout/resume') {
+      const user = requireAuth(authUser)
+      const { data: card } = await supabase
+        .from('player_cards').select('id, game_mode')
+        .eq('user_id', user.sub).eq('week_year', getCurrentWeekYear()).maybeSingle()
+      if (!card || card.game_mode !== 'blackout') return errorResponse('Not a Blackout card', 400)
+
+      await supabase.from('blackout_state').update({ is_paused: false, updated_at: new Date().toISOString() }).eq('card_id', card.id)
+      return jsonResponse({ success: true })
+    }
+
     // ── POST /purchase-cell ───────────────────────────────────────────────────
     if (method === 'POST' && path === '/purchase-cell') {
       const user = requireAuth(authUser)
@@ -946,6 +1225,7 @@ Deno.serve(async (req: Request) => {
         .from('player_cards').select('*')
         .eq('id', card_id).eq('user_id', user.sub).maybeSingle()
       if (!card) return errorResponse('Card not found', 404)
+      if (card.game_mode === 'blackout') return errorResponse('Not available in Blackout mode', 400)
 
       const cells: Cell[] = JSON.parse(card.card_data)
       const cell = cells[cell_index]
@@ -1021,6 +1301,7 @@ Deno.serve(async (req: Request) => {
       const { data: card } = await supabase
         .from('player_cards').select('*').eq('id', cardId).eq('user_id', user.sub).maybeSingle()
       if (!card) return errorResponse('Card not found', 404)
+      if (card.game_mode === 'blackout') return errorResponse('Not available in Blackout mode', 400)
       if (card.pick_three_used) return errorResponse('Pick Three has already been used on this card', 400)
 
       const cells: Cell[] = JSON.parse(card.card_data)
@@ -3619,6 +3900,9 @@ Deno.serve(async (req: Request) => {
       const { data: toCard } = await supabase
         .from('player_cards').select('*').eq('user_id', to_user_id).eq('week_year', weekYear).maybeSingle()
       if (!toCard) return errorResponse('That player does not have a card this week', 400)
+      if (fromCard.game_mode === 'blackout' || toCard.game_mode === 'blackout') {
+        return errorResponse('Not available in Blackout mode', 400)
+      }
 
       const fromCells: Cell[] = JSON.parse(fromCard.card_data)
       const toCells: Cell[] = JSON.parse(toCard.card_data)

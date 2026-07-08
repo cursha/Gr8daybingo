@@ -82,7 +82,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, Heart, Lock, Settings, Plus, Trash2, Save, Edit2, X, Target, Inbox, Check, XCircle, Lightbulb, Gift, Upload, Download, FileSpreadsheet, Printer, Trophy, Mail, Users, Ticket, Search, Flame, Sparkles } from 'lucide-react';
+import { ArrowLeft, Heart, Lock, Settings, Plus, Trash2, Save, Edit2, X, Target, Inbox, Check, XCircle, Lightbulb, Gift, Upload, Download, FileSpreadsheet, Printer, Trophy, Mail, Users, Ticket, Search, Flame, Sparkles, Eye } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { TargetingGroupsInput } from '@/components/TargetingGroupsInput';
 
@@ -123,6 +123,13 @@ const AdminPanel: React.FC = () => {
   const [spotlightActive, setSpotlightActive] = useState(false);
   const [spotlightSelection, setSpotlightSelection] = useState('');
   const [spotlightLoading, setSpotlightLoading] = useState(false);
+
+  // Blackout mode: reveal-probability table is a compound JSON config value,
+  // edited as 4 separate fields with its own sum-must-be-100 save gate —
+  // same pattern as the I Bet Ya odds table.
+  const [blackoutWeights, setBlackoutWeights] = useState<Record<'0' | '1' | '2' | '3', string>>({ '0': '55', '1': '25', '2': '15', '3': '5' });
+  const [blackoutWeightsLoaded, setBlackoutWeightsLoaded] = useState(false);
+  const [blackoutWeightsSaving, setBlackoutWeightsSaving] = useState(false);
   const [newDeed, setNewDeed] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false, status: 'Draft' });
   const [editingDeed, setEditingDeed] = useState<number | null>(null);
   const [editDeedData, setEditDeedData] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false, status: 'Draft' });
@@ -287,6 +294,16 @@ const AdminPanel: React.FC = () => {
         initial['signup_bonus_amount'] = '15';
       }
       setEditConfigs(initial);
+      if (initial['blackout_reveal_probability']) {
+        try {
+          const parsed = JSON.parse(initial['blackout_reveal_probability']);
+          setBlackoutWeights({
+            '0': String(parsed['0'] ?? 55), '1': String(parsed['1'] ?? 25),
+            '2': String(parsed['2'] ?? 15), '3': String(parsed['3'] ?? 5),
+          });
+        } catch { /* keep defaults */ }
+      }
+      setBlackoutWeightsLoaded(true);
       setDeeds(deedsData.deeds || []);
 
       // Load deed categories
@@ -850,6 +867,23 @@ const AdminPanel: React.FC = () => {
     }
   };
 
+  const handleSaveBlackoutWeights = async () => {
+    setBlackoutWeightsSaving(true);
+    try {
+      const value = JSON.stringify({
+        '0': Number(blackoutWeights['0']) || 0, '1': Number(blackoutWeights['1']) || 0,
+        '2': Number(blackoutWeights['2']) || 0, '3': Number(blackoutWeights['3']) || 0,
+      });
+      await updateAdminConfig({ blackout_reveal_probability: value });
+      setEditConfigs((prev) => ({ ...prev, blackout_reveal_probability: value }));
+      toast.success('Reveal odds saved');
+    } catch {
+      toast.error('Failed to save reveal odds');
+    } finally {
+      setBlackoutWeightsSaving(false);
+    }
+  };
+
   const handleAddDeed = async () => {
     if (!newDeed.deed_text.trim()) {
       toast.error('Gr8Day Deed text is required');
@@ -1287,7 +1321,10 @@ const AdminPanel: React.FC = () => {
     { key: 'secret_reward_5_pct', label: 'Secret Square: $5 Reward %', type: 'number' },
     { key: 'geo_drilldown_threshold', label: 'Leaderboard: players before a region drills to cities', type: 'number' },
     { key: 'non_referred_daily_deed_limit', label: 'Non-referred players: max Gr8Day Deeds per 24h (0 = no limit)', type: 'number' },
+    { key: 'blackout_min_hidden_remaining', label: 'Blackout: minimum hidden squares remaining (reveal trims back once hit)', type: 'number' },
   ];
+
+  const blackoutWeightsSum = (['0', '1', '2', '3'] as const).reduce((s, k) => s + (parseFloat(blackoutWeights[k]) || 0), 0);
 
   const prizeImageUrl = editConfigs['prize_image_url'] || '';
   const prizeTitle = editConfigs['prize_title'] || '';
@@ -1953,6 +1990,69 @@ const AdminPanel: React.FC = () => {
             <Button onClick={handleSaveConfig} className="bg-violet-600 hover:bg-violet-700 text-white">
               <Save className="w-4 h-4 mr-1" /> Save Game Mode
             </Button>
+          </CardContent>
+        </Card>
+
+        {/* Blackout Mode */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Eye className="w-5 h-5 text-slate-700" />
+              Blackout Mode
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-slate-500">
+              A fog-of-war layer on top of the same card and win condition above — not a separate mode switch for
+              everyone. When on, players choose Regular or Blackout for themselves before their card generates.
+              When off, every card generates as Regular, exactly as before this feature existed.
+            </p>
+            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <span className="text-sm font-medium text-slate-700 flex-1">Offer Blackout this cycle</span>
+              <select
+                value={editConfigs['blackout_enabled'] ?? 'false'}
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  setEditConfigs(prev => ({ ...prev, blackout_enabled: val }));
+                  try {
+                    await updateAdminConfig({ blackout_enabled: val });
+                    toast.success(val === 'true' ? 'Blackout is now offered as a choice' : 'Blackout is off — every new card is Regular');
+                  } catch { toast.error('Failed to save'); }
+                }}
+                className="border rounded px-2 py-1 text-sm font-semibold"
+              >
+                <option value="false">Off — Regular only</option>
+                <option value="true">On — players choose</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-slate-700">Reveal odds — extra squares beyond the one clicked</p>
+              <p className="text-xs text-slate-500">Must sum to exactly 100%. Any weight can be zero.</p>
+              <div className="grid grid-cols-4 gap-2">
+                {(['0', '1', '2', '3'] as const).map((k) => (
+                  <div key={k}>
+                    <label className="text-xs text-slate-500 font-medium">+{k} extra</label>
+                    <input
+                      type="number" min="0" max="100" step="1"
+                      value={blackoutWeights[k]}
+                      onChange={(e) => setBlackoutWeights((prev) => ({ ...prev, [k]: e.target.value }))}
+                      className="w-full border rounded px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className={`text-sm font-bold px-3 py-1.5 rounded ${Math.abs(blackoutWeightsSum - 100) < 0.01 ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'}`}>
+                Total: {blackoutWeightsSum.toFixed(0)}%{Math.abs(blackoutWeightsSum - 100) >= 0.01 ? ' — must be 100%' : ' ✓'}
+              </div>
+              <Button
+                onClick={handleSaveBlackoutWeights}
+                disabled={blackoutWeightsSaving || Math.abs(blackoutWeightsSum - 100) >= 0.01}
+                className="bg-slate-700 hover:bg-slate-800 text-white"
+              >
+                {blackoutWeightsSaving ? 'Saving…' : 'Save Reveal Odds'}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 

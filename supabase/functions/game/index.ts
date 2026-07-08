@@ -714,7 +714,7 @@ Deno.serve(async (req: Request) => {
             index: 12, deed_text: 'I Bet Ya!',
             deed_text_long: 'Tap the centre square to take the I BET YA challenge — you might win a little, lose a little, or get dared to refer a friend. The centre is a free space and always counts toward your Bingo.',
             deed_id: null, is_free_space: true, is_purchasable: false, purchase_price: null,
-            is_referral_free: false, is_secret: false, secret_reward: null, quantity: 1,
+            is_referral_free: false, is_secret: false, secret_reward: null, quantity: 1, category: null,
             bet_ya_outcome_type: betYaOutcomeType,
             bet_ya_label: betYaLabel,
             bet_ya_action_value: betYaActionValue,
@@ -737,6 +737,7 @@ Deno.serve(async (req: Request) => {
             is_secret: isSecret,
             secret_reward: isSecret ? secretReward : null,
             quantity: deed.quantity ?? 1,
+            category: deed.category ?? null,
           })
         }
       }
@@ -1011,7 +1012,7 @@ Deno.serve(async (req: Request) => {
       const user = requireAuth(authUser)
       const body = await req.json()
       const cardId = Number(body.card_id)
-      const indices: number[] = Array.isArray(body.cell_indices) ? [...new Set(body.cell_indices.map(Number))] : []
+      const indices: number[] = Array.isArray(body.cell_indices) ? [...new Set((body.cell_indices as unknown[]).map(Number))] : []
       if (!Number.isFinite(cardId)) return errorResponse('card_id is required', 400)
       if (indices.length !== 3 || indices.some((i) => !Number.isInteger(i))) {
         return errorResponse('cell_indices must contain exactly 3 distinct square indices', 400)
@@ -1242,7 +1243,7 @@ Deno.serve(async (req: Request) => {
         .eq('user_id', user.sub)
         .order('position')
       const customDeeds = (custom ?? [])
-        .map((r) => r.good_deeds as { id: number; deed_text: string; deed_text_long: string | null; category: string; quick_tap_eligible: boolean; is_active: boolean; status: string } | null)
+        .map((r) => r.good_deeds as unknown as { id: number; deed_text: string; deed_text_long: string | null; category: string; quick_tap_eligible: boolean; is_active: boolean; status: string } | null)
         .filter((d): d is NonNullable<typeof d> => d != null && d.quick_tap_eligible && d.is_active && d.status === 'Approved')
       if (customDeeds.length > 0) {
         return jsonResponse({ source: 'custom', deeds: customDeeds.map((d) => ({ id: d.id, deed_text: d.deed_text, deed_text_long: d.deed_text_long, category: d.category })) })
@@ -1357,7 +1358,7 @@ Deno.serve(async (req: Request) => {
       const counts: Record<number, { label: string; emoji: string; count: number }> = {}
       for (const row of (data ?? [])) {
         const id = row.quick_deed_id
-        const deed = row.quick_deeds as { label: string; emoji: string } | null
+        const deed = row.quick_deeds as unknown as { label: string; emoji: string } | null
         if (!counts[id]) counts[id] = { label: deed?.label ?? '', emoji: deed?.emoji ?? '', count: 0 }
         counts[id].count++
       }
@@ -1484,7 +1485,7 @@ Deno.serve(async (req: Request) => {
         referralCounts[r.user_id] = (referralCounts[r.user_id] ?? 0) + 1
       }
 
-      const makeEntry = (u: typeof allUsers[0], deeds: number) => {
+      const makeEntry = (u: NonNullable<typeof allUsers>[number], deeds: number) => {
         const country = u.country_id ? countryMap[u.country_id] : null
         const badge = getBadge(allTime[u.id] ?? 0)
         const referrals = referralCounts[u.id] ?? 0
@@ -2690,7 +2691,7 @@ Deno.serve(async (req: Request) => {
         .eq('user_id', user.sub)
         .order('created_at', { ascending: false })
 
-      const claimsByWeek: Record<string, typeof claims[0]> = {}
+      const claimsByWeek: Record<string, NonNullable<typeof claims>[number]> = {}
       for (const c of (claims ?? [])) claimsByWeek[c.week_year] = c
 
       const history = (winningCards ?? []).map((card) => ({
@@ -2860,6 +2861,7 @@ Deno.serve(async (req: Request) => {
         .from('player_cards').select('*').eq('id', card_id).maybeSingle()
       if (!card) return errorResponse('Card not found', 404)
 
+      const cells: Cell[] = JSON.parse(card.card_data)
       const completed = parseJsonArr(card.completed_cells)
       if (!completed.includes(cell_index)) return errorResponse('Cell is not marked', 400)
 

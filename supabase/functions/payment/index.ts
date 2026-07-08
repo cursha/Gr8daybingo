@@ -6,7 +6,7 @@ import Stripe from 'npm:stripe@17'
 function getStripe(): Stripe {
   const key = Deno.env.get('STRIPE_SECRET_KEY')
   if (!key) throw { status: 503, detail: 'Stripe is not configured' }
-  return new Stripe(key, { apiVersion: '2025-03-31.basil' })
+  return new Stripe(key, { apiVersion: '2025-02-24.acacia' })
 }
 
 const ALLOWED_TOPUP_AMOUNTS = [5, 10, 20]

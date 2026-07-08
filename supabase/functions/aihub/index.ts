@@ -78,7 +78,10 @@ async function dataUriOrUrlToBlob(input: string, namePrefix: string): Promise<Fi
   if (input.startsWith('data:')) {
     const { bytes, contentType } = parseDataUri(input)
     const ext = contentTypeToExt(contentType, 'bin')
-    return new File([bytes], `${namePrefix}.${ext}`, { type: contentType })
+    // bytes is always backed by a plain ArrayBuffer (built byte-by-byte above,
+    // never a SharedArrayBuffer) — the cast just satisfies BlobPart's stricter
+    // TS lib typing, no behavior change.
+    return new File([bytes as Uint8Array<ArrayBuffer>], `${namePrefix}.${ext}`, { type: contentType })
   }
   throw new Error('Input must be a data URI or http(s) URL')
 }

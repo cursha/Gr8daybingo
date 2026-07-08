@@ -648,7 +648,7 @@ export interface ImportDeedsResult {
   created: number;
   skipped: number;
   total: number;
-  targeting_warnings?: string[];
+  warnings?: string[];
 }
 
 export async function importDeeds(deeds: (Partial<DeedItem> & Record<string, unknown>)[]): Promise<ImportDeedsResult> {

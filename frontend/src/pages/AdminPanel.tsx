@@ -1121,8 +1121,8 @@ const AdminPanel: React.FC = () => {
       });
       const result = await importDeeds(deeds);
       toast.success(`Import complete — ${result.updated} updated, ${result.created} created${result.skipped > 0 ? `, ${result.skipped} skipped` : ''}`);
-      if (result.targeting_warnings && result.targeting_warnings.length > 0) {
-        toast.warning(`Targeting warnings:\n${result.targeting_warnings.join('\n')}`);
+      if (result.warnings && result.warnings.length > 0) {
+        toast.warning(`Import warnings:\n${result.warnings.join('\n')}`);
       }
       await loadData();
     } catch (err: any) {

@@ -1294,6 +1294,61 @@ Deno.serve(async (req: Request) => {
       return jsonResponse(resp)
     }
 
+    // ── GET /spotlight-quick-tap ───────────────────────────────────────────────
+    // Player-facing: only ever returns a deed while its stamped week matches
+    // the current one — that's the entire expiry mechanism, no cleanup step.
+    if (method === 'GET' && path === '/spotlight-quick-tap') {
+      requireAuth(authUser)
+      const { data } = await supabase
+        .from('admin_spotlight_quick_tap')
+        .select('deed_id, week_year, good_deeds(id, deed_text, deed_text_long, category)')
+        .eq('id', 1).maybeSingle()
+
+      if (!data || data.week_year !== getCurrentWeekYear() || !data.good_deeds) {
+        return jsonResponse({ deed: null })
+      }
+      return jsonResponse({ deed: data.good_deeds })
+    }
+
+    // ── Admin: POST /admin/spotlight-quick-tap ────────────────────────────────
+    // Re-POSTing with a different deed_id replaces the current spotlight deed
+    // early — no separate "clear" endpoint. It only disappears on its own once
+    // the week rolls over and admin hasn't set a new one for the new week.
+    if (method === 'POST' && path === '/admin/spotlight-quick-tap') {
+      requireAdmin(authUser)
+      const body = await req.json()
+      const deedId = parseInt(body.deed_id)
+      if (!Number.isFinite(deedId)) return errorResponse('deed_id required', 400)
+
+      const { data: deed } = await supabase
+        .from('good_deeds').select('id').eq('id', deedId)
+        .eq('quick_tap_eligible', true).eq('is_active', true).eq('status', 'Approved')
+        .maybeSingle()
+      if (!deed) return errorResponse('Deed must be an active, approved, Quick-Tap-eligible deed', 400)
+
+      await supabase.from('admin_spotlight_quick_tap').update({
+        deed_id: deedId,
+        week_year: getCurrentWeekYear(),
+        set_at: new Date().toISOString(),
+      }).eq('id', 1)
+
+      return jsonResponse({ success: true })
+    }
+
+    // ── Admin: GET /admin/spotlight-quick-tap ─────────────────────────────────
+    if (method === 'GET' && path === '/admin/spotlight-quick-tap') {
+      requireAdmin(authUser)
+      const { data } = await supabase
+        .from('admin_spotlight_quick_tap')
+        .select('deed_id, week_year, set_at, good_deeds(id, deed_text, category)')
+        .eq('id', 1).maybeSingle()
+      return jsonResponse({
+        active: data?.week_year === getCurrentWeekYear(),
+        deed: data?.good_deeds ?? null,
+        week_year: data?.week_year ?? null,
+      })
+    }
+
     // ── GET /quick-deeds ─────────────────────────────────────────────────────
     if (method === 'GET' && path === '/quick-deeds') {
       const { data } = await supabase

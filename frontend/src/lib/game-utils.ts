@@ -344,6 +344,20 @@ export async function tapQuickTapDeed(deedId: number): Promise<{ success: boolea
   return apiClient.post(`/game/quick-taps/${deedId}/tap`, {});
 }
 
+// Admin Spotlight Deed — a 4th Quick Tap slot, same deed shown to every
+// player at once, expires automatically at the weekly reset.
+export async function getSpotlightQuickTap(): Promise<{ deed: QuickTapDeed | null }> {
+  return apiClient.get('/game/spotlight-quick-tap');
+}
+
+export async function adminGetSpotlightQuickTap(): Promise<{ active: boolean; deed: { id: number; deed_text: string; category: string } | null; week_year: string | null }> {
+  return apiClient.get('/game/admin/spotlight-quick-tap');
+}
+
+export async function adminSetSpotlightQuickTap(deedId: number): Promise<{ success: boolean }> {
+  return apiClient.post('/game/admin/spotlight-quick-tap', { deed_id: deedId });
+}
+
 export interface TeamMember {
   id: number;
   user_id: string;

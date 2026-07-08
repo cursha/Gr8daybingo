@@ -45,6 +45,8 @@ import {
   getAdminDrawResults,
   DrawLeaderboardPlayer,
   getAdminDrawLeaderboard,
+  adminGetSpotlightQuickTap,
+  adminSetSpotlightQuickTap,
   StreakMilestone,
   adminGetStreakMilestones,
   adminCreateStreakMilestone,
@@ -80,7 +82,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, Heart, Lock, Settings, Plus, Trash2, Save, Edit2, X, Target, Inbox, Check, XCircle, Lightbulb, Gift, Upload, Download, FileSpreadsheet, Printer, Trophy, Mail, Users, Ticket, Search, Flame } from 'lucide-react';
+import { ArrowLeft, Heart, Lock, Settings, Plus, Trash2, Save, Edit2, X, Target, Inbox, Check, XCircle, Lightbulb, Gift, Upload, Download, FileSpreadsheet, Printer, Trophy, Mail, Users, Ticket, Search, Flame, Sparkles } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { TargetingGroupsInput } from '@/components/TargetingGroupsInput';
 
@@ -117,6 +119,10 @@ const AdminPanel: React.FC = () => {
 
   // Deeds state
   const [deeds, setDeeds] = useState<DeedItem[]>([]);
+  const [spotlightDeed, setSpotlightDeed] = useState<{ id: number; deed_text: string; category: string } | null>(null);
+  const [spotlightActive, setSpotlightActive] = useState(false);
+  const [spotlightSelection, setSpotlightSelection] = useState('');
+  const [spotlightLoading, setSpotlightLoading] = useState(false);
   const [newDeed, setNewDeed] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false, status: 'Draft' });
   const [editingDeed, setEditingDeed] = useState<number | null>(null);
   const [editDeedData, setEditDeedData] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false, status: 'Draft' });
@@ -348,6 +354,32 @@ const AdminPanel: React.FC = () => {
       // silent
     } finally {
       setDrawLeaderboardLoading(false);
+    }
+  };
+
+  const loadSpotlightQuickTap = async () => {
+    try {
+      const res = await adminGetSpotlightQuickTap();
+      setSpotlightActive(res.active);
+      setSpotlightDeed(res.active ? res.deed : null);
+    } catch {
+      // silent
+    }
+  };
+
+  const handleSetSpotlight = async () => {
+    const deedId = parseInt(spotlightSelection);
+    if (!Number.isFinite(deedId)) { toast.error('Choose a deed first'); return; }
+    setSpotlightLoading(true);
+    try {
+      await adminSetSpotlightQuickTap(deedId);
+      toast.success('Spotlight deed set for this week');
+      setSpotlightSelection('');
+      await loadSpotlightQuickTap();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to set spotlight deed');
+    } finally {
+      setSpotlightLoading(false);
     }
   };
 
@@ -627,6 +659,7 @@ const AdminPanel: React.FC = () => {
       loadDrawLeaderboard();
       loadMembers();
       loadTeams();
+      loadSpotlightQuickTap();
       getCountries().then(setCountries).catch(() => {});
     }
   }, [authenticated]);
@@ -2509,6 +2542,54 @@ const AdminPanel: React.FC = () => {
               <p><span className="font-mono bg-white px-1 rounded">targeting_relationship</span> — Single, Partnered (blank = all)</p>
               <p><span className="font-mono bg-white px-1 rounded">targeting_kids</span> — Yes, No (blank = all)</p>
               <p><span className="font-mono bg-white px-1 rounded">targeting_place_of_employment</span> — Home, Office, NA (blank = all)</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* This Week's Spotlight Deed */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-amber-500" />
+              This Week's Spotlight Deed
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-slate-500">
+              A 4th Quick Tap slot shown to every player at once, on top of their own 3. Auto-expires at the weekly
+              reset — pick a new one each week, or leave it blank to skip.
+            </p>
+            {spotlightActive && spotlightDeed ? (
+              <div className="flex items-center justify-between gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <div>
+                  <p className="text-sm font-semibold text-amber-900">{spotlightDeed.deed_text}</p>
+                  <p className="text-xs text-amber-600">{spotlightDeed.category} · active this week</p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 italic">No spotlight deed set for this week.</p>
+            )}
+            <div className="flex gap-2">
+              <select
+                value={spotlightSelection}
+                onChange={(e) => setSpotlightSelection(e.target.value)}
+                className="flex-1 border border-input rounded-md bg-background px-2 h-9 text-sm"
+              >
+                <option value="">{spotlightActive ? 'Replace with…' : 'Choose a deed…'}</option>
+                {deeds
+                  .filter((d) => d.quick_tap_eligible && d.is_active && d.status === 'Approved')
+                  .map((d) => (
+                    <option key={d.id} value={d.id}>{d.deed_text}</option>
+                  ))}
+              </select>
+              <Button
+                size="sm"
+                onClick={handleSetSpotlight}
+                disabled={spotlightLoading || !spotlightSelection}
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                {spotlightLoading ? 'Saving…' : 'Set Spotlight'}
+              </Button>
             </div>
           </CardContent>
         </Card>

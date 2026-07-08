@@ -30,6 +30,7 @@ import {
   QuickTapDeed,
   getMyQuickTaps,
   tapQuickTapDeed,
+  getSpotlightQuickTap,
   getQuickTapEligibleDeeds,
   setMyQuickTaps,
   StreakData,
@@ -110,6 +111,7 @@ const GameBoard: React.FC = () => {
   const [quickTapSource, setQuickTapSource] = useState<'custom' | 'default'>('default');
   const [quickTapTapping, setQuickTapTapping] = useState<number | null>(null);
   const [quickTapCounts, setQuickTapCounts] = useState<Record<number, number>>({});
+  const [spotlightQuickTap, setSpotlightQuickTap] = useState<QuickTapDeed | null>(null);
   const [showQuickTapPicker, setShowQuickTapPicker] = useState(false);
   const [eligibleDeeds, setEligibleDeeds] = useState<QuickTapDeed[]>([]);
   const [pickerSelection, setPickerSelection] = useState<Set<number>>(new Set());
@@ -135,6 +137,9 @@ const GameBoard: React.FC = () => {
       getMyQuickTaps()
         .then((res) => { setQuickTapDeeds(res.deeds); setQuickTapSource(res.source); })
         .catch(() => {});
+      getSpotlightQuickTap()
+        .then((res) => setSpotlightQuickTap(res.deed))
+        .catch(() => setSpotlightQuickTap(null));
       getMyTeam()
         .then((res) => setMyTeam(res.team))
         .catch(() => setMyTeam(null));
@@ -797,6 +802,24 @@ const GameBoard: React.FC = () => {
                     )}
                   </button>
                 ))}
+                {/* Admin spotlight quick tap — 4th slot, visually distinct from the player's own 3 */}
+                {spotlightQuickTap && (
+                  <button
+                    onClick={() => handleQuickTapTap(spotlightQuickTap)}
+                    disabled={quickTapTapping === spotlightQuickTap.id}
+                    className="relative flex flex-col items-center gap-0.5 sm:gap-1.5 bg-gradient-to-b from-amber-500/25 to-amber-600/10 hover:from-amber-400/35 hover:to-amber-500/15 active:scale-95 border border-amber-400/60 hover:border-amber-300 rounded-xl sm:rounded-2xl px-2.5 py-1.5 sm:px-5 sm:py-3 transition-all duration-150 disabled:opacity-50 shadow-[0_0_12px_-2px_rgba(251,191,36,0.35)]"
+                  >
+                    <span className="absolute -top-2 left-1/2 -translate-x-1/2 bg-amber-400 text-slate-900 text-[8px] sm:text-[9px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-full">
+                      Spotlight
+                    </span>
+                    <span className="text-[10px] sm:text-xs font-semibold text-amber-100 text-center max-w-[80px] sm:max-w-[120px] leading-tight mt-1">
+                      {spotlightQuickTap.deed_text}
+                    </span>
+                    {(quickTapCounts[spotlightQuickTap.id] ?? 0) > 0 && (
+                      <span className="text-[9px] sm:text-[10px] text-amber-300 font-bold">+{quickTapCounts[spotlightQuickTap.id]} today</span>
+                    )}
+                  </button>
+                )}
               </div>
             )}
           </div>

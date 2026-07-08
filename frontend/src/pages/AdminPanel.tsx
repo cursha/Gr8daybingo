@@ -43,6 +43,8 @@ import {
   updateAdminDeedCategory,
   DrawWinner,
   getAdminDrawResults,
+  DrawLeaderboardPlayer,
+  getAdminDrawLeaderboard,
   StreakMilestone,
   adminGetStreakMilestones,
   adminCreateStreakMilestone,
@@ -138,6 +140,11 @@ const AdminPanel: React.FC = () => {
 
   // Draw results state
   const [drawWinners, setDrawWinners] = useState<DrawWinner[]>([]);
+
+  // Draw entry leaderboard state
+  const [drawLeaderboard, setDrawLeaderboard] = useState<DrawLeaderboardPlayer[]>([]);
+  const [drawLeaderboardWeek, setDrawLeaderboardWeek] = useState<string>('');
+  const [drawLeaderboardLoading, setDrawLeaderboardLoading] = useState(false);
 
   // Member list state
   const [members, setMembers] = useState<MemberItem[]>([]);
@@ -316,6 +323,19 @@ const AdminPanel: React.FC = () => {
       setDrawWinners(res.winners || []);
     } catch {
       // silent
+    }
+  };
+
+  const loadDrawLeaderboard = async () => {
+    setDrawLeaderboardLoading(true);
+    try {
+      const res = await getAdminDrawLeaderboard();
+      setDrawLeaderboard(res.players || []);
+      setDrawLeaderboardWeek(res.week_year);
+    } catch {
+      // silent
+    } finally {
+      setDrawLeaderboardLoading(false);
     }
   };
 
@@ -531,6 +551,7 @@ const AdminPanel: React.FC = () => {
       loadPendingDeeds('pending');
       loadPrizeClaims();
       loadDrawResults();
+      loadDrawLeaderboard();
       loadMembers();
       loadTeams();
       getCountries().then(setCountries).catch(() => {});
@@ -2704,7 +2725,7 @@ const AdminPanel: React.FC = () => {
           </CardHeader>
           <CardContent>
             <p className="text-xs text-slate-500 mb-3">
-              Players automatically enter the draw by achieving Bingo. The draw runs every Monday.
+              Every completed deed earns a weekly-draw entry, and a bingo earns a configurable bonus on top. The draw runs weekly.
             </p>
             {drawWinners.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2">
@@ -2725,12 +2746,60 @@ const AdminPanel: React.FC = () => {
                             </p>
                           )}
                           <p className="text-xs text-slate-400">
-                            {w.week_year} · {w.total_entries} entries · drawn {new Date(w.selected_at).toLocaleDateString()}
+                            {w.week_year} · won with {w.winning_active_entries ?? '?'} of {w.total_pool_entries ?? '?'} pool entries
+                            {w.eligible_players != null ? ` (${w.eligible_players} eligible players)` : ''} · drawn {new Date(w.selected_at).toLocaleDateString()}
                           </p>
                         </div>
                         <span className={`text-xs font-bold px-2 py-1 rounded ${w.odds_weight < 0.5 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
                           {w.odds_weight < 0.5 ? 'Repeat winner' : 'Winner'}
                         </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        </section>
+
+        {/* Draw Entry Leaderboard */}
+        <section id="section-draw-leaderboard">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Ticket className="w-5 h-5 text-purple-500" />
+              Draw Entry Leaderboard
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-slate-500 mb-3">
+              Per-player draw-entry balances for week {drawLeaderboardWeek || '—'}. Active entries are what's actually weighted in the draw; lifetime is a running total that never decreases.
+            </p>
+            {drawLeaderboardLoading ? (
+              <div className="text-center py-8 text-slate-400 text-sm">Loading…</div>
+            ) : drawLeaderboard.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2">
+                <Ticket className="w-8 h-8 text-slate-300" />
+                No players have earned draw entries yet.
+              </div>
+            ) : (
+              <div className="border rounded-lg overflow-hidden">
+                <div className="max-h-[420px] overflow-y-auto divide-y">
+                  {drawLeaderboard.map((p) => (
+                    <div key={p.user_id} className="px-3 py-2.5 text-sm flex items-center justify-between gap-3">
+                      <div className="space-y-0.5 min-w-0">
+                        <p className="font-semibold text-slate-800 truncate">{p.player_name}</p>
+                        <p className="text-xs text-slate-400">
+                          {p.this_week_entries} this week · {p.lifetime_entries} lifetime
+                          {p.last_draw_win ? ` · last won ${new Date(p.last_draw_win).toLocaleDateString()}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className={`text-xs font-bold px-2 py-1 rounded ${p.current_week_eligible ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {p.current_week_eligible ? 'Eligible' : 'Not eligible'}
+                        </span>
+                        <span className="text-sm font-bold text-purple-600 w-14 text-right">{p.active_entries}</span>
                       </div>
                     </div>
                   ))}

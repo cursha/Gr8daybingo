@@ -3043,18 +3043,15 @@ Deno.serve(async (req: Request) => {
     // ── GET /admin/draw-results ───────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/draw-results') {
       requireAdmin(authUser)
+      // total_pool_entries / winning_active_entries / eligible_players are
+      // written directly onto draw_winners by runWeeklyDraw at selection time
+      // — the legacy draw_entries table nothing writes to anymore is gone
+      // from this query entirely (it previously always reported 0 entries).
       const { data: winners } = await supabase
         .from('draw_winners')
-        .select('id, user_id, week_year, selected_at, odds_weight, users!inner(first_name, name, username, email)')
+        .select('id, user_id, week_year, selected_at, odds_weight, winning_active_entries, total_pool_entries, eligible_players, users!inner(first_name, name, username, email)')
         .order('selected_at', { ascending: false })
         .limit(20)
-      const { data: entryCounts } = await supabase
-        .from('draw_entries')
-        .select('week_year')
-      const countByWeek: Record<string, number> = {}
-      for (const e of entryCounts ?? []) {
-        countByWeek[e.week_year] = (countByWeek[e.week_year] ?? 0) + 1
-      }
       return jsonResponse({
         winners: (winners ?? []).map((w: any) => ({
           id: w.id,
@@ -3064,7 +3061,9 @@ Deno.serve(async (req: Request) => {
           odds_weight: w.odds_weight,
           name: w.users?.first_name ?? w.users?.name ?? w.users?.username ?? null,
           email: w.users?.email ?? null,
-          total_entries: countByWeek[w.week_year] ?? 0,
+          winning_active_entries: w.winning_active_entries,
+          total_pool_entries: w.total_pool_entries,
+          eligible_players: w.eligible_players,
         })),
       })
     }

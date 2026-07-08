@@ -214,6 +214,13 @@ export async function runWeeklyDraw(
       .update({ last_draw_win_date: new Date().toISOString() }).eq('player_id', winner.user_id)
   }
 
+  // When rollover is disabled, nobody carries entries into next week — win or
+  // lose. Runs after the winner-specific reset above so it never double-counts
+  // the winner's own zeroing (they're simply excluded by active_entries > 0).
+  if (!settings.allowRollovers) {
+    await supabase.rpc('draw_rollover_reset', { p_week_year: drawWeekYear })
+  }
+
   // Winner display info for the notification email.
   const { data: u } = await supabase
     .from('users').select('email, first_name, name, username').eq('id', winner.user_id).maybeSingle()

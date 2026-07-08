@@ -778,11 +778,28 @@ export interface DrawWinner {
   odds_weight: number;
   name: string | null;
   email: string | null;
-  total_entries: number;
+  winning_active_entries: number | null;
+  total_pool_entries: number | null;
+  eligible_players: number | null;
 }
 
 export async function getAdminDrawResults(): Promise<{ winners: DrawWinner[] }> {
   return apiClient.get('/game/admin/draw-results');
+}
+
+export interface DrawLeaderboardPlayer {
+  user_id: string;
+  player_name: string;
+  this_week_entries: number;
+  active_entries: number;
+  lifetime_entries: number;
+  last_draw_win: string | null;
+  last_participation_date: string | null;
+  current_week_eligible: boolean;
+}
+
+export async function getAdminDrawLeaderboard(): Promise<{ week_year: string; require_participation: boolean; players: DrawLeaderboardPlayer[] }> {
+  return apiClient.get('/game/admin/draw-leaderboard');
 }
 
 // ---------- Member list (admin) ----------

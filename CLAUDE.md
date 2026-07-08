@@ -15,6 +15,21 @@ Either Curt or Michael must explicitly confirm before anything goes live or is p
 
 ---
 
+## Governance
+
+This project is governed by `/docs/Constitution.md`. It is the primary source of truth for product principles, game design standards, UX standards, development standards, administration standards, data standards, coding standards, feature standards, and version management.
+
+**Before implementing any feature, enhancement, or bug fix, every Claude Code session must:**
+
+1. Read `/docs/Constitution.md` in full, along with any relevant feature specification for the task at hand.
+2. Check the planned implementation against the Constitution's standards.
+3. If the requested work conflicts with anything in the Constitution, **stop before writing any code** and report the conflict to Curt for a decision — do not silently resolve it or proceed with a workaround.
+4. If, during implementation, a recurring principle or pattern emerges that isn't yet captured in the Constitution (e.g. a naming convention, a repeated architectural choice, a UX rule applied more than once), **recommend adding it to the Constitution** rather than re-documenting it in the individual feature spec each time.
+
+The Constitution is intentionally incomplete right now — most sections are placeholders. Don't treat an empty section as "no standard exists, proceed freely"; treat it as "not yet defined — flag if this task seems foundational enough to warrant defining one now" and otherwise proceed using existing repo conventions.
+
+---
+
 ## 2. Non-Negotiable Operating Rules
 
 These rules override everything else. No exceptions.

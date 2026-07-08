@@ -7,6 +7,19 @@ import bcrypt from 'npm:bcryptjs@2'
 const ADMIN_EMAIL = 'curt.skene@curtskene.com'
 const SITE_URL = 'https://havagr8day.com'
 
+// The check-then-insert race above every insert below (SELECT for an existing
+// row, then INSERT if none was found) has a window: two concurrent signups
+// can both pass the SELECT before either INSERT commits. users_email_unique /
+// users_username_unique (migration 20260708000000) are the real backstop —
+// this turns the resulting Postgres unique-violation into the same friendly
+// message the common-case pre-check already returns, instead of a raw 500.
+function friendlyUsersConflictError(error: { code?: string; message?: string } | null): string | null {
+  if (!error || error.code !== '23505') return null
+  if (error.message?.includes('users_email_unique')) return 'An account with this email already exists.'
+  if (error.message?.includes('users_username_unique')) return 'This username is already taken.'
+  return 'That email or username is already in use.'
+}
+
 Deno.serve(async (req: Request) => {
   const cors = handleCors(req)
   if (cors) return cors
@@ -70,7 +83,11 @@ Deno.serve(async (req: Request) => {
         .select()
         .single()
 
-      if (error) throw error
+      if (error) {
+        const friendly = friendlyUsersConflictError(error)
+        if (friendly) return errorResponse(friendly, 409)
+        throw error
+      }
 
       // Send email verification link (best-effort, never blocks registration).
       // Referral validation happens after email is verified, not here.
@@ -187,7 +204,11 @@ Deno.serve(async (req: Request) => {
         })
         .select()
         .single()
-      if (error) throw error
+      if (error) {
+        const friendly = friendlyUsersConflictError(error)
+        if (friendly) return errorResponse(friendly, 409)
+        throw error
+      }
 
       const token = await createAccessToken({
         sub: user.id,
@@ -284,6 +305,10 @@ Deno.serve(async (req: Request) => {
             .update({ is_validated: true })
             .eq('referred_email', user.email)
             .eq('is_validated', false)
+
+          // Referral validated — this player is now trusted too.
+          await supabase.from('users').update({ is_trusted: true }).eq('id', user.id)
+
           const referrerIds = [...new Set(pendingRefs.map((r: { user_id: string }) => r.user_id))]
           for (const rid of referrerIds) {
             const { data: referrer } = await supabase

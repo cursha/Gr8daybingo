@@ -207,6 +207,19 @@ function freeSpaceIndices(cells: Cell[]): number[] {
   return cells.filter((c) => c.is_free_space).map((c) => c.index)
 }
 
+// The check-then-insert/update race above every users write below (SELECT for
+// a conflict, then write if none was found) has a window two concurrent
+// requests can both pass. users_email_unique / users_username_unique
+// (migration 20260708000000) are the real backstop — this turns the
+// resulting Postgres unique-violation into the same friendly message the
+// common-case pre-check already returns, instead of a raw 500.
+function friendlyUsersConflictError(error: { code?: string; message?: string } | null): string | null {
+  if (!error || error.code !== '23505') return null
+  if (error.message?.includes('users_email_unique')) return 'An account with this email already exists.'
+  if (error.message?.includes('users_username_unique')) return 'This username is already taken.'
+  return 'That email or username is already in use.'
+}
+
 /** Runs `promise` after the response is sent instead of making the caller wait
  *  on it, using the edge runtime's background-task hook when available (so the
  *  work still completes even after the request finishes) and otherwise just
@@ -363,9 +376,11 @@ async function recordCompletedDeed(
   }
 }
 
-// Referral gating (Curt): non-referred players are capped at a table-driven
-// number of completed Gr8Day Deeds per rolling 24h. A player counts as
-// "referred" if their email appears as a referred_email in the referrals table.
+// Trust gating (Curt): untrusted players are capped at a table-driven number
+// of completed Gr8Day Deeds per rolling 24h. is_trusted is a single flag —
+// set manually by an admin at any time, or automatically the moment a
+// player's referral is validated (see auth-custom's /verify-email) — so this
+// only needs one lookup, not a referral-table join.
 // Returns { allowed } and a friendly message when blocked.
 async function checkDeedGate(
   supabase: ReturnType<typeof getSupabase>,
@@ -377,15 +392,12 @@ async function checkDeedGate(
     const limit = parseInt(cfg?.config_value ?? '3')
     if (!Number.isFinite(limit) || limit <= 0) return { allowed: true } // 0/disabled = unlimited
 
-    // Referred players are unlimited.
-    const email = (user.email ?? '').trim().toLowerCase()
-    if (email) {
-      const { count: refCount } = await supabase
-        .from('referrals').select('id', { count: 'exact', head: true }).ilike('referred_email', email)
-      if ((refCount ?? 0) > 0) return { allowed: true }
-    }
+    // Trusted players (manually flagged, or auto-flagged via referral validation) are unlimited.
+    const { data: userRow } = await supabase
+      .from('users').select('is_trusted').eq('id', user.sub).maybeSingle()
+    if (userRow?.is_trusted) return { allowed: true }
 
-    // Non-referred: count completed deeds in the last rolling 24h.
+    // Not trusted: count completed deeds in the last rolling 24h.
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
     const { count: recent } = await supabase
       .from('completed_deeds').select('id', { count: 'exact', head: true })
@@ -2314,7 +2326,7 @@ Deno.serve(async (req: Request) => {
       requireAdmin(authUser)
       const { data } = await supabase
         .from('users')
-        .select('id, email, username, name, first_name, last_name, role, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified')
+        .select('id, email, username, name, first_name, last_name, role, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified, is_trusted')
         .order('player_number', { ascending: true })
       return jsonResponse({
         members: (data ?? []).map((u) => ({
@@ -2334,6 +2346,7 @@ Deno.serve(async (req: Request) => {
           last_login: u.last_login ?? null,
           profile_completed: !!u.profile_completed,
           email_verified: !!u.email_verified,
+          is_trusted: !!u.is_trusted,
         })),
       })
     }
@@ -3800,7 +3813,7 @@ Deno.serve(async (req: Request) => {
         if (existing) return errorResponse('Username is already taken', 409)
       }
 
-      await supabase.from('users').update({
+      const { error: profileErr } = await supabase.from('users').update({
         ...(first_name !== undefined && { first_name }),
         ...(last_name !== undefined && { last_name }),
         ...(username !== undefined && { username }),
@@ -3808,6 +3821,12 @@ Deno.serve(async (req: Request) => {
         ...(country_id !== undefined && { country_id }),
         ...(state_id !== undefined && { state_id }),
       }).eq('id', user.sub)
+
+      if (profileErr) {
+        const friendly = friendlyUsersConflictError(profileErr)
+        if (friendly) return errorResponse(friendly, 409)
+        throw profileErr
+      }
 
       return jsonResponse({ success: true })
     }
@@ -3855,7 +3874,11 @@ Deno.serve(async (req: Request) => {
         role: body.role ?? 'user',
         email_verified: true,
       })
-      if (error) throw error
+      if (error) {
+        const friendly = friendlyUsersConflictError(error)
+        if (friendly) return errorResponse(friendly, 409)
+        throw error
+      }
       return jsonResponse({ success: true, user_id: userId })
     }
 
@@ -3877,7 +3900,7 @@ Deno.serve(async (req: Request) => {
         if (existing) return errorResponse('Username already taken', 409)
       }
 
-      await supabase.from('users').update({
+      const { error: playerUpdateErr } = await supabase.from('users').update({
         ...(first_name !== undefined && { first_name }),
         ...(last_name !== undefined && { last_name }),
         ...(email !== undefined && { email }),
@@ -3886,7 +3909,14 @@ Deno.serve(async (req: Request) => {
         ...(country_id !== undefined && { country_id }),
         ...(state_id !== undefined && { state_id }),
         ...(role !== undefined && { role }),
+        ...('is_trusted' in body && { is_trusted: body.is_trusted === true }),
       }).eq('id', targetId)
+
+      if (playerUpdateErr) {
+        const friendly = friendlyUsersConflictError(playerUpdateErr)
+        if (friendly) return errorResponse(friendly, 409)
+        throw playerUpdateErr
+      }
 
       return jsonResponse({ success: true })
     }

@@ -4,6 +4,19 @@ import { getSupabase, getSubPath } from '../_shared/db.ts'
 
 const DEFAULT_SIGNUP_BONUS = 15.0
 
+// users_email_unique (migration 20260708000000) is the backstop against two
+// accounts ending up with the same email — this turns that Postgres
+// unique-violation into a friendly message instead of a raw 500 or a
+// silently-discarded error (the update below didn't check its error at all
+// before this fix, so a colliding email would previously leave
+// profile_completed unset with no indication why).
+function friendlyUsersConflictError(error: { code?: string; message?: string } | null): string | null {
+  if (!error || error.code !== '23505') return null
+  if (error.message?.includes('users_email_unique')) return 'An account with this email already exists.'
+  if (error.message?.includes('users_username_unique')) return 'This username is already taken.'
+  return 'That email or username is already in use.'
+}
+
 async function getSignupBonusAmount(supabase: ReturnType<typeof getSupabase>): Promise<number> {
   try {
     const { data } = await supabase
@@ -98,7 +111,7 @@ Deno.serve(async (req: Request) => {
       if (!dbUser) return errorResponse('User not found', 404)
 
       // Update user profile
-      await supabase.from('users').update({
+      const { error: profileErr } = await supabase.from('users').update({
         first_name: firstName,
         last_name: lastName,
         email,
@@ -110,6 +123,12 @@ Deno.serve(async (req: Request) => {
         country,
         profile_completed: true,
       }).eq('id', user.sub)
+
+      if (profileErr) {
+        const friendly = friendlyUsersConflictError(profileErr)
+        if (friendly) return errorResponse(friendly, 409)
+        throw profileErr
+      }
 
       // Ensure wallet exists
       let { data: wallet } = await supabase

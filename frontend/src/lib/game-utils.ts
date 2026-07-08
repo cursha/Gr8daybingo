@@ -833,6 +833,7 @@ export interface MemberItem {
   last_login: string | null;
   profile_completed: boolean;
   email_verified: boolean;
+  is_trusted: boolean;
 }
 
 export async function getAdminMembers(): Promise<{ members: MemberItem[] }> {

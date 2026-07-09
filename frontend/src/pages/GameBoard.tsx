@@ -432,6 +432,7 @@ const GameBoard: React.FC = () => {
 
   const handleMark = async (cellIndex: number) => {
     if (!card || actionLoading) return;
+    const wasAlreadyBingo = card.is_bingo;
     setActionLoading(true);
     try {
       const result = await markCell(card.card_id, cellIndex);
@@ -479,7 +480,7 @@ const GameBoard: React.FC = () => {
         toast.success('Gr8Day Deed completed — well done!');
       }
 
-      if (result.is_bingo) {
+      if (result.is_bingo && !wasAlreadyBingo) {
         setTimeout(() => setShowCelebration(true), 500);
       }
 
@@ -601,6 +602,7 @@ const GameBoard: React.FC = () => {
       return;
     }
 
+    const wasAlreadyBingo = card.is_bingo;
     setActionLoading(true);
     try {
       const result = await purchaseCell(card.card_id, cellIndex);
@@ -616,7 +618,7 @@ const GameBoard: React.FC = () => {
       );
       setWallet((prev) => (prev ? { ...prev, balance: result.new_balance } : null));
       toast.success(`Square purchased for $${cell.purchase_price}`);
-      if (result.is_bingo) {
+      if (result.is_bingo && !wasAlreadyBingo) {
         setTimeout(() => setShowCelebration(true), 500);
       }
     } catch (err: any) {
@@ -827,6 +829,7 @@ const GameBoard: React.FC = () => {
 
   const handleBetYaReveal = async () => {
     if (!card || betYaLoading) return;
+    const wasAlreadyBingo = card.is_bingo;
     setBetYaLoading(true);
     try {
       const result = await revealBetYa(card.card_id);
@@ -848,7 +851,7 @@ const GameBoard: React.FC = () => {
         completed_cells: result.completed_cells,
         draw_bonus_entries: result.draw_bonus_entries,
       } : prev);
-      if (result.is_bingo) {
+      if (result.is_bingo && !wasAlreadyBingo) {
         setTimeout(() => setShowCelebration(true), 500);
       }
     } catch (err: any) {

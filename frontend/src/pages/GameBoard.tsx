@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { APP_VERSION } from '@/lib/version';
 import { getRegistrationStatus } from '@/lib/game-utils';
 import { useNavigate } from 'react-router-dom';
@@ -102,16 +103,58 @@ const BlackoutTile: React.FC<{
   onComplete: () => void;
   onPass: () => void;
 }> = ({ cell, isCompleted, isBlocked, isOpen, canReveal, revealing, passing, onReveal, onComplete, onPass }) => {
+  const [pendingReveal, setPendingReveal] = useState(false);
+
   if (cell.is_hidden) {
     return (
-      <button
-        onClick={onReveal}
-        disabled={!canReveal || revealing}
-        className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900 hover:from-slate-700 hover:to-slate-800 border border-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-        aria-label="Hidden square — tap to reveal"
-      >
-        <span className="text-white/20 text-lg sm:text-2xl">?</span>
-      </button>
+      <>
+        <button
+          onClick={() => setPendingReveal(true)}
+          disabled={!canReveal || revealing}
+          className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900 hover:from-slate-700 hover:to-slate-800 border border-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          aria-label="Hidden square — tap to reveal"
+        >
+          <span className="text-white/20 text-lg sm:text-2xl">?</span>
+        </button>
+        {pendingReveal && createPortal((
+          <div
+            className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+            onClick={() => setPendingReveal(false)}
+          >
+            <div
+              className="bg-indigo-950 rounded-2xl shadow-2xl p-5 flex flex-col items-center gap-3 w-full max-w-[280px]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-base font-black text-white text-center leading-tight">Reveal this square?</p>
+              <p className="text-xs text-indigo-200 text-center leading-snug">
+                It may open a few extra squares nearby — you'll need to resolve every square that opens before revealing again.
+              </p>
+              <div className="flex flex-wrap gap-2 items-center justify-center mt-1 w-full">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-emerald-500 active:bg-emerald-400 rounded-xl text-white font-bold text-base cursor-pointer select-none"
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingReveal(false); onReveal(); }}
+                  onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingReveal(false); onReveal(); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setPendingReveal(false); onReveal(); } }}
+                >
+                  ✓ Yes
+                </div>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-3 bg-slate-700 active:bg-slate-600 rounded-xl text-white font-bold text-sm cursor-pointer select-none"
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingReveal(false); }}
+                  onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingReveal(false); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setPendingReveal(false); }}
+                >
+                  Cancel
+                </div>
+              </div>
+            </div>
+          </div>
+        ), document.body)}
+      </>
     );
   }
 
@@ -1196,8 +1239,8 @@ const GameBoard: React.FC = () => {
           </div>
         )}
 
-        {/* ========== PICK THREE ========== */}
-        {card && !card.is_bingo && (
+        {/* ========== PICK THREE (classic only — not available in Blackout) ========== */}
+        {card && !card.is_bingo && card.game_mode !== 'blackout' && (
           <div className="mb-4">
             {pickThreeMode ? (
               <div className="rounded-xl border-2 border-purple-400/60 bg-purple-500/10 backdrop-blur-sm p-3 flex flex-col sm:flex-row items-center gap-3">

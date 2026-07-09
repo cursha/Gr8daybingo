@@ -38,3 +38,28 @@ inspector_port = 8083
 
 [analytics]
 enabled = false
+
+# All functions use the app's own custom JWT (_shared/auth.ts), not Supabase
+# Auth — the gateway's own verify_jwt check must stay off so it never rejects
+# a valid app token before the function code even runs. Production already
+# behaves this way (set via the dashboard); this makes it explicit so local
+# `supabase start` matches and a future `functions deploy` can't silently
+# regress it.
+[functions.admin-settings]
+verify_jwt = false
+[functions.aihub]
+verify_jwt = false
+[functions.auth-custom]
+verify_jwt = false
+[functions.game]
+verify_jwt = false
+[functions.health]
+verify_jwt = false
+[functions.payment]
+verify_jwt = false
+[functions.registration]
+verify_jwt = false
+[functions.users]
+verify_jwt = false
+[functions.weekly-reset]
+verify_jwt = false

@@ -104,6 +104,8 @@ const BlackoutTile: React.FC<{
   onPass: () => void;
 }> = ({ cell, isCompleted, isBlocked, isOpen, canReveal, revealing, passing, onReveal, onComplete, onPass }) => {
   const [pendingReveal, setPendingReveal] = useState(false);
+  const [pendingPass, setPendingPass] = useState(false);
+  const [pendingComplete, setPendingComplete] = useState(false);
 
   if (cell.is_hidden) {
     return (
@@ -184,20 +186,91 @@ const BlackoutTile: React.FC<{
         </span>
         <div className="flex gap-1">
           <button
-            onClick={onComplete}
+            onClick={() => setPendingComplete(true)}
             disabled={passing}
             className="text-[7px] sm:text-[9px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded px-1.5 py-0.5 disabled:opacity-50"
           >
             Done
           </button>
           <button
-            onClick={onPass}
+            onClick={() => setPendingPass(true)}
             disabled={passing}
             className="text-[7px] sm:text-[9px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded px-1.5 py-0.5 disabled:opacity-50"
           >
             {passing ? '…' : 'Pass'}
           </button>
         </div>
+        {pendingComplete && createPortal((
+          <div
+            className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+            onClick={() => setPendingComplete(false)}
+          >
+            <div
+              className="bg-indigo-950 rounded-2xl shadow-2xl p-5 flex flex-col items-center gap-3 w-full max-w-[280px]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-base font-black text-white text-center leading-tight">Mark this square?</p>
+              <p className="text-xs text-indigo-200 text-center leading-snug line-clamp-2">{cell.deed_text}</p>
+              <div className="flex flex-wrap gap-2 items-center justify-center mt-1 w-full">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-emerald-500 active:bg-emerald-400 rounded-xl text-white font-bold text-base cursor-pointer select-none"
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingComplete(false); onComplete(); }}
+                  onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingComplete(false); onComplete(); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setPendingComplete(false); onComplete(); } }}
+                >
+                  ✓ Yes
+                </div>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-rose-600 active:bg-rose-500 rounded-xl text-white font-bold text-base cursor-pointer select-none"
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingComplete(false); }}
+                  onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingComplete(false); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setPendingComplete(false); }}
+                >
+                  ✕ No
+                </div>
+              </div>
+            </div>
+          </div>
+        ), document.body)}
+        {pendingPass && createPortal((
+          <div
+            className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+            onClick={() => setPendingPass(false)}
+          >
+            <div
+              className="bg-indigo-950 rounded-2xl shadow-2xl p-5 flex flex-col items-center gap-3 w-full max-w-[280px]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-base font-black text-white text-center leading-tight">Pass on this square?</p>
+              <div className="flex flex-wrap gap-2 items-center justify-center mt-1 w-full">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-emerald-500 active:bg-emerald-400 rounded-xl text-white font-bold text-base cursor-pointer select-none"
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingPass(false); onPass(); }}
+                  onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingPass(false); onPass(); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setPendingPass(false); onPass(); } }}
+                >
+                  ✓ Yes
+                </div>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-rose-600 active:bg-rose-500 rounded-xl text-white font-bold text-base cursor-pointer select-none"
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingPass(false); }}
+                  onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingPass(false); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setPendingPass(false); }}
+                >
+                  ✕ No
+                </div>
+              </div>
+            </div>
+          </div>
+        ), document.body)}
       </div>
     );
   }

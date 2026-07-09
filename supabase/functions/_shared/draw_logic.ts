@@ -8,7 +8,6 @@ export interface DrawSettings {
   deedEntriesEnabled: boolean
   entriesPerDeed: number
   bingoBonusEnabled: boolean
-  bingoBonusPerBingo: number
   includeQuickTap: boolean
   allowRollovers: boolean
   requireParticipation: boolean
@@ -40,7 +39,6 @@ export function parseDrawSettings(raw: Record<string, string | null | undefined>
     deedEntriesEnabled:      bool(g('deed_draw_entries_enabled'), true),
     entriesPerDeed:          Math.max(0, int(g('draw_entries_per_deed'), 1)),
     bingoBonusEnabled:       bool(g('bingo_bonus_enabled'), true),
-    bingoBonusPerBingo:      Math.max(0, int(g('bingo_bonus_entries_per_bingo'), 10)),
     includeQuickTap:         bool(g('include_quick_tap_deeds'), true),
     allowRollovers:          bool(g('allow_ticket_rollovers'), true),
     requireParticipation:    bool(g('require_current_week_participation'), true),
@@ -62,9 +60,10 @@ export function deedShouldAward(
   return settings.entriesPerDeed > 0
 }
 
-/** Should a completed bingo earn the bonus, given settings? */
+/** Should a completed bingo earn the bonus, given settings? Amount is no
+ *  longer config-driven — it's a random 6-20 roll (see awardBingoBonus). */
 export function bingoShouldAward(settings: DrawSettings): boolean {
-  return settings.weeklyDrawEnabled && settings.bingoBonusEnabled && settings.bingoBonusPerBingo > 0
+  return settings.weeklyDrawEnabled && settings.bingoBonusEnabled
 }
 
 export interface PoolCandidate {

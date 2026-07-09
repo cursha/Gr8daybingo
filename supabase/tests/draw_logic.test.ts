@@ -21,7 +21,6 @@ const DEFAULTS = parseDrawSettings({})
 test('defaults are spec-correct', () => {
   eq(DEFAULTS.weeklyDrawEnabled, true, 'weekly on')
   eq(DEFAULTS.entriesPerDeed, 1, 'per deed 1')
-  eq(DEFAULTS.bingoBonusPerBingo, 10, 'bonus 10')
   eq(DEFAULTS.includeQuickTap, true, 'quick on')
   eq(DEFAULTS.requireParticipation, true, 'participation on')
   eq(DEFAULTS.resetAfterWin, true, 'reset on')

@@ -458,6 +458,7 @@ const GameBoard: React.FC = () => {
           cells: nextCells,
           completed_cells: result.completed_cells,
           is_bingo: result.is_bingo,
+          draw_bonus_entries: result.draw_bonus_entries,
           blackout: nextBlackout,
         };
       });
@@ -613,6 +614,7 @@ const GameBoard: React.FC = () => {
               ...prev,
               purchased_cells: result.purchased_cells,
               is_bingo: result.is_bingo,
+              draw_bonus_entries: result.draw_bonus_entries,
             }
           : null
       );
@@ -843,6 +845,20 @@ const GameBoard: React.FC = () => {
       if (result.outcome === 'free_square' || result.outcome === 'replace_three') {
         await loadGame();
       }
+      // Reflect the win + any draw-entry bonus locally regardless of outcome
+      // type — loadGame() above only runs for free_square/replace_three, so
+      // every other outcome (fund_credit, remove_funds, nothing) needs its
+      // own state patch here too. Runs after loadGame() so it isn't wiped by
+      // that refetch.
+      setCard((prev) => prev ? {
+        ...prev,
+        is_bingo: result.is_bingo,
+        completed_cells: result.completed_cells,
+        draw_bonus_entries: result.draw_bonus_entries,
+      } : prev);
+      if (result.is_bingo) {
+        setTimeout(() => setShowCelebration(true), 500);
+      }
     } catch (err: any) {
       toast.error(err?.message || 'Could not reveal your dare. Please try again.');
     } finally {
@@ -858,6 +874,9 @@ const GameBoard: React.FC = () => {
         setWallet((prev) => prev ? { ...prev, balance: result.new_balance! } : prev);
       }
       await loadGame();
+      // loadGame() refetches the card fresh, which doesn't carry this
+      // one-off award — patch it back on afterward.
+      setCard((prev) => prev ? { ...prev, draw_bonus_entries: result.draw_bonus_entries } : prev);
     }
     return result;
   };
@@ -1291,8 +1310,8 @@ const GameBoard: React.FC = () => {
                   <p className="text-sm sm:text-base font-bold text-white">
                     Your game is complete. The next game starts Monday.
                   </p>
-                  {card?.draw_entered && (
-                    <p className="text-xs text-amber-200 mt-0.5">🎟 You're entered in this week's draw!</p>
+                  {typeof card?.draw_bonus_entries === 'number' && (
+                    <p className="text-xs text-amber-200 mt-0.5">🎟 You just earned {card.draw_bonus_entries} entries into this week's draw!</p>
                   )}
                 </div>
               </div>

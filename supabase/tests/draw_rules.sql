@@ -31,7 +31,6 @@ DECLARE wy TEXT := draw_week_year(now()); cd BIGINT; led BIGINT;
 BEGIN
   -- Reset config to known defaults for the tests.
   UPDATE game_configs SET config_value='1'  WHERE config_key='draw_entries_per_deed';
-  UPDATE game_configs SET config_value='10' WHERE config_key='bingo_bonus_entries_per_bingo';
   UPDATE game_configs SET config_value='1'  WHERE config_key='include_quick_tap_deeds';
 
   -- ── Case 1: one bingo-card deed → 1 active entry ──────────────────────────
@@ -157,10 +156,10 @@ DECLARE c INTEGER;
 BEGIN
   SELECT count(*) INTO c FROM game_configs WHERE config_key IN
     ('weekly_draw_enabled','deed_draw_entries_enabled','bingo_bonus_enabled',
-     'draw_entries_per_deed','bingo_bonus_entries_per_bingo','include_quick_tap_deeds',
+     'draw_entries_per_deed','include_quick_tap_deeds',
      'allow_ticket_rollovers','require_current_week_participation',
      'reset_active_after_win','inactive_entry_expiration_weeks');
-  PERFORM _assert(c=10, 'all 10 settings seeded, found ' || c);
+  PERFORM _assert(c=9, 'all 9 settings seeded, found ' || c);
   RAISE NOTICE 'settings PASS';
 END $$;
 

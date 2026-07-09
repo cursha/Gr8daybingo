@@ -294,13 +294,14 @@ const WIN_LABELS: Record<string, string> = {
 }
 function winLabel(cond: string): string { return WIN_LABELS[cond] ?? cond }
 
-/** First-time-bingo award: bonus + win email. Called from every cell-completion
- *  path (mark-cell, purchase-cell, bet-ya-reveal, bet-ya-refer-friend) the
- *  instant a card transitions from not-bingo to bingo. This used to be
- *  copy-pasted at each call site — bet-ya-reveal once shipped without it
- *  entirely, which is exactly the failure mode a single shared entry point
- *  prevents. No-op unless this call is the one that just flipped the card
- *  into bingo. */
+/** First-time-bingo award: bonus (random 6-20 entries, own roll per bingo) +
+ *  win email. Called from every cell-completion path (mark-cell,
+ *  purchase-cell, bet-ya-reveal, bet-ya-refer-friend) the instant a card
+ *  transitions from not-bingo to bingo. This used to be copy-pasted at each
+ *  call site — bet-ya-reveal once shipped without it entirely, which is
+ *  exactly the failure mode a single shared entry point prevents. No-op
+ *  (returns null) unless this call is the one that just flipped the card
+ *  into bingo. Returns the awarded entry count so callers can surface it. */
 async function awardBingoIfNewlyWon(
   supabase: ReturnType<typeof getSupabase>,
   opts: {
@@ -313,16 +314,17 @@ async function awardBingoIfNewlyWon(
     userEmail?: string | null
     userName?: string | null
   },
-): Promise<void> {
-  if (!opts.isBingoNow || opts.wasAlreadyBingo) return
+): Promise<number | null> {
+  if (!opts.isBingoNow || opts.wasAlreadyBingo) return null
   const drawSettings = await getDrawSettings(supabase)
-  await awardBingoBonus(supabase, {
+  const bonusEntries = await awardBingoBonus(supabase, {
     playerId: opts.playerId, cardId: opts.cardId, weekYear: opts.weekYear, settings: drawSettings,
   })
   if (opts.userEmail) {
     const tpl = bingoWinEmail(opts.userName ?? null, winLabel(opts.winCondition))
     await sendEmail({ to: opts.userEmail, subject: tpl.subject, html: tpl.html })
   }
+  return bonusEntries
 }
 
 /** Impact Board time filters: ISO start of the current month/quarter/year, or
@@ -1010,7 +1012,7 @@ Deno.serve(async (req: Request) => {
       }
 
       // First time the card reaches Bingo: award bingo bonus + congratulate by email.
-      await awardBingoIfNewlyWon(supabase, {
+      const bonusEntries = await awardBingoIfNewlyWon(supabase, {
         playerId: user.sub, cardId: card_id, weekYear: card.week_year, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
@@ -1021,7 +1023,7 @@ Deno.serve(async (req: Request) => {
 
       const resp: Record<string, unknown> = { success: true, completed_cells: completed, is_bingo: isBingo }
       if (secretRewardAwarded !== null) resp.secret_reward = secretRewardAwarded
-      if (isBingo && !card.is_bingo) resp.draw_entered = true
+      if (bonusEntries != null) resp.draw_bonus_entries = bonusEntries
       if (streakResult.streak_updated) {
         resp.streak_update = {
           current_streak_days: streakResult.current_streak_days,
@@ -1268,14 +1270,15 @@ Deno.serve(async (req: Request) => {
 
       // First time the card reaches Bingo: award bingo bonus + congratulate by email.
       // Note: a purchased square is not a completed deed, so it earns NO deed entry,
-      // but it CAN complete a bingo, which still earns the configured bonus.
-      await awardBingoIfNewlyWon(supabase, {
+      // but it CAN complete a bingo, which still earns the random 6-20 bonus.
+      const bonusEntries = await awardBingoIfNewlyWon(supabase, {
         playerId: user.sub, cardId: card_id, weekYear: card.week_year, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })
 
       const purchaseResp: Record<string, unknown> = { success: true, purchased_cells: purchased, new_balance: newBalance, is_bingo: isBingo }
+      if (bonusEntries != null) purchaseResp.draw_bonus_entries = bonusEntries
       return jsonResponse(purchaseResp)
     }
 
@@ -4755,7 +4758,7 @@ Deno.serve(async (req: Request) => {
       // etc. are already evaluated as a single card-level threshold by checkBingo,
       // so this one award covers every line satisfied by the reveal): award bingo
       // bonus + congratulate by email, same as mark-cell.
-      await awardBingoIfNewlyWon(supabase, {
+      const bonusEntries = await awardBingoIfNewlyWon(supabase, {
         playerId: user.sub, cardId: card_id, weekYear: card.week_year, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
@@ -4763,7 +4766,7 @@ Deno.serve(async (req: Request) => {
 
       result.is_bingo = isBingo
       result.completed_cells = updatedCompleted
-      if (isBingo && !card.is_bingo) result.draw_entered = true
+      if (bonusEntries != null) result.draw_bonus_entries = bonusEntries
       return jsonResponse(result)
     }
 
@@ -4864,12 +4867,12 @@ Deno.serve(async (req: Request) => {
         completed_cells: updatedCompleted, is_bingo: isBingo,
       }
 
-      await awardBingoIfNewlyWon(supabase, {
+      const bonusEntries = await awardBingoIfNewlyWon(supabase, {
         playerId: user.sub, cardId: card_id, weekYear: card.week_year, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })
-      if (isBingo && !card.is_bingo) result.draw_entered = true
+      if (bonusEntries != null) result.draw_bonus_entries = bonusEntries
 
       return jsonResponse(result)
     }

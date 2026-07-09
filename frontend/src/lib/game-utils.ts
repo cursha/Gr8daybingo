@@ -100,7 +100,7 @@ export interface MarkCellResult {
   completed_cells: number[];
   is_bingo: boolean;
   secret_reward?: number;
-  draw_entered?: boolean;
+  draw_bonus_entries?: number;
   streak_update?: StreakUpdate;
 }
 
@@ -120,7 +120,7 @@ export interface CardData {
   purchased_cells: number[];
   referral_cells: number[];
   is_bingo: boolean;
-  draw_entered?: boolean;
+  draw_bonus_entries?: number;
   pick_three_used?: boolean;
   game_mode?: 'classic' | 'blackout';
   blackout?: BlackoutState | null;
@@ -148,7 +148,7 @@ export interface BetYaRevealResult {
   replaced?: { index: number; old_deed: string; new_deed: string }[];
   completed_cells: number[];
   is_bingo: boolean;
-  draw_entered?: boolean;
+  draw_bonus_entries?: number;
 }
 
 export async function revealBetYa(cardId: number): Promise<BetYaRevealResult> {
@@ -163,7 +163,7 @@ export interface BetYaReferFriendResult {
   new_balance?: number;
   completed_cells?: number[];
   is_bingo?: boolean;
-  draw_entered?: boolean;
+  draw_bonus_entries?: number;
 }
 
 export async function submitBetYaReferFriend(cardId: number, email: string): Promise<BetYaReferFriendResult> {
@@ -476,7 +476,7 @@ export async function unmarkCell(cardId: number, cellIndex: number): Promise<Mar
 }
 
 export async function purchaseCell(cardId: number, cellIndex: number) {
-  return apiClient.post<{ purchased_cells: number[]; is_bingo: boolean; new_balance: number }>(
+  return apiClient.post<{ purchased_cells: number[]; is_bingo: boolean; new_balance: number; draw_bonus_entries?: number }>(
     '/game/purchase-cell',
     { card_id: cardId, cell_index: cellIndex }
   );

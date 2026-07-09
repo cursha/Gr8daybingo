@@ -46,9 +46,12 @@ that id. Bingo transitions award the bonus keyed on `card:<id>:week:<wy>`. Purch
 squares do **not** earn a deed entry (a bought square isn't a completed deed) but can
 still trigger the bingo bonus. All awards are gated by settings and idempotent.
 
+The bingo bonus amount is a server-side random integer, uniform 6-20 inclusive, rolled
+independently per completed bingo — never a fixed or client-supplied value.
+
 ## 3. Admin settings (auto-exposed by the existing admin-settings function)
 `weekly_draw_enabled`, `deed_draw_entries_enabled`, `draw_entries_per_deed` (1),
-`bingo_bonus_enabled`, `bingo_bonus_entries_per_bingo` (10), `include_quick_tap_deeds`,
+`bingo_bonus_enabled`, `include_quick_tap_deeds`,
 `allow_ticket_rollovers`, `require_current_week_participation`, `reset_active_after_win`,
 `inactive_entry_expiration_weeks` (0 = never; set 1/2/4/8/12/custom). Because
 admin-settings is a generic editor over `game_configs`, these appear automatically — no

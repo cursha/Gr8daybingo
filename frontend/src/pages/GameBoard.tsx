@@ -391,11 +391,15 @@ const GameBoard: React.FC = () => {
         return;
       }
 
+      // Note: do NOT trigger the celebration overlay here just because the
+      // loaded card happens to already be is_bingo — a player now keeps
+      // playing the same card (and reloading the page) for the rest of the
+      // week, so that would re-show the full-screen "You Won!" modal on
+      // every single visit. The overlay only belongs to the exact moment a
+      // mark/purchase/bet-ya action just flips the card to is_bingo (see the
+      // action handlers below), never to a page load.
       const cardData = await generateCard(status.has_card ? undefined : 'classic');
       setCard(cardData);
-      if (cardData.is_bingo) {
-        setShowCelebration(true);
-      }
     } catch (err: any) {
       toast.error(err?.message || 'Failed to load game');
     } finally {

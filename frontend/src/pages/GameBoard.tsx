@@ -1297,18 +1297,18 @@ const GameBoard: React.FC = () => {
             6-20 bonus roll. Start Over (reset) is an optional voluntary
             action, not required — kept as a small text link, not a CTA. ==== */}
         {card?.is_bingo && (
-          <div className="mb-4 rounded-lg border border-amber-400/40 bg-amber-500/10 backdrop-blur-sm px-3 py-2 flex items-center gap-2">
-            <Trophy className="w-4 h-4 text-amber-400 flex-shrink-0" />
-            <p className="text-xs sm:text-sm font-semibold text-amber-100 flex-1 min-w-0 truncate">
+          <div className="mb-4 rounded-lg bg-amber-400 px-3 py-2 flex items-center gap-2 shadow-md">
+            <Trophy className="w-4 h-4 text-slate-900 flex-shrink-0" />
+            <p className="text-xs sm:text-sm font-bold text-slate-900 flex-1 min-w-0 truncate">
               Bingo! Keep playing for more entries.
               {typeof card?.draw_bonus_entries === 'number' && (
-                <span className="text-amber-300"> 🎟 +{card.draw_bonus_entries} this move!</span>
+                <span> 🎟 +{card.draw_bonus_entries} this move!</span>
               )}
             </p>
             <button
               onClick={handleStartNewGame}
               disabled={actionLoading}
-              className="text-[11px] text-white/50 hover:text-white underline underline-offset-2 flex-shrink-0 disabled:opacity-50"
+              className="text-[11px] font-bold text-slate-900 underline underline-offset-2 hover:text-slate-700 flex-shrink-0 disabled:opacity-50"
             >
               Start Over
             </button>

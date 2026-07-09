@@ -50,6 +50,18 @@ const CelebrationOverlay: React.FC<CelebrationOverlayProps> = ({ show, onClose, 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-300 p-4 overflow-y-auto">
+      {/* Always-reachable close button — pinned to the viewport, not the
+          scrollable card, so it's never hidden below the fold on a short
+          screen (the main Close/Start New Game buttons at the bottom of the
+          card can be, since the card itself can be taller than the viewport). */}
+      <button
+        onClick={onClose}
+        aria-label="Close"
+        className="fixed top-3 right-3 sm:top-5 sm:right-5 z-[60] w-9 h-9 flex items-center justify-center rounded-full bg-white/90 hover:bg-white text-slate-700 text-lg font-bold shadow-lg"
+      >
+        ✕
+      </button>
+
       {/* Confetti */}
       {confetti.map((p) => (
         <div

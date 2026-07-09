@@ -126,9 +126,6 @@ const BlackoutTile: React.FC<{
               onClick={(e) => e.stopPropagation()}
             >
               <p className="text-base font-black text-white text-center leading-tight">Reveal this square?</p>
-              <p className="text-xs text-indigo-200 text-center leading-snug">
-                It may open a few extra squares nearby — you'll need to resolve every square that opens before revealing again.
-              </p>
               <div className="flex flex-wrap gap-2 items-center justify-center mt-1 w-full">
                 <div
                   role="button"
@@ -143,12 +140,12 @@ const BlackoutTile: React.FC<{
                 <div
                   role="button"
                   tabIndex={0}
-                  className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-3 bg-slate-700 active:bg-slate-600 rounded-xl text-white font-bold text-sm cursor-pointer select-none"
+                  className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-rose-600 active:bg-rose-500 rounded-xl text-white font-bold text-base cursor-pointer select-none"
                   onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingReveal(false); }}
                   onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingReveal(false); }}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setPendingReveal(false); }}
                 >
-                  Cancel
+                  ✕ No
                 </div>
               </div>
             </div>

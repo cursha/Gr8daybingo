@@ -60,7 +60,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Lock, PartyPopper, Medal, LogOut, Printer, ChevronDown, Shuffle } from 'lucide-react';
+import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, PartyPopper, Medal, LogOut, Printer, ChevronDown, Shuffle } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { downloadBingoCardPdf, downloadTeamCardsPdf, TeamMemberCard } from '@/lib/bingo-pdf';
 
@@ -428,10 +428,6 @@ const GameBoard: React.FC = () => {
 
   const handleMark = async (cellIndex: number) => {
     if (!card || actionLoading) return;
-    if (card.is_bingo) {
-      toast.info('Game over! Start a new game to continue playing.');
-      return;
-    }
     setActionLoading(true);
     try {
       const result = await markCell(card.card_id, cellIndex);
@@ -593,10 +589,6 @@ const GameBoard: React.FC = () => {
 
   const handlePurchase = async (cellIndex: number) => {
     if (!card || actionLoading) return;
-    if (card.is_bingo) {
-      toast.info('Game over! Start a new game to continue playing.');
-      return;
-    }
     const cell = card.cells[cellIndex];
     if (!cell.is_purchasable) return;
 
@@ -644,7 +636,7 @@ const GameBoard: React.FC = () => {
   };
 
   const handleStartPickThree = () => {
-    if (!card || card.is_bingo || card.pick_three_used) return;
+    if (!card || card.pick_three_used) return;
     setPickThreeMode(true);
     setPickThreeSelection(new Set());
   };
@@ -700,10 +692,6 @@ const GameBoard: React.FC = () => {
 
   const handleReferral = async () => {
     if (!referralEmail.trim()) return;
-    if (card?.is_bingo) {
-      toast.info('Game over! Start a new game to continue playing.');
-      return;
-    }
     setActionLoading(true);
     try {
       await submitReferral(referralEmail.trim());
@@ -1295,7 +1283,11 @@ const GameBoard: React.FC = () => {
           </div>
         </div>
 
-        {/* ========== GAME OVER BANNER ========== */}
+        {/* ========== BINGO BANNER — celebratory, does not block continued play.
+            A player who wins keeps playing the same card all the way to end
+            of week: more completed deeds keep earning votes, and every
+            additional line completed earns its own 6-20 bonus roll. Start
+            Over (reset) is an optional voluntary action, not required. ========== */}
         {card?.is_bingo && (
           <div className="mb-4 rounded-xl overflow-hidden border-2 border-amber-400/60 bg-gradient-to-r from-amber-500/20 via-rose-500/20 to-emerald-500/20 backdrop-blur-sm shadow-xl animate-in fade-in slide-in-from-top-2 duration-500">
             <div className="flex flex-col sm:flex-row items-center gap-3 p-4">
@@ -1305,10 +1297,10 @@ const GameBoard: React.FC = () => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[10px] uppercase tracking-wider text-amber-300 font-bold flex items-center gap-1">
-                    <PartyPopper className="w-3 h-3" /> Game Over — You Won!
+                    <PartyPopper className="w-3 h-3" /> Bingo!
                   </p>
                   <p className="text-sm sm:text-base font-bold text-white">
-                    Your game is complete. The next game starts Monday.
+                    Keep playing — more deeds and more bingos both earn more entries, all the way to the end of the week.
                   </p>
                   {typeof card?.draw_bonus_entries === 'number' && (
                     <p className="text-xs text-amber-200 mt-0.5">🎟 You just earned {card.draw_bonus_entries} entries into this week's draw!</p>
@@ -1318,18 +1310,19 @@ const GameBoard: React.FC = () => {
               <Button
                 onClick={handleStartNewGame}
                 disabled={actionLoading}
-                size="lg"
-                className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-black shadow-lg w-full sm:w-auto"
+                variant="outline"
+                size="sm"
+                className="border-white/30 text-white/80 hover:text-white hover:bg-white/10 w-full sm:w-auto flex-shrink-0"
               >
-                <RefreshCw className={`w-4 h-4 mr-2 ${actionLoading ? 'animate-spin' : ''}`} />
-                Start New Game
+                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${actionLoading ? 'animate-spin' : ''}`} />
+                Start Over
               </Button>
             </div>
           </div>
         )}
 
         {/* ========== PICK THREE (classic only — not available in Blackout) ========== */}
-        {card && !card.is_bingo && card.game_mode !== 'blackout' && (
+        {card && card.game_mode !== 'blackout' && (
           <div className="mb-4">
             {pickThreeMode ? (
               <div className="rounded-xl border-2 border-purple-400/60 bg-purple-500/10 backdrop-blur-sm p-3 flex flex-col sm:flex-row items-center gap-3">
@@ -1408,7 +1401,7 @@ const GameBoard: React.FC = () => {
                       const isCompleted = card.completed_cells.includes(cell.index);
                       const isBlocked = card.blackout?.blocked_cells.includes(cell.index) ?? false;
                       const isOpen = card.blackout?.active_group?.includes(cell.index) ?? false;
-                      const canReveal = !card.is_bingo && !card.blackout?.is_paused && !card.blackout?.active_group;
+                      const canReveal = !card.blackout?.is_paused && !card.blackout?.active_group;
                       return (
                         <div key={cell.index} className="relative w-full" style={{ aspectRatio: '1 / 1' }}>
                           <div className="absolute inset-0">
@@ -1443,7 +1436,6 @@ const GameBoard: React.FC = () => {
                             referralCells={card.referral_cells}
                             onMark={handleMark}
                             onPurchase={handlePurchase}
-                            locked={card.is_bingo}
                             prizeImageUrl={prize?.prize_image_url}
                             progress={cellProgress[cell.index] ?? 0}
                             onProgressChange={(idx, p) =>
@@ -1470,7 +1462,7 @@ const GameBoard: React.FC = () => {
                 so there's nothing meaningful to "pause" while one is open —
                 Pass, rendered inline on each open square, is the only way out
                 of an active group). */}
-            {card.game_mode === 'blackout' && !card.is_bingo && (
+            {card.game_mode === 'blackout' && (
               <div className="mt-3 flex justify-center">
                 {card.blackout?.is_paused ? (
                   <Button
@@ -1552,10 +1544,10 @@ const GameBoard: React.FC = () => {
             />
             <Button
               onClick={handleReferral}
-              disabled={actionLoading || !referralEmail.trim() || !!card?.is_bingo}
+              disabled={actionLoading || !referralEmail.trim()}
               className="bg-teal-500 hover:bg-teal-600 text-white font-bold"
             >
-              {card?.is_bingo ? <Lock className="w-4 h-4 mr-1" /> : <Send className="w-4 h-4 mr-1" />}
+              <Send className="w-4 h-4 mr-1" />
               Invite
             </Button>
           </div>

@@ -149,16 +149,34 @@ class SeededRandom {
   }
 }
 
-function checkBingo(completed: number[], winCondition: string): boolean {
-  const s = new Set(completed)
+// The 12 possible bingo lines on a 5x5 card: 5 rows, 5 columns, 2 diagonals.
+// Shared by checkBingo (win_condition threshold check) and
+// completedLineIndices (per-line bonus tracking — see awardNewBingoLines).
+const LINES: number[][] = (() => {
   const lines: number[][] = []
   for (let r = 0; r < 5; r++) lines.push([r * 5, r * 5 + 1, r * 5 + 2, r * 5 + 3, r * 5 + 4])
   for (let c = 0; c < 5; c++) lines.push([c, c + 5, c + 10, c + 15, c + 20])
   lines.push([0, 6, 12, 18, 24], [4, 8, 12, 16, 20])
+  return lines
+})()
+
+/** Indices (0-11) of LINES that are fully satisfied by `completed`. A
+ *  "bingo" for bonus-payout purposes is any of these — independent of
+ *  whichever win_condition is configured (that only gates the one-time win
+ *  banner/email, via checkBingo below). */
+function completedLineIndices(completed: number[]): number[] {
+  const s = new Set(completed)
+  const result: number[] = []
+  LINES.forEach((line, i) => { if (line.every((x) => s.has(x))) result.push(i) })
+  return result
+}
+
+function checkBingo(completed: number[], winCondition: string): boolean {
+  const s = new Set(completed)
   const sub = (line: number[]) => line.every((x) => s.has(x))
   switch (winCondition) {
-    case 'one_line': return lines.some(sub)
-    case 'two_lines': return lines.filter(sub).length >= 2
+    case 'one_line': return LINES.some(sub)
+    case 'two_lines': return LINES.filter(sub).length >= 2
     case 'four_corners': return sub([0, 4, 20, 24])
     case 'x_pattern': return sub([0, 6, 12, 18, 24, 4, 8, 16, 20])
     case 'around_the_edges': return sub([0,1,2,3,4,5,9,10,14,15,19,20,21,22,23,24])
@@ -294,38 +312,50 @@ const WIN_LABELS: Record<string, string> = {
 }
 function winLabel(cond: string): string { return WIN_LABELS[cond] ?? cond }
 
-/** First-time-bingo award: bonus (random 6-20 entries, own roll per bingo) +
- *  win email. Called from every cell-completion path (mark-cell,
- *  purchase-cell, bet-ya-reveal, bet-ya-refer-friend) the instant a card
- *  transitions from not-bingo to bingo. This used to be copy-pasted at each
- *  call site — bet-ya-reveal once shipped without it entirely, which is
- *  exactly the failure mode a single shared entry point prevents. No-op
- *  (returns null) unless this call is the one that just flipped the card
- *  into bingo. Returns the awarded entry count so callers can surface it. */
-async function awardBingoIfNewlyWon(
+/** Award a fresh 6-20 roll for every newly-completed line (any of the 12
+ *  possible rows/columns/diagonals) on this action, and send the one-time
+ *  "you've won" email the first time the configured win_condition is
+ *  satisfied. A "bingo" for payout purposes is any newly-completed line,
+ *  independent of win_condition — uncapped: one move that completes several
+ *  lines at once (including all 12 via fill_card) pays each one separately.
+ *  A player keeps playing the same card past their first win, all the way
+ *  to end of week, so this can fire repeatedly over a card's lifetime.
+ *  Idempotent per (card, week, play cycle, line): a retried call may roll
+ *  again, but only the first roll that actually inserts a new ledger row
+ *  for that specific line is ever applied. Returns the total newly-awarded
+ *  entries (0 if nothing new this action). Caller persists the updated
+ *  bonus_lines_awarded list onto the card row. */
+async function awardNewBingoLines(
   supabase: ReturnType<typeof getSupabase>,
   opts: {
     playerId: string
     cardId: number
     weekYear: string
     playCycle: number
+    newLineIndices: number[]
     winCondition: string
     wasAlreadyBingo: boolean
     isBingoNow: boolean
     userEmail?: string | null
     userName?: string | null
   },
-): Promise<number | null> {
-  if (!opts.isBingoNow || opts.wasAlreadyBingo) return null
-  const drawSettings = await getDrawSettings(supabase)
-  const bonusEntries = await awardBingoBonus(supabase, {
-    playerId: opts.playerId, cardId: opts.cardId, weekYear: opts.weekYear, cycle: opts.playCycle, settings: drawSettings,
-  })
-  if (opts.userEmail) {
+): Promise<number> {
+  let total = 0
+  if (opts.newLineIndices.length > 0) {
+    const drawSettings = await getDrawSettings(supabase)
+    for (const lineIndex of opts.newLineIndices) {
+      const bonus = await awardBingoBonus(supabase, {
+        playerId: opts.playerId, cardId: opts.cardId, weekYear: opts.weekYear,
+        cycle: opts.playCycle, lineIndex, settings: drawSettings,
+      })
+      if (bonus != null) total += bonus
+    }
+  }
+  if (opts.isBingoNow && !opts.wasAlreadyBingo && opts.userEmail) {
     const tpl = bingoWinEmail(opts.userName ?? null, winLabel(opts.winCondition))
     await sendEmail({ to: opts.userEmail, subject: tpl.subject, html: tpl.html })
   }
-  return bonusEntries
+  return total
 }
 
 /** Impact Board time filters: ISO start of the current month/quarter/year, or
@@ -966,10 +996,18 @@ Deno.serve(async (req: Request) => {
       const allCompleted = [...new Set([...completed, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
       const isBingo = checkBingo(allCompleted, card.win_condition)
 
+      // A "bingo" for bonus-payout purposes is any newly-completed line
+      // (row/column/diagonal) — independent of win_condition, and the
+      // player keeps playing this same card past their first win, so more
+      // can complete later. See awardNewBingoLines.
+      const existingLines: number[] = Array.isArray(card.bonus_lines_awarded) ? card.bonus_lines_awarded : []
+      const newLineIndices = completedLineIndices(allCompleted).filter((i) => !existingLines.includes(i))
+
       await supabase.from('player_cards').update({
         card_data: JSON.stringify(cells),
         completed_cells: JSON.stringify(completed),
         is_bingo: isBingo,
+        bonus_lines_awarded: JSON.stringify([...existingLines, ...newLineIndices]),
         updated_at: new Date().toISOString(),
       }).eq('id', card_id)
 
@@ -1012,9 +1050,10 @@ Deno.serve(async (req: Request) => {
         })
       }
 
-      // First time the card reaches Bingo: award bingo bonus + congratulate by email.
-      const bonusEntries = await awardBingoIfNewlyWon(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0, winCondition: card.win_condition,
+      // Award any newly-completed lines' bonuses + congratulate by email on first win.
+      const bonusEntries = await awardNewBingoLines(supabase, {
+        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0,
+        newLineIndices, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })
@@ -1024,7 +1063,7 @@ Deno.serve(async (req: Request) => {
 
       const resp: Record<string, unknown> = { success: true, completed_cells: completed, is_bingo: isBingo }
       if (secretRewardAwarded !== null) resp.secret_reward = secretRewardAwarded
-      if (bonusEntries != null) resp.draw_bonus_entries = bonusEntries
+      if (bonusEntries > 0) resp.draw_bonus_entries = bonusEntries
       if (streakResult.streak_updated) {
         resp.streak_update = {
           current_streak_days: streakResult.current_streak_days,
@@ -1045,9 +1084,11 @@ Deno.serve(async (req: Request) => {
       if (!card) return errorResponse('No card to reset', 404)
       if (card.game_mode === 'blackout') return errorResponse('Not available in Blackout mode', 400)
 
-      // Bump play_cycle so a win-then-reset loop earns its own independent
-      // bingo bonus roll (see awardBingoBonus) instead of being a no-op
-      // against the same card+week idempotency key as the prior win.
+      // A player can keep playing the same card past a win all the way to
+      // end of week without ever resetting — this is a voluntary "start
+      // over with a fresh card" action. Bump play_cycle and clear which
+      // lines have been paid so far, so lines completed in the new cycle
+      // are independently eligible for their own bonus roll.
       const nextCycle = (card.play_cycle ?? 0) + 1
       await supabase.from('player_cards').update({
         completed_cells: '[]',
@@ -1055,6 +1096,7 @@ Deno.serve(async (req: Request) => {
         referral_cells: '[]',
         is_bingo: false,
         play_cycle: nextCycle,
+        bonus_lines_awarded: '[]',
         updated_at: new Date().toISOString(),
       }).eq('id', card.id)
 
@@ -1268,23 +1310,28 @@ Deno.serve(async (req: Request) => {
       const allCompleted = [...new Set([...completed, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
       const isBingo = checkBingo(allCompleted, card.win_condition)
 
+      const existingLines: number[] = Array.isArray(card.bonus_lines_awarded) ? card.bonus_lines_awarded : []
+      const newLineIndices = completedLineIndices(allCompleted).filter((i) => !existingLines.includes(i))
+
       await supabase.from('player_cards').update({
         purchased_cells: JSON.stringify(purchased),
         is_bingo: isBingo,
+        bonus_lines_awarded: JSON.stringify([...existingLines, ...newLineIndices]),
         updated_at: new Date().toISOString(),
       }).eq('id', card_id)
 
-      // First time the card reaches Bingo: award bingo bonus + congratulate by email.
+      // Award any newly-completed lines' bonuses + congratulate by email on first win.
       // Note: a purchased square is not a completed deed, so it earns NO deed entry,
-      // but it CAN complete a bingo, which still earns the random 6-20 bonus.
-      const bonusEntries = await awardBingoIfNewlyWon(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0, winCondition: card.win_condition,
+      // but it CAN complete lines, which still earn the random 6-20 bonus each.
+      const bonusEntries = await awardNewBingoLines(supabase, {
+        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0,
+        newLineIndices, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })
 
       const purchaseResp: Record<string, unknown> = { success: true, purchased_cells: purchased, new_balance: newBalance, is_bingo: isBingo }
-      if (bonusEntries != null) purchaseResp.draw_bonus_entries = bonusEntries
+      if (bonusEntries > 0) purchaseResp.draw_bonus_entries = bonusEntries
       return jsonResponse(purchaseResp)
     }
 
@@ -3718,8 +3765,11 @@ Deno.serve(async (req: Request) => {
       // Remove the deed's draw entry (idempotent).
       const deedReversed = await reverseDeedEntry(supabase, completedDeedId, admin.sub, reason)
 
-      // If this deed sat on a bingo card, recompute whether the card still bingos
-      // once this cell is removed. If it no longer bingos, reverse the bonus.
+      // If this deed sat on a bingo card, recompute which lines are still
+      // complete once this cell is removed. Any line that was previously
+      // paid but is no longer complete gets its bonus reversed individually
+      // — a card can have multiple independently-paid lines now, not just
+      // one card-level bonus.
       let bingoReversed = false
       if (deed.source_type === 'bingo_card' && deed.card_id != null) {
         const { data: card } = await supabase
@@ -3732,15 +3782,22 @@ Deno.serve(async (req: Request) => {
           const allCompleted = [...new Set([...completed, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
           const stillBingo = checkBingo(allCompleted, card.win_condition)
 
+          const stillCompleteLines = new Set(completedLineIndices(allCompleted))
+          const previouslyAwardedLines: number[] = Array.isArray(card.bonus_lines_awarded) ? card.bonus_lines_awarded : []
+          const linesToReverse = previouslyAwardedLines.filter((i) => !stillCompleteLines.has(i))
+          const remainingAwardedLines = previouslyAwardedLines.filter((i) => stillCompleteLines.has(i))
+
           // Reflect the removal on the card itself.
           await supabase.from('player_cards').update({
             completed_cells: JSON.stringify(completed),
             is_bingo: stillBingo,
+            bonus_lines_awarded: JSON.stringify(remainingAwardedLines),
             updated_at: new Date().toISOString(),
           }).eq('id', card.id)
 
-          if (!stillBingo && card.is_bingo) {
-            bingoReversed = await reverseBingoBonus(supabase, card.id, card.week_year, card.play_cycle ?? 0, admin.sub, reason)
+          for (const lineIndex of linesToReverse) {
+            const reversed = await reverseBingoBonus(supabase, card.id, card.week_year, card.play_cycle ?? 0, lineIndex, admin.sub, reason)
+            if (reversed) bingoReversed = true
           }
         }
       }
@@ -4753,26 +4810,29 @@ Deno.serve(async (req: Request) => {
       const allCompleted = [...new Set([...updatedCompleted, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
       const isBingo = checkBingo(allCompleted, card.win_condition)
 
+      const existingLines: number[] = Array.isArray(card.bonus_lines_awarded) ? card.bonus_lines_awarded : []
+      const newLineIndices = completedLineIndices(allCompleted).filter((i) => !existingLines.includes(i))
+
       await supabase.from('player_cards').update({
         card_data: JSON.stringify(cells),
         completed_cells: JSON.stringify(updatedCompleted),
         is_bingo: isBingo,
+        bonus_lines_awarded: JSON.stringify([...existingLines, ...newLineIndices]),
         updated_at: new Date().toISOString(),
       }).eq('id', card_id)
 
-      // First time this card reaches Bingo (any win_condition — one_line, two_lines,
-      // etc. are already evaluated as a single card-level threshold by checkBingo,
-      // so this one award covers every line satisfied by the reveal): award bingo
-      // bonus + congratulate by email, same as mark-cell.
-      const bonusEntries = await awardBingoIfNewlyWon(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0, winCondition: card.win_condition,
+      // Award any newly-completed lines' bonuses + congratulate by email on
+      // first win, same as mark-cell.
+      const bonusEntries = await awardNewBingoLines(supabase, {
+        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0,
+        newLineIndices, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })
 
       result.is_bingo = isBingo
       result.completed_cells = updatedCompleted
-      if (bonusEntries != null) result.draw_bonus_entries = bonusEntries
+      if (bonusEntries > 0) result.draw_bonus_entries = bonusEntries
       return jsonResponse(result)
     }
 
@@ -4861,10 +4921,14 @@ Deno.serve(async (req: Request) => {
       const allCompleted = [...new Set([...updatedCompleted, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
       const isBingo = checkBingo(allCompleted, card.win_condition)
 
+      const existingLines: number[] = Array.isArray(card.bonus_lines_awarded) ? card.bonus_lines_awarded : []
+      const newLineIndices = completedLineIndices(allCompleted).filter((i) => !existingLines.includes(i))
+
       await supabase.from('player_cards').update({
         card_data: JSON.stringify(cells),
         completed_cells: JSON.stringify(updatedCompleted),
         is_bingo: isBingo,
+        bonus_lines_awarded: JSON.stringify([...existingLines, ...newLineIndices]),
         updated_at: new Date().toISOString(),
       }).eq('id', card_id)
 
@@ -4873,12 +4937,13 @@ Deno.serve(async (req: Request) => {
         completed_cells: updatedCompleted, is_bingo: isBingo,
       }
 
-      const bonusEntries = await awardBingoIfNewlyWon(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0, winCondition: card.win_condition,
+      const bonusEntries = await awardNewBingoLines(supabase, {
+        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0,
+        newLineIndices, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })
-      if (bonusEntries != null) result.draw_bonus_entries = bonusEntries
+      if (bonusEntries > 0) result.draw_bonus_entries = bonusEntries
 
       return jsonResponse(result)
     }

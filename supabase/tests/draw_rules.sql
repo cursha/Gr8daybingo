@@ -78,7 +78,29 @@ BEGIN
   PERFORM _assert(led IS NULL, 'case16 duplicate within same cycle still NULL');
   PERFORM _assert(_active('u4')=41, 'case16 active unchanged after dup');
 
-  RAISE NOTICE 'cases 1-5,15,16 PASS';
+  -- ── Case 17: multiple lines on the SAME card+cycle → each pays independently ──
+  -- Simulates one move completing 2 lines at once, or two separate moves
+  -- each completing a new line — every distinct line index is its own bonus,
+  -- uncapped, and a duplicate of an already-paid line is still a no-op.
+  PERFORM draw_award_bingo('u4',103,wy,10,1,0);          -- cycle 1, line 0
+  PERFORM _assert(_active('u4')=51, 'case17 new line on same cycle: 41+10=51');
+  PERFORM draw_award_bingo('u4',103,wy,10,1,1);          -- cycle 1, line 1 (different line)
+  PERFORM _assert(_active('u4')=61, 'case17 a second distinct line also pays: 51+10=61');
+  led := draw_award_bingo('u4',103,wy,10,1,0);           -- duplicate of line 0 within cycle 1
+  PERFORM _assert(led IS NULL, 'case17 duplicate of an already-paid line still NULL');
+  PERFORM _assert(_active('u4')=61, 'case17 active unchanged after line dup');
+
+  -- ── Case 18: per-line reversal — reversing one line leaves another intact ──
+  PERFORM draw_award_bingo('u3',301,wy,10,0,0);          -- fresh card, cycle 0, line 0
+  PERFORM draw_award_bingo('u3',301,wy,10,0,1);          -- same card+cycle, line 1
+  PERFORM _assert(_active('u3')=25, 'case18 pre: 5(prior)+10+10=25');
+  PERFORM draw_reverse_bingo(p_card_id => 301, p_week_year => wy, p_admin => 'admin1', p_cycle => 0, p_line => 0, p_reason => 'reverse line 0 only');
+  PERFORM _assert(_active('u3')=15, 'case18 line0 reversed, line1 remains: 25-10=15');
+  led := draw_reverse_bingo(p_card_id => 301, p_week_year => wy, p_admin => 'admin1', p_cycle => 0, p_line => 0, p_reason => 'dup reverse');
+  PERFORM _assert(led IS NULL, 'case18 duplicate reversal of same line is NULL');
+  PERFORM _assert(_active('u3')=15, 'case18 active unchanged after dup reversal');
+
+  RAISE NOTICE 'cases 1-5,15,16,17,18 PASS';
 END $$;
 
 -- ── Case 10 & 8 & this-week: reversal + participation rollover ───────────────

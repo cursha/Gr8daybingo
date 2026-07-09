@@ -58,14 +58,17 @@ export async function awardDeedEntry(
 
 /** Award the bingo bonus: a server-side random 6-20 entries per bingo (never
  *  a fixed or client-supplied value — each bingo completion gets its own
- *  independent roll). Idempotent per (card, week): draw_apply's unique index
- *  on (event_type, source_event_id) means a retried/duplicate call may roll
- *  again here, but only the first roll that actually inserts a new ledger
- *  row is ever applied — a duplicate's roll is discarded, never double-
- *  awarded. Returns the awarded amount, or null if nothing was awarded. */
+ *  independent roll). Idempotent per (card, week, play cycle): draw_apply's
+ *  unique index on (event_type, source_event_id) means a retried/duplicate
+ *  call may roll again here, but only the first roll that actually inserts a
+ *  new ledger row is ever applied — a duplicate's roll is discarded, never
+ *  double-awarded. A player who wins and hits "Start New Game" (bumping
+ *  cycle via POST /reset-card) earns a fresh independent roll on their next
+ *  win in the same week. Returns the awarded amount, or null if nothing was
+ *  awarded. */
 export async function awardBingoBonus(
   supabase: SupabaseClient,
-  opts: { playerId: string; cardId: number; weekYear: string; settings?: DrawSettings },
+  opts: { playerId: string; cardId: number; weekYear: string; cycle: number; settings?: DrawSettings },
 ): Promise<number | null> {
   const settings = opts.settings ?? (await getDrawSettings(supabase))
   if (!bingoShouldAward(settings)) return null
@@ -75,6 +78,7 @@ export async function awardBingoBonus(
     p_card_id: opts.cardId,
     p_week_year: opts.weekYear,
     p_bonus: bonus,
+    p_cycle: opts.cycle,
   })
   if (error) { console.error('awardBingoBonus rpc error:', error); return null }
   return data != null ? bonus : null // null = duplicate / no-op
@@ -94,10 +98,10 @@ export async function reverseDeedEntry(
 }
 
 export async function reverseBingoBonus(
-  supabase: SupabaseClient, cardId: number, weekYear: string, adminId: string, reason?: string,
+  supabase: SupabaseClient, cardId: number, weekYear: string, cycle: number, adminId: string, reason?: string,
 ): Promise<boolean> {
   const { data, error } = await supabase.rpc('draw_reverse_bingo', {
-    p_card_id: cardId, p_week_year: weekYear, p_admin: adminId,
+    p_card_id: cardId, p_week_year: weekYear, p_cycle: cycle, p_admin: adminId,
     p_reason: reason ?? 'Bingo reversed by admin',
   })
   if (error) { console.error('reverseBingoBonus rpc error:', error); return false }

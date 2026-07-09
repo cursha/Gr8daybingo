@@ -69,7 +69,16 @@ BEGIN
   PERFORM draw_award_deed(cd,'u4',wy,1,false);           -- duplicate completed_deed id
   PERFORM _assert(_active('u4')=31, 'case15 active unchanged after dup');
 
-  RAISE NOTICE 'cases 1-5,15 PASS';
+  -- ── Case 16: new play_cycle on the same card → independent bonus roll ─────
+  -- Simulates "Start New Game" (POST /reset-card bumps play_cycle) then
+  -- winning again in the same week — must NOT be treated as a duplicate.
+  PERFORM draw_award_bingo('u4',103,wy,10,1);            -- cycle 1, same card:week
+  PERFORM _assert(_active('u4')=41, 'case16 new cycle awards again: 31+10=41');
+  led := draw_award_bingo('u4',103,wy,10,1);             -- duplicate WITHIN cycle 1
+  PERFORM _assert(led IS NULL, 'case16 duplicate within same cycle still NULL');
+  PERFORM _assert(_active('u4')=41, 'case16 active unchanged after dup');
+
+  RAISE NOTICE 'cases 1-5,15,16 PASS';
 END $$;
 
 -- ── Case 10 & 8 & this-week: reversal + participation rollover ───────────────
@@ -95,7 +104,7 @@ BEGIN
   PERFORM draw_award_bingo('u2',201,wy,10);
   PERFORM _assert(_active('u2')=12, 'case11 pre 1(prev)+1+10=12');
   PERFORM draw_reverse_deed(cd,'admin1','reverse bingo-causing deed');
-  PERFORM draw_reverse_bingo(201,wy,'admin1','bingo undone');
+  PERFORM draw_reverse_bingo(p_card_id => 201, p_week_year => wy, p_admin => 'admin1', p_reason => 'bingo undone');
   PERFORM _assert(_active('u2')=1, 'case11 back to the earlier 1');
 
   RAISE NOTICE 'cases 10,11 PASS';

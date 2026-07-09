@@ -308,6 +308,7 @@ async function awardBingoIfNewlyWon(
     playerId: string
     cardId: number
     weekYear: string
+    playCycle: number
     winCondition: string
     wasAlreadyBingo: boolean
     isBingoNow: boolean
@@ -318,7 +319,7 @@ async function awardBingoIfNewlyWon(
   if (!opts.isBingoNow || opts.wasAlreadyBingo) return null
   const drawSettings = await getDrawSettings(supabase)
   const bonusEntries = await awardBingoBonus(supabase, {
-    playerId: opts.playerId, cardId: opts.cardId, weekYear: opts.weekYear, settings: drawSettings,
+    playerId: opts.playerId, cardId: opts.cardId, weekYear: opts.weekYear, cycle: opts.playCycle, settings: drawSettings,
   })
   if (opts.userEmail) {
     const tpl = bingoWinEmail(opts.userName ?? null, winLabel(opts.winCondition))
@@ -1013,7 +1014,7 @@ Deno.serve(async (req: Request) => {
 
       // First time the card reaches Bingo: award bingo bonus + congratulate by email.
       const bonusEntries = await awardBingoIfNewlyWon(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: card.week_year, winCondition: card.win_condition,
+        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })
@@ -1044,11 +1045,16 @@ Deno.serve(async (req: Request) => {
       if (!card) return errorResponse('No card to reset', 404)
       if (card.game_mode === 'blackout') return errorResponse('Not available in Blackout mode', 400)
 
+      // Bump play_cycle so a win-then-reset loop earns its own independent
+      // bingo bonus roll (see awardBingoBonus) instead of being a no-op
+      // against the same card+week idempotency key as the prior win.
+      const nextCycle = (card.play_cycle ?? 0) + 1
       await supabase.from('player_cards').update({
         completed_cells: '[]',
         purchased_cells: '[]',
         referral_cells: '[]',
         is_bingo: false,
+        play_cycle: nextCycle,
         updated_at: new Date().toISOString(),
       }).eq('id', card.id)
 
@@ -1272,7 +1278,7 @@ Deno.serve(async (req: Request) => {
       // Note: a purchased square is not a completed deed, so it earns NO deed entry,
       // but it CAN complete a bingo, which still earns the random 6-20 bonus.
       const bonusEntries = await awardBingoIfNewlyWon(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: card.week_year, winCondition: card.win_condition,
+        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })
@@ -3734,7 +3740,7 @@ Deno.serve(async (req: Request) => {
           }).eq('id', card.id)
 
           if (!stillBingo && card.is_bingo) {
-            bingoReversed = await reverseBingoBonus(supabase, card.id, card.week_year, admin.sub, reason)
+            bingoReversed = await reverseBingoBonus(supabase, card.id, card.week_year, card.play_cycle ?? 0, admin.sub, reason)
           }
         }
       }
@@ -4759,7 +4765,7 @@ Deno.serve(async (req: Request) => {
       // so this one award covers every line satisfied by the reveal): award bingo
       // bonus + congratulate by email, same as mark-cell.
       const bonusEntries = await awardBingoIfNewlyWon(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: card.week_year, winCondition: card.win_condition,
+        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })
@@ -4868,7 +4874,7 @@ Deno.serve(async (req: Request) => {
       }
 
       const bonusEntries = await awardBingoIfNewlyWon(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: card.week_year, winCondition: card.win_condition,
+        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })

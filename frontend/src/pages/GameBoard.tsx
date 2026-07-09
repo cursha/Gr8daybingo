@@ -60,7 +60,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, PartyPopper, Medal, LogOut, Printer, ChevronDown, Shuffle } from 'lucide-react';
+import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Medal, LogOut, Printer, ChevronDown, Shuffle } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { downloadBingoCardPdf, downloadTeamCardsPdf, TeamMemberCard } from '@/lib/bingo-pdf';
 
@@ -1283,41 +1283,28 @@ const GameBoard: React.FC = () => {
           </div>
         </div>
 
-        {/* ========== BINGO BANNER — celebratory, does not block continued play.
-            A player who wins keeps playing the same card all the way to end
-            of week: more completed deeds keep earning votes, and every
-            additional line completed earns its own 6-20 bonus roll. Start
-            Over (reset) is an optional voluntary action, not required. ========== */}
+        {/* ========== BINGO STRIP — celebratory, compact, does not block or
+            crowd out continued play. A player who wins keeps playing the
+            same card all the way to end of week: more completed deeds keep
+            earning votes, and every additional line completed earns its own
+            6-20 bonus roll. Start Over (reset) is an optional voluntary
+            action, not required — kept as a small text link, not a CTA. ==== */}
         {card?.is_bingo && (
-          <div className="mb-4 rounded-xl overflow-hidden border-2 border-amber-400/60 bg-gradient-to-r from-amber-500/20 via-rose-500/20 to-emerald-500/20 backdrop-blur-sm shadow-xl animate-in fade-in slide-in-from-top-2 duration-500">
-            <div className="flex flex-col sm:flex-row items-center gap-3 p-4">
-              <div className="flex items-center gap-3 flex-1">
-                <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-full p-2.5 shadow-lg flex-shrink-0">
-                  <Trophy className="w-6 h-6 text-white" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] uppercase tracking-wider text-amber-300 font-bold flex items-center gap-1">
-                    <PartyPopper className="w-3 h-3" /> Bingo!
-                  </p>
-                  <p className="text-sm sm:text-base font-bold text-white">
-                    Keep playing — more deeds and more bingos both earn more entries, all the way to the end of the week.
-                  </p>
-                  {typeof card?.draw_bonus_entries === 'number' && (
-                    <p className="text-xs text-amber-200 mt-0.5">🎟 You just earned {card.draw_bonus_entries} entries into this week's draw!</p>
-                  )}
-                </div>
-              </div>
-              <Button
-                onClick={handleStartNewGame}
-                disabled={actionLoading}
-                variant="outline"
-                size="sm"
-                className="border-white/30 text-white/80 hover:text-white hover:bg-white/10 w-full sm:w-auto flex-shrink-0"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${actionLoading ? 'animate-spin' : ''}`} />
-                Start Over
-              </Button>
-            </div>
+          <div className="mb-4 rounded-lg border border-amber-400/40 bg-amber-500/10 backdrop-blur-sm px-3 py-2 flex items-center gap-2">
+            <Trophy className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <p className="text-xs sm:text-sm font-semibold text-amber-100 flex-1 min-w-0 truncate">
+              Bingo! Keep playing for more entries.
+              {typeof card?.draw_bonus_entries === 'number' && (
+                <span className="text-amber-300"> 🎟 +{card.draw_bonus_entries} this move!</span>
+              )}
+            </p>
+            <button
+              onClick={handleStartNewGame}
+              disabled={actionLoading}
+              className="text-[11px] text-white/50 hover:text-white underline underline-offset-2 flex-shrink-0 disabled:opacity-50"
+            >
+              Start Over
+            </button>
           </div>
         )}
 

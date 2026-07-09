@@ -1507,10 +1507,11 @@ Deno.serve(async (req: Request) => {
       requireAuth(authUser)
       const { data } = await supabase
         .from('good_deeds')
-        .select('id, deed_text, deed_text_long, category')
+        .select('id, deed_text, deed_text_long, category, quick_tap_label')
         .eq('quick_tap_eligible', true)
         .eq('is_active', true)
         .eq('status', 'Approved')
+        .not('quick_tap_label', 'is', null)
         .order('deed_text')
       return jsonResponse({ deeds: data ?? [] })
     }
@@ -1520,22 +1521,23 @@ Deno.serve(async (req: Request) => {
       const user = requireAuth(authUser)
       const { data: custom } = await supabase
         .from('user_quick_tap_deeds')
-        .select('deed_id, position, good_deeds(id, deed_text, deed_text_long, category, quick_tap_eligible, is_active, status)')
+        .select('deed_id, position, good_deeds(id, deed_text, deed_text_long, category, quick_tap_label, quick_tap_eligible, is_active, status)')
         .eq('user_id', user.sub)
         .order('position')
       const customDeeds = (custom ?? [])
-        .map((r) => r.good_deeds as unknown as { id: number; deed_text: string; deed_text_long: string | null; category: string; quick_tap_eligible: boolean; is_active: boolean; status: string } | null)
-        .filter((d): d is NonNullable<typeof d> => d != null && d.quick_tap_eligible && d.is_active && d.status === 'Approved')
+        .map((r) => r.good_deeds as unknown as { id: number; deed_text: string; deed_text_long: string | null; category: string; quick_tap_label: string | null; quick_tap_eligible: boolean; is_active: boolean; status: string } | null)
+        .filter((d): d is NonNullable<typeof d> => d != null && d.quick_tap_eligible && d.is_active && d.status === 'Approved' && d.quick_tap_label != null)
       if (customDeeds.length > 0) {
-        return jsonResponse({ source: 'custom', deeds: customDeeds.map((d) => ({ id: d.id, deed_text: d.deed_text, deed_text_long: d.deed_text_long, category: d.category })) })
+        return jsonResponse({ source: 'custom', deeds: customDeeds.map((d) => ({ id: d.id, deed_text: d.deed_text, deed_text_long: d.deed_text_long, category: d.category, quick_tap_label: d.quick_tap_label })) })
       }
       const { data: defaults } = await supabase
         .from('good_deeds')
-        .select('id, deed_text, deed_text_long, category')
+        .select('id, deed_text, deed_text_long, category, quick_tap_label')
         .eq('quick_tap_eligible', true)
         .eq('quick_tap_default', true)
         .eq('is_active', true)
         .eq('status', 'Approved')
+        .not('quick_tap_label', 'is', null)
         .order('deed_text')
       return jsonResponse({ source: 'default', deeds: defaults ?? [] })
     }
@@ -1547,7 +1549,7 @@ Deno.serve(async (req: Request) => {
       const deedIds: number[] = (body.deed_ids ?? []).map(Number).filter((n: number) => Number.isFinite(n) && n > 0)
       if (deedIds.length < 1 || deedIds.length > 3) return errorResponse('Choose 1 to 3 deeds', 400)
       const { data: valid } = await supabase
-        .from('good_deeds').select('id').in('id', deedIds).eq('quick_tap_eligible', true).eq('is_active', true).eq('status', 'Approved')
+        .from('good_deeds').select('id').in('id', deedIds).eq('quick_tap_eligible', true).eq('is_active', true).eq('status', 'Approved').not('quick_tap_label', 'is', null)
       if ((valid ?? []).length !== deedIds.length) return errorResponse('One or more deeds are not eligible', 400)
       await supabase.from('user_quick_tap_deeds').delete().eq('user_id', user.sub)
       await supabase.from('user_quick_tap_deeds').insert(deedIds.map((id, i) => ({ user_id: user.sub, deed_id: id, position: i })))
@@ -1582,13 +1584,14 @@ Deno.serve(async (req: Request) => {
       requireAuth(authUser)
       const { data } = await supabase
         .from('admin_spotlight_quick_tap')
-        .select('deed_id, week_year, good_deeds(id, deed_text, deed_text_long, category)')
+        .select('deed_id, week_year, good_deeds(id, deed_text, deed_text_long, category, quick_tap_label)')
         .eq('id', 1).maybeSingle()
 
-      if (!data || data.week_year !== getCurrentWeekYear() || !data.good_deeds) {
+      const deed = data?.good_deeds as unknown as { id: number; deed_text: string; deed_text_long: string | null; category: string; quick_tap_label: string | null } | null
+      if (!data || data.week_year !== getCurrentWeekYear() || !deed || deed.quick_tap_label == null) {
         return jsonResponse({ deed: null })
       }
-      return jsonResponse({ deed: data.good_deeds })
+      return jsonResponse({ deed })
     }
 
     // ── Admin: POST /admin/spotlight-quick-tap ────────────────────────────────
@@ -1604,8 +1607,9 @@ Deno.serve(async (req: Request) => {
       const { data: deed } = await supabase
         .from('good_deeds').select('id').eq('id', deedId)
         .eq('quick_tap_eligible', true).eq('is_active', true).eq('status', 'Approved')
+        .not('quick_tap_label', 'is', null)
         .maybeSingle()
-      if (!deed) return errorResponse('Deed must be an active, approved, Quick-Tap-eligible deed', 400)
+      if (!deed) return errorResponse('Deed must be an active, approved, Quick-Tap-eligible deed with a Quick Tap label set', 400)
 
       await supabase.from('admin_spotlight_quick_tap').update({
         deed_id: deedId,
@@ -2734,7 +2738,8 @@ Deno.serve(async (req: Request) => {
           id: d.id, deed_text: d.deed_text, deed_text_long: d.deed_text_long ?? null,
           category: d.category, is_active: d.is_active, complexity: d.complexity ?? null,
           quantity: d.quantity ?? 1, quick_tap_eligible: d.quick_tap_eligible ?? false,
-          quick_tap_default: d.quick_tap_default ?? false, status: d.status ?? 'Draft',
+          quick_tap_default: d.quick_tap_default ?? false, quick_tap_label: d.quick_tap_label ?? null,
+          status: d.status ?? 'Draft',
         })),
       })
     }
@@ -2745,6 +2750,10 @@ Deno.serve(async (req: Request) => {
       const body = await req.json()
       const VALID_STATUSES = ['Draft', 'Review', 'Approved', 'Retired']
       if (!String(body.category ?? '').trim()) return errorResponse('A category is required', 400)
+      const quickTapEligible = body.quick_tap_eligible === true
+      const quickTapLabel = body.quick_tap_label != null ? String(body.quick_tap_label).trim() : ''
+      if (quickTapLabel.length > 36) return errorResponse('Quick Tap label must be 36 characters or fewer', 400)
+      if (quickTapEligible && !quickTapLabel) return errorResponse('Quick Tap label is required when Quick Tap eligible is on', 400)
       const { data, error } = await supabase.from('good_deeds').insert({
         deed_text: body.deed_text ?? '',
         deed_text_long: body.deed_text_long || null,
@@ -2752,8 +2761,9 @@ Deno.serve(async (req: Request) => {
         is_active: body.is_active ?? true,
         complexity: body.complexity != null ? Number(body.complexity) : null,
         quantity: body.quantity != null ? Math.max(1, Math.round(Number(body.quantity)) || 1) : 1,
-        quick_tap_eligible: body.quick_tap_eligible === true,
+        quick_tap_eligible: quickTapEligible,
         quick_tap_default: body.quick_tap_default === true,
+        quick_tap_label: quickTapLabel || null,
         status: VALID_STATUSES.includes(body.status) ? body.status : 'Draft',
       }).select().single()
       if (error) {
@@ -2761,7 +2771,7 @@ Deno.serve(async (req: Request) => {
         if (friendly) return errorResponse(friendly, 400)
         throw error
       }
-      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active, complexity: data.complexity ?? null, quantity: data.quantity ?? 1, quick_tap_eligible: data.quick_tap_eligible ?? false, quick_tap_default: data.quick_tap_default ?? false, status: data.status ?? 'Draft' })
+      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active, complexity: data.complexity ?? null, quantity: data.quantity ?? 1, quick_tap_eligible: data.quick_tap_eligible ?? false, quick_tap_default: data.quick_tap_default ?? false, quick_tap_label: data.quick_tap_label ?? null, status: data.status ?? 'Draft' })
     }
 
     // ── POST /admin/deeds/bulk-status ─────────────────────────────────────────
@@ -2857,6 +2867,12 @@ Deno.serve(async (req: Request) => {
         // Blank/invalid status: leave existing rows untouched, default new rows to Draft.
         const statusRaw = row.status != null ? String(row.status).trim() : ''
         const statusVal = validStatuses.has(statusRaw) ? statusRaw : null
+
+        const quickTapEligibleVal = parseStrictBool(row.quick_tap_eligible)
+        const quickTapLabelVal = row.quick_tap_label ? String(row.quick_tap_label).trim() : ''
+        if (quickTapLabelVal.length > 36) { skipped++; warnings.push(`Row "${text}" skipped — quick_tap_label must be 36 characters or fewer`); continue }
+        if (quickTapEligibleVal && !quickTapLabelVal) { skipped++; warnings.push(`Row "${text}" skipped — quick_tap_label is required when quick_tap_eligible is true`); continue }
+
         const payload: Record<string, unknown> = {
           deed_text: text,
           deed_text_long: row.deed_text_long ? String(row.deed_text_long).trim() || null : null,
@@ -2864,8 +2880,9 @@ Deno.serve(async (req: Request) => {
           complexity: complexityVal,
           quantity: parseQuantity(row.quantity),
           is_active: parseStrictBool(row.is_active),
-          quick_tap_eligible: parseStrictBool(row.quick_tap_eligible),
+          quick_tap_eligible: quickTapEligibleVal,
           quick_tap_default: parseStrictBool(row.quick_tap_default),
+          quick_tap_label: quickTapLabelVal || null,
         }
 
         // Determine the target row: explicit id wins, else match by name.
@@ -2994,7 +3011,25 @@ Deno.serve(async (req: Request) => {
       if ('quantity' in body) updates.quantity = body.quantity != null ? Math.max(1, Math.round(Number(body.quantity)) || 1) : 1
       if ('quick_tap_eligible' in body) updates.quick_tap_eligible = body.quick_tap_eligible === true
       if ('quick_tap_default' in body) updates.quick_tap_default = body.quick_tap_default === true
+      if ('quick_tap_label' in body) {
+        const label = body.quick_tap_label != null ? String(body.quick_tap_label).trim() : ''
+        if (label.length > 36) return errorResponse('Quick Tap label must be 36 characters or fewer', 400)
+        updates.quick_tap_label = label || null
+      }
       if ('status' in body && ['Draft', 'Review', 'Approved', 'Retired'].includes(body.status)) updates.status = body.status
+
+      // Validate the RESULTING state, not just what's in this PUT body — a
+      // toggle-only PUT (no label field) against a deed that's still
+      // label-less must be rejected too, same as a label-only PUT that would
+      // leave quick_tap_eligible=true with an empty label.
+      if ('quick_tap_eligible' in updates || 'quick_tap_label' in updates) {
+        const { data: existing } = await supabase.from('good_deeds')
+          .select('quick_tap_eligible, quick_tap_label').eq('id', parseInt(deedPutMatch.id)).maybeSingle()
+        const effectiveEligible = 'quick_tap_eligible' in updates ? updates.quick_tap_eligible === true : (existing?.quick_tap_eligible ?? false)
+        const effectiveLabel = 'quick_tap_label' in updates ? updates.quick_tap_label : (existing?.quick_tap_label ?? null)
+        if (effectiveEligible && !effectiveLabel) return errorResponse('Quick Tap label is required when Quick Tap eligible is on', 400)
+      }
+
       const { data, error } = await supabase.from('good_deeds')
         .update(updates).eq('id', parseInt(deedPutMatch.id)).select().maybeSingle()
       if (error) {
@@ -3003,7 +3038,7 @@ Deno.serve(async (req: Request) => {
         throw error
       }
       if (!data) return errorResponse('Deed not found', 404)
-      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active, complexity: data.complexity ?? null, quantity: data.quantity ?? 1, quick_tap_eligible: data.quick_tap_eligible ?? false, quick_tap_default: data.quick_tap_default ?? false, status: data.status ?? 'Draft' })
+      return jsonResponse({ id: data.id, deed_text: data.deed_text, deed_text_long: data.deed_text_long, category: data.category, is_active: data.is_active, complexity: data.complexity ?? null, quantity: data.quantity ?? 1, quick_tap_eligible: data.quick_tap_eligible ?? false, quick_tap_default: data.quick_tap_default ?? false, quick_tap_label: data.quick_tap_label ?? null, status: data.status ?? 'Draft' })
     }
 
     // ── DELETE /admin/deeds/:id ───────────────────────────────────────────────

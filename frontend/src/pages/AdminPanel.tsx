@@ -130,9 +130,9 @@ const AdminPanel: React.FC = () => {
   const [blackoutWeights, setBlackoutWeights] = useState<Record<'0' | '1' | '2' | '3', string>>({ '0': '55', '1': '25', '2': '15', '3': '5' });
   const [blackoutWeightsLoaded, setBlackoutWeightsLoaded] = useState(false);
   const [blackoutWeightsSaving, setBlackoutWeightsSaving] = useState(false);
-  const [newDeed, setNewDeed] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false, status: 'Draft' });
+  const [newDeed, setNewDeed] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false, quick_tap_label: '', status: 'Draft' });
   const [editingDeed, setEditingDeed] = useState<number | null>(null);
-  const [editDeedData, setEditDeedData] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false, status: 'Draft' });
+  const [editDeedData, setEditDeedData] = useState({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false, quick_tap_label: '', status: 'Draft' });
   const [targetingAttributes, setTargetingAttributes] = useState<TargetingAttribute[]>([]);
   const [newDeedTargeting, setNewDeedTargeting] = useState<Set<number>>(new Set());
   const [editDeedTargeting, setEditDeedTargeting] = useState<Set<number>>(new Set());
@@ -889,6 +889,15 @@ const AdminPanel: React.FC = () => {
       toast.error('Gr8Day Deed text is required');
       return;
     }
+    const quickTapLabel = newDeed.quick_tap_label.trim();
+    if (quickTapLabel.length > 36) {
+      toast.error('Quick Tap label must be 36 characters or fewer');
+      return;
+    }
+    if (newDeed.quick_tap_eligible && !quickTapLabel) {
+      toast.error('Quick Tap label is required when Quick Tap eligible is on');
+      return;
+    }
     try {
       const created = await createAdminDeed({
         deed_text: newDeed.deed_text.trim(),
@@ -899,10 +908,11 @@ const AdminPanel: React.FC = () => {
         quantity: newDeed.quantity ? parseInt(newDeed.quantity) : 1,
         quick_tap_eligible: newDeed.quick_tap_eligible,
         quick_tap_default: newDeed.quick_tap_default,
+        quick_tap_label: quickTapLabel || null,
         status: newDeed.status,
       });
       await setDeedTargeting(created.id, [...newDeedTargeting]);
-      setNewDeed({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false, status: 'Draft' });
+      setNewDeed({ deed_text: '', deed_text_long: '', category: '', complexity: '', quantity: '1', quick_tap_eligible: false, quick_tap_default: false, quick_tap_label: '', status: 'Draft' });
       setNewDeedTargeting(new Set());
       toast.success('Gr8Day Deed added!');
       await loadData();
@@ -927,6 +937,15 @@ const AdminPanel: React.FC = () => {
   };
 
   const handleUpdateDeed = async (id: number) => {
+    const quickTapLabel = editDeedData.quick_tap_label.trim();
+    if (quickTapLabel.length > 36) {
+      toast.error('Quick Tap label must be 36 characters or fewer');
+      return;
+    }
+    if (editDeedData.quick_tap_eligible && !quickTapLabel) {
+      toast.error('Quick Tap label is required when Quick Tap eligible is on');
+      return;
+    }
     try {
       await updateAdminDeed(id, {
         ...editDeedData,
@@ -934,6 +953,7 @@ const AdminPanel: React.FC = () => {
         quantity: editDeedData.quantity ? parseInt(editDeedData.quantity) : 1,
         quick_tap_eligible: editDeedData.quick_tap_eligible,
         quick_tap_default: editDeedData.quick_tap_default,
+        quick_tap_label: quickTapLabel || null,
       });
       await setDeedTargeting(id, [...editDeedTargeting]);
       setEditingDeed(null);
@@ -1027,7 +1047,7 @@ const AdminPanel: React.FC = () => {
     // Targeting column slugs in display_order (matches import expectation).
     const targetingCols = attributes.map((a) => 'targeting_' + a.name.toLowerCase().replace(/\s+/g, '_'));
 
-    const header = ['id', 'category', 'complexity', 'quantity', 'deed_text', 'deed_text_long', 'is_active', 'status', 'quick_tap_eligible', 'quick_tap_default', ...targetingCols].join(',');
+    const header = ['id', 'category', 'complexity', 'quantity', 'deed_text', 'deed_text_long', 'is_active', 'status', 'quick_tap_eligible', 'quick_tap_default', 'quick_tap_label', ...targetingCols].join(',');
     const rows = filtered.map((d) => {
       const deedAttrs = deedTargeting.get(d.id);
       const targetingFields = targetingCols.map((slug) => toCsvField((deedAttrs?.get(slug) ?? []).join('|')));
@@ -1042,6 +1062,7 @@ const AdminPanel: React.FC = () => {
         toCsvField(d.status ?? 'Draft'),
         toCsvField(d.quick_tap_eligible),
         toCsvField(d.quick_tap_default),
+        toCsvField(d.quick_tap_label),
         ...targetingFields,
       ].join(',');
     });
@@ -1182,6 +1203,7 @@ const AdminPanel: React.FC = () => {
           status: row['status'] || '',
           quick_tap_eligible: parseStrictBool(row['quick_tap_eligible']),
           quick_tap_default: parseStrictBool(row['quick_tap_default']),
+          quick_tap_label: row['quick_tap_label'] || '',
         };
         for (const k of targetingKeys) deed[k] = row[k] ?? '';
         return deed;
@@ -2782,10 +2804,24 @@ const AdminPanel: React.FC = () => {
                   </label>
                 )}
               </div>
+              {newDeed.quick_tap_eligible && (
+                <div className="space-y-1">
+                  <Input
+                    placeholder="Quick Tap label (short — shown on the button itself)"
+                    value={newDeed.quick_tap_label}
+                    onChange={(e) => setNewDeed((prev) => ({ ...prev, quick_tap_label: e.target.value }))}
+                    className={newDeed.quick_tap_label.length > 36 ? 'border-red-500 focus-visible:ring-red-500' : ''}
+                  />
+                  <p className={`text-xs text-right ${newDeed.quick_tap_label.length > 36 ? 'text-red-600' : 'text-slate-400'}`}>
+                    {newDeed.quick_tap_label.length}/36
+                  </p>
+                </div>
+              )}
               <TargetingGroupsInput attributes={targetingAttributes} targeting={newDeedTargeting} onChange={setNewDeedTargeting} />
               <div className="flex justify-end">
                 <Button
                   onClick={handleAddDeed}
+                  disabled={newDeed.quick_tap_label.length > 36}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white"
                 >
                   <Plus className="w-4 h-4 mr-1" /> Add Gr8Day Deed
@@ -2914,11 +2950,25 @@ const AdminPanel: React.FC = () => {
                             </label>
                           )}
                         </div>
+                        {editDeedData.quick_tap_eligible && (
+                          <div className="space-y-1">
+                            <Input
+                              placeholder="Quick Tap label (short — shown on the button itself)"
+                              value={editDeedData.quick_tap_label}
+                              onChange={(e) => setEditDeedData((prev) => ({ ...prev, quick_tap_label: e.target.value }))}
+                              className={`h-8 text-sm ${editDeedData.quick_tap_label.length > 36 ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                            />
+                            <p className={`text-xs text-right ${editDeedData.quick_tap_label.length > 36 ? 'text-red-600' : 'text-slate-400'}`}>
+                              {editDeedData.quick_tap_label.length}/36
+                            </p>
+                          </div>
+                        )}
                         <div className="flex items-center justify-end gap-1">
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => handleUpdateDeed(deed.id)}
+                            disabled={editDeedData.quick_tap_label.length > 36}
                           >
                             <Save className="w-3.5 h-3.5 text-emerald-600 mr-1" />
                             Save
@@ -3009,6 +3059,7 @@ const AdminPanel: React.FC = () => {
                                 quantity: deed.quantity != null ? String(deed.quantity) : '1',
                                 quick_tap_eligible: deed.quick_tap_eligible ?? false,
                                 quick_tap_default: deed.quick_tap_default ?? false,
+                                quick_tap_label: deed.quick_tap_label ?? '',
                                 status: deed.status ?? 'Draft',
                               });
                               try {

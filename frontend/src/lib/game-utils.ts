@@ -224,6 +224,7 @@ export interface DeedItem {
   quantity?: number | null;
   quick_tap_eligible?: boolean;
   quick_tap_default?: boolean;
+  quick_tap_label?: string | null;
   status?: string;
 }
 
@@ -232,6 +233,7 @@ export interface QuickTapDeed {
   deed_text: string;
   deed_text_long: string | null;
   category: string;
+  quick_tap_label: string | null;
 }
 
 // API calls
@@ -676,6 +678,7 @@ export async function createAdminDeed(deed: {
   quantity?: number;
   quick_tap_eligible?: boolean;
   quick_tap_default?: boolean;
+  quick_tap_label?: string | null;
   status?: string;
 }) {
   return apiClient.post<DeedItem>('/game/admin/deeds', deed);

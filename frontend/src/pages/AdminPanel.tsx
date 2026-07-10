@@ -1435,6 +1435,7 @@ const AdminPanel: React.FC = () => {
 
   const prizeImageUrl = editConfigs['prize_image_url'] || '';
   const prizeTitle = editConfigs['prize_title'] || '';
+  const prizeVoucherCode = editConfigs['prize_voucher_code'] || '';
 
   const currentWinCondition = editConfigs['win_condition'] || 'one_line';
   const selectedWC = WIN_CONDITIONS.find((wc) => wc.id === currentWinCondition);
@@ -2214,6 +2215,22 @@ const AdminPanel: React.FC = () => {
               </div>
               <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
                 <Upload className="w-3 h-3" /> Host your image anywhere (e.g. Imgur, Cloudinary, S3) and paste the direct link here.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-slate-700 mb-1 block">Prize Voucher Code</label>
+              <Input
+                type="text"
+                placeholder="e.g. HAVAGR8-XXXX-XXXX"
+                value={prizeVoucherCode}
+                onChange={(e) =>
+                  setEditConfigs((prev) => ({ ...prev, prize_voucher_code: e.target.value }))
+                }
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                Private — never shown publicly. Emailed automatically to the winner the moment you mark their
+                prize claim "Fulfilled" below.
               </p>
             </div>
 

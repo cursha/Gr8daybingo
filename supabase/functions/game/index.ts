@@ -1,7 +1,7 @@
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { getAuthUser, requireAuth, requireAdmin } from '../_shared/auth.ts'
 import { getSupabase, getSubPath, matchPath } from '../_shared/db.ts'
-import { sendEmail, passwordResetEmail, adminLockoutEmail, adminPasswordResetEmail, referralInviteEmail, bingoWinEmail, prizeClaimConfirmationEmail, gameAnnouncementEmail, newGameLaunchEmail } from '../_shared/email.ts'
+import { sendEmail, passwordResetEmail, adminLockoutEmail, adminPasswordResetEmail, referralInviteEmail, bingoWinEmail, prizeClaimConfirmationEmail, prizeVoucherEmail, gameAnnouncementEmail, newGameLaunchEmail } from '../_shared/email.ts'
 import {
   getDrawSettings, awardDeedEntry, awardBingoBonus,
   reverseDeedEntry, reverseBingoBonus, manualAdjust, runWeeklyDraw,
@@ -3889,10 +3889,33 @@ Deno.serve(async (req: Request) => {
       if (!['pending', 'contacted', 'fulfilled', 'rejected'].includes(status)) {
         return errorResponse('Invalid status', 400)
       }
+      const claimId = parseInt(claimMatch.id)
+      const { data: existingClaim } = await supabase
+        .from('prize_claims').select('full_name, email, status').eq('id', claimId).maybeSingle()
       const { error } = await supabase.from('prize_claims')
         .update({ status, updated_at: new Date().toISOString() })
-        .eq('id', parseInt(claimMatch.id))
+        .eq('id', claimId)
       if (error) throw error
+
+      // Email the voucher code the moment a claim newly becomes "fulfilled" —
+      // never on re-saving an already-fulfilled claim, and best-effort so a
+      // send failure never breaks the status update itself.
+      if (status === 'fulfilled' && existingClaim && existingClaim.status !== 'fulfilled' && existingClaim.email) {
+        try {
+          const { data: cfgRows } = await supabase
+            .from('game_configs').select('config_key, config_value')
+            .in('config_key', ['prize_title', 'prize_voucher_code'])
+          const cfg: Record<string, string> = {}
+          for (const r of cfgRows ?? []) cfg[r.config_key] = r.config_value ?? ''
+          if (cfg['prize_voucher_code']) {
+            const tpl = prizeVoucherEmail(existingClaim.full_name ?? null, cfg['prize_title'] ?? null, cfg['prize_voucher_code'])
+            await sendEmail({ to: existingClaim.email, subject: tpl.subject, html: tpl.html })
+          }
+        } catch (err) {
+          console.error('[prize-voucher-email] failed to send', err)
+        }
+      }
+
       return jsonResponse({ success: true })
     }
 

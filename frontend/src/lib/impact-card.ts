@@ -161,7 +161,17 @@ export function renderImpactCard(data: ImpactCardData): Blob {
   return dataUrlToBlob(canvas.toDataURL('image/png'));
 }
 
-/** Shares via the Web Share API when files are supported (mostly mobile),
+// Desktop's Web Share API (Windows Chrome, mainly) opens the OS-level Share
+// flyout, whose useful targets are things like Mail/OneNote — not what a
+// player wants here — and its image preview includes a built-in markup/edit
+// view, which reads as "the button just opens the image for editing." Only
+// worth attempting on touch/mobile devices, where real share targets
+// (Messages, Instagram, WhatsApp) actually exist.
+function isMobileDevice(): boolean {
+  return /Mobi|Android|iPhone|iPad|iPod/.test(navigator.userAgent);
+}
+
+/** Shares via the Web Share API on mobile (where real share targets exist),
  *  otherwise falls back to a plain download — this codebase has no existing
  *  share pattern to match, so this is the new baseline. Image generation is
  *  synchronous (see renderImpactCard) so this reaches navigator.share() as
@@ -170,7 +180,7 @@ export async function shareOrDownloadImpactCard(data: ImpactCardData): Promise<'
   const blob = renderImpactCard(data);
   const file = new File([blob], 'havagr8day-impact.png', { type: 'image/png' });
 
-  if (navigator.share && navigator.canShare?.({ files: [file] })) {
+  if (isMobileDevice() && navigator.share && navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({
         files: [file],

@@ -30,7 +30,20 @@ function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: n
   ctx.closePath();
 }
 
-export async function renderImpactCard(data: ImpactCardData): Promise<Blob> {
+// canvas.toDataURL is synchronous (unlike toBlob, which is a callback-based
+// macrotask) — that matters here because navigator.share() must fire within
+// a narrow window of the user's actual tap, or browsers (Safari especially)
+// silently revoke it and we'd fall back to a plain download instead.
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, base64] = dataUrl.split(',');
+  const mime = header.match(/data:(.*?);base64/)?.[1] ?? 'image/png';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+export function renderImpactCard(data: ImpactCardData): Blob {
   const canvas = document.createElement('canvas');
   canvas.width = WIDTH;
   canvas.height = HEIGHT;
@@ -145,19 +158,16 @@ export async function renderImpactCard(data: ImpactCardData): Promise<Blob> {
   ctx.fillStyle = 'rgba(255,255,255,0.45)';
   ctx.fillText('havagr8day.com', WIDTH / 2, HEIGHT - 60);
 
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) resolve(blob);
-      else reject(new Error('Failed to render image'));
-    }, 'image/png');
-  });
+  return dataUrlToBlob(canvas.toDataURL('image/png'));
 }
 
 /** Shares via the Web Share API when files are supported (mostly mobile),
  *  otherwise falls back to a plain download — this codebase has no existing
- *  share pattern to match, so this is the new baseline. */
+ *  share pattern to match, so this is the new baseline. Image generation is
+ *  synchronous (see renderImpactCard) so this reaches navigator.share() as
+ *  close to the user's tap as possible. */
 export async function shareOrDownloadImpactCard(data: ImpactCardData): Promise<'shared' | 'downloaded'> {
-  const blob = await renderImpactCard(data);
+  const blob = renderImpactCard(data);
   const file = new File([blob], 'havagr8day-impact.png', { type: 'image/png' });
 
   if (navigator.share && navigator.canShare?.({ files: [file] })) {

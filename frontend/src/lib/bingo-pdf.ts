@@ -164,7 +164,7 @@ export function downloadBingoCardPdf(
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(7);
           doc.setTextColor(DARK_GRAY);
-          doc.text(`$${cell.purchase_price}`, x + cellSize - padding, textY, {
+          doc.text(`${cell.purchase_price}`, x + cellSize - padding, textY, {
             align: 'right',
           });
         }
@@ -192,7 +192,7 @@ export function downloadBingoCardPdf(
   doc.setFontSize(9);
   const legendLines = [
     '1. Complete Gr8Day Deeds to mark off squares on your card.',
-    '2. Squares marked with a price ($) can be unlocked by purchase.',
+    '2. Squares marked with a number can be unlocked by purchase (Gr8Day Bucks).',
     '3. Squares marked "REF" are unlocked by referring a friend.',
     '4. Shaded squares with an X are already completed.',
     '5. Match the win condition above to win the game!',

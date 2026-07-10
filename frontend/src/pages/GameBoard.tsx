@@ -494,7 +494,7 @@ const GameBoard: React.FC = () => {
       // Secret Square reveal: celebrate + refresh wallet so the new balance shows.
       if (typeof result.secret_reward === 'number' && result.secret_reward > 0) {
         toast.success(
-          `🎉 You found the Secret Square! +$${result.secret_reward.toFixed(2)} added to your wallet`,
+          `🎉 You found the Secret Square! +${result.secret_reward.toFixed(2)} Gr8Day Bucks added to your wallet`,
           { duration: 5000 }
         );
         try {
@@ -625,7 +625,7 @@ const GameBoard: React.FC = () => {
     if (!cell.is_purchasable) return;
 
     if (!wallet || wallet.balance < (cell.purchase_price || 0)) {
-      toast.error(`Insufficient funds. You need $${cell.purchase_price}. Head to your Wallet to add funds.`);
+      toast.error(`Insufficient Gr8Day Bucks. You need ${cell.purchase_price}. Head to your Wallet to add funds.`);
       return;
     }
 
@@ -644,7 +644,7 @@ const GameBoard: React.FC = () => {
           : null
       );
       setWallet((prev) => (prev ? { ...prev, balance: result.new_balance } : null));
-      toast.success(`Square purchased for $${cell.purchase_price}`);
+      toast.success(`Square purchased for ${cell.purchase_price} Gr8Day Bucks`);
       if (result.is_bingo && !wasAlreadyBingo) {
         setTimeout(() => setShowCelebration(true), 500);
       }
@@ -1117,7 +1117,7 @@ const GameBoard: React.FC = () => {
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="bg-amber-500/20 border border-amber-500/30 text-amber-300 px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1.5">
               <Wallet className="w-3.5 h-3.5" />
-              ${wallet?.balance?.toFixed(2) || '0.00'}
+              {wallet?.balance?.toFixed(2) || '0.00'} Bucks
             </div>
             <Button
               size="sm"

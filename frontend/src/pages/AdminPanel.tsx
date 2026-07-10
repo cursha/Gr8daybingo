@@ -1418,14 +1418,14 @@ const AdminPanel: React.FC = () => {
   }
 
   const configFields = [
-    { key: 'signup_bonus_amount', label: 'Signup Bonus Amount ($)', type: 'number' },
-    { key: 'referral_bonus_amount', label: 'Referral Bonus Amount ($)', type: 'number' },
-    { key: 'dollar1_pct', label: '$0.50 Square Percentage', type: 'number' },
-    { key: 'dollar2_pct', label: '$1.00 Square Percentage', type: 'number' },
-    { key: 'dollar5_pct', label: '$2.00 Square Percentage', type: 'number' },
-    { key: 'secret_reward_1_pct', label: 'Secret Square: $1 Reward %', type: 'number' },
-    { key: 'secret_reward_2_pct', label: 'Secret Square: $2 Reward %', type: 'number' },
-    { key: 'secret_reward_5_pct', label: 'Secret Square: $5 Reward %', type: 'number' },
+    { key: 'signup_bonus_amount', label: 'Signup Bonus Amount (Gr8Day Bucks)', type: 'number' },
+    { key: 'referral_bonus_amount', label: 'Referral Bonus Amount (Gr8Day Bucks)', type: 'number' },
+    { key: 'dollar1_pct', label: '0.50 Bucks Square Percentage', type: 'number' },
+    { key: 'dollar2_pct', label: '1.00 Bucks Square Percentage', type: 'number' },
+    { key: 'dollar5_pct', label: '2.00 Bucks Square Percentage', type: 'number' },
+    { key: 'secret_reward_1_pct', label: 'Secret Square: 1 Buck Reward %', type: 'number' },
+    { key: 'secret_reward_2_pct', label: 'Secret Square: 2 Bucks Reward %', type: 'number' },
+    { key: 'secret_reward_5_pct', label: 'Secret Square: 5 Bucks Reward %', type: 'number' },
     { key: 'geo_drilldown_threshold', label: 'Leaderboard: players before a region drills to cities', type: 'number' },
     { key: 'non_referred_daily_deed_limit', label: 'Non-referred players: max Gr8Day Deeds per 24h (0 = no limit)', type: 'number' },
     { key: 'blackout_min_hidden_remaining', label: 'Blackout: minimum hidden squares remaining (reveal trims back once hit)', type: 'number' },
@@ -2269,10 +2269,10 @@ const AdminPanel: React.FC = () => {
               ))}
             </div>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
-              <strong>Note:</strong> $0.50 + $1.00 + $2.00 percentages should add up to 100%. These control the price distribution of purchasable squares.
+              <strong>Note:</strong> 0.50 + 1.00 + 2.00 Bucks percentages should add up to 100%. These control the price distribution of purchasable squares.
             </div>
             <div className="bg-fuchsia-50 border border-fuchsia-200 rounded-lg p-3 text-sm text-fuchsia-700">
-              <strong>Secret Square:</strong> Every card has one hidden square that secretly awards $1, $2, or $5 to the player's wallet the first time it's marked. The three percentages above should add up to 100%.
+              <strong>Secret Square:</strong> Every card has one hidden square that secretly awards 1, 2, or 5 Gr8Day Bucks to the player's wallet the first time it's marked. The three percentages above should add up to 100%.
             </div>
             <Button onClick={handleSaveConfig} className="bg-indigo-600 hover:bg-indigo-700 text-white">
               <Save className="w-4 h-4 mr-1" /> Save Configuration
@@ -3444,19 +3444,19 @@ const AdminPanel: React.FC = () => {
                         </div>
                         {editBetYaData.action_type === 'fund_credit' && (
                           <div>
-                            <label className="text-xs text-slate-500 font-medium">Credit Amount ($)</label>
+                            <label className="text-xs text-slate-500 font-medium">Credit Amount (Gr8Day Bucks)</label>
                             <Input type="number" min="0" step="0.01" value={editBetYaData.credit_amount} onChange={e => setEditBetYaData(d => ({ ...d, credit_amount: e.target.value }))} className="h-8 text-sm" />
                           </div>
                         )}
                         {editBetYaData.action_type === 'remove_funds' && (
                           <div>
-                            <label className="text-xs text-slate-500 font-medium">Remove Amount ($)</label>
+                            <label className="text-xs text-slate-500 font-medium">Remove Amount (Gr8Day Bucks)</label>
                             <Input type="number" min="0" step="0.01" value={editBetYaData.remove_amount} onChange={e => setEditBetYaData(d => ({ ...d, remove_amount: e.target.value }))} className="h-8 text-sm" />
                           </div>
                         )}
                         {editBetYaData.action_type === 'refer_friend' && (
                           <div>
-                            <label className="text-xs text-slate-500 font-medium">Reward Amount ($)</label>
+                            <label className="text-xs text-slate-500 font-medium">Reward Amount (Gr8Day Bucks)</label>
                             <Input type="number" min="0" step="0.01" value={editBetYaData.reward_amount} onChange={e => setEditBetYaData(d => ({ ...d, reward_amount: e.target.value }))} className="h-8 text-sm" />
                           </div>
                         )}
@@ -3487,13 +3487,13 @@ const AdminPanel: React.FC = () => {
                           <span className="font-semibold text-sm text-slate-800">{outcome.label}</span>
                           <span className="text-xs bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5 text-slate-600">{ACTION_TYPE_LABELS[outcome.action_type]}</span>
                           {outcome.action_type === 'fund_credit' && outcome.credit_amount > 0 && (
-                            <span className="text-xs text-slate-500">${Number(outcome.credit_amount).toFixed(2)}</span>
+                            <span className="text-xs text-slate-500">{Number(outcome.credit_amount).toFixed(2)} Bucks</span>
                           )}
                           {outcome.action_type === 'remove_funds' && outcome.remove_amount > 0 && (
-                            <span className="text-xs text-slate-500">${Number(outcome.remove_amount).toFixed(2)}</span>
+                            <span className="text-xs text-slate-500">{Number(outcome.remove_amount).toFixed(2)} Bucks</span>
                           )}
                           {outcome.action_type === 'refer_friend' && outcome.reward_amount > 0 && (
-                            <span className="text-xs text-slate-500">${Number(outcome.reward_amount).toFixed(2)}</span>
+                            <span className="text-xs text-slate-500">{Number(outcome.reward_amount).toFixed(2)} Bucks</span>
                           )}
                         </div>
                         <span className="text-sm font-bold text-amber-600">{Number(outcome.odds_percent).toFixed(2)}%</span>
@@ -3539,19 +3539,19 @@ const AdminPanel: React.FC = () => {
                 </div>
                 {newBetYa.action_type === 'fund_credit' && (
                   <div>
-                    <label className="text-xs text-slate-500 font-medium">Credit Amount ($)</label>
+                    <label className="text-xs text-slate-500 font-medium">Credit Amount (Gr8Day Bucks)</label>
                     <Input type="number" min="0" step="0.01" placeholder="0.00" value={newBetYa.credit_amount} onChange={e => setNewBetYa(d => ({ ...d, credit_amount: e.target.value }))} className="h-8 text-sm" />
                   </div>
                 )}
                 {newBetYa.action_type === 'remove_funds' && (
                   <div>
-                    <label className="text-xs text-slate-500 font-medium">Remove Amount ($)</label>
+                    <label className="text-xs text-slate-500 font-medium">Remove Amount (Gr8Day Bucks)</label>
                     <Input type="number" min="0" step="0.01" placeholder="0.00" value={newBetYa.remove_amount} onChange={e => setNewBetYa(d => ({ ...d, remove_amount: e.target.value }))} className="h-8 text-sm" />
                   </div>
                 )}
                 {newBetYa.action_type === 'refer_friend' && (
                   <div>
-                    <label className="text-xs text-slate-500 font-medium">Reward Amount ($)</label>
+                    <label className="text-xs text-slate-500 font-medium">Reward Amount (Gr8Day Bucks)</label>
                     <Input type="number" min="0" step="0.01" placeholder="5.00" value={newBetYa.reward_amount} onChange={e => setNewBetYa(d => ({ ...d, reward_amount: e.target.value }))} className="h-8 text-sm" />
                   </div>
                 )}

@@ -38,9 +38,9 @@ const DareModal: React.FC<DareModalProps> = ({ result, onClose, onSubmitReferral
     }
   };
   const earned = result.outcome === 'fund_credit' && typeof result.amount === 'number'
-    ? `+$${result.amount.toFixed(2)}`
+    ? `+${result.amount.toFixed(2)} Gr8Day Bucks`
     : result.outcome === 'remove_funds'
-      ? result.amount > 0 ? `-$${result.amount.toFixed(2)}` : null
+      ? result.amount > 0 ? `-${result.amount.toFixed(2)} Gr8Day Bucks` : null
       : null;
 
   const modal = (
@@ -144,7 +144,7 @@ const DareModal: React.FC<DareModalProps> = ({ result, onClose, onSubmitReferral
 
           {typeof result.new_balance === 'number' && (result.outcome === 'fund_credit' || result.outcome === 'remove_funds') && (
             <p className="text-xs text-white/50 mt-1">
-              Wallet balance: <span className="font-bold text-white/80">${result.new_balance.toFixed(2)}</span>
+              Wallet balance: <span className="font-bold text-white/80">{result.new_balance.toFixed(2)} Gr8Day Bucks</span>
             </p>
           )}
 

@@ -348,6 +348,29 @@ const Leaderboard: React.FC = () => {
           </div>
         </div>
 
+        {/* Global reach — reinforced right under the hero, not buried below */}
+        <div className="bg-gradient-to-r from-violet-500/10 via-sky-500/10 to-emerald-500/10 border border-white/10 rounded-2xl px-5 py-4 flex items-center gap-6 overflow-x-auto">
+          <span className="text-2xl shrink-0">🌍</span>
+          <div className="flex items-center gap-6">
+            <div>
+              <p className="text-xl sm:text-2xl font-black text-white tabular-nums leading-none">{(impact?.reach.countries ?? heroCountries).toLocaleString()}</p>
+              <p className="text-[10px] uppercase tracking-wider text-indigo-300/60 mt-1">Countries</p>
+            </div>
+            <div>
+              <p className="text-xl sm:text-2xl font-black text-white tabular-nums leading-none">{(impact?.reach.cities ?? 0).toLocaleString()}</p>
+              <p className="text-[10px] uppercase tracking-wider text-indigo-300/60 mt-1">Cities</p>
+            </div>
+            <div>
+              <p className="text-xl sm:text-2xl font-black text-white tabular-nums leading-none">{(impact?.reach.provinces ?? 0).toLocaleString()}</p>
+              <p className="text-[10px] uppercase tracking-wider text-indigo-300/60 mt-1">Regions</p>
+            </div>
+            <div>
+              <p className="text-xl sm:text-2xl font-black text-white tabular-nums leading-none">{(impact?.participation.active_players ?? totalPlayers).toLocaleString()}</p>
+              <p className="text-[10px] uppercase tracking-wider text-indigo-300/60 mt-1">Active Players</p>
+            </div>
+          </div>
+        </div>
+
         {/* Happening Right Now — real recent deeds, auto-scrolling */}
         {ticker.length > 0 && (
           <div className="space-y-2">

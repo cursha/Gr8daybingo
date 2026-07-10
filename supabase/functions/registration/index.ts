@@ -165,7 +165,7 @@ Deno.serve(async (req: Request) => {
           user_id: user.sub,
           amount: bonusAmount,
           transaction_type: 'signup_bonus',
-          item_description: `Welcome bonus for completing registration ($${bonusAmount.toFixed(2)})`,
+          item_description: `Welcome bonus for completing registration (${bonusAmount.toFixed(2)} Gr8Day Bucks)`,
         })
 
         bonusGranted = true
@@ -178,7 +178,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({
         success: true,
         message: bonusGranted
-          ? `Welcome! $${bonusAmount.toFixed(2)} has been credited to your wallet.`
+          ? `Welcome! ${bonusAmount.toFixed(2)} Gr8Day Bucks have been credited to your wallet.`
           : 'Profile updated.',
         bonus_granted: bonusGranted,
         wallet_balance: walletBalance,

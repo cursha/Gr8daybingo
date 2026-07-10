@@ -88,7 +88,7 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({ enforce = true, o
   }, [onCompleted]);
 
   const selectedCountry = countries.find((c) => c.id === countryId);
-  const bonusLabel = `$${bonusAmount.toFixed(bonusAmount % 1 === 0 ? 0 : 2)}`;
+  const bonusLabel = `${bonusAmount.toFixed(bonusAmount % 1 === 0 ? 0 : 2)} Gr8Day Bucks`;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

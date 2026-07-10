@@ -106,11 +106,11 @@ const WalletPage: React.FC = () => {
             <div className="h-10 w-24 bg-white/10 rounded animate-pulse" />
           ) : (
             <div className="text-4xl font-black text-white">
-              ${wallet?.balance?.toFixed(2) ?? '0.00'}
+              {wallet?.balance?.toFixed(2) ?? '0.00'} <span className="text-xl text-white/50">Gr8Day Bucks</span>
             </div>
           )}
           <p className="text-white/40 text-xs mt-2">
-            Use your balance to purchase power-up squares on your Gr8Day card.
+            Use your Gr8Day Bucks to purchase power-up squares on your Gr8Day card.
           </p>
         </div>
 
@@ -121,7 +121,7 @@ const WalletPage: React.FC = () => {
             <h2 className="text-sm font-bold text-white/80 uppercase tracking-wider">Add Funds</h2>
           </div>
           <p className="text-white/50 text-sm mb-4">
-            Select an amount. You'll be taken to Stripe's secure checkout and returned here when done.
+            Select an amount to add that many Gr8Day Bucks. You'll be taken to Stripe's secure checkout and returned here when done.
           </p>
           <div className="grid grid-cols-3 gap-3">
             {FUND_OPTIONS.map((amount) => {

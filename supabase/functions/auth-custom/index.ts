@@ -342,7 +342,7 @@ Deno.serve(async (req: Request) => {
                 user_id: rid,
                 amount: referralBonus,
                 transaction_type: 'referral_bonus',
-                item_description: `Referral bonus — a friend you invited joined (+$${referralBonus.toFixed(2)})`,
+                item_description: `Referral bonus — a friend you invited joined (+${referralBonus.toFixed(2)} Gr8Day Bucks)`,
               })
             }
           }

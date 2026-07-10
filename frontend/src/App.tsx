@@ -28,6 +28,7 @@ import TradeSquares from './pages/TradeSquares';
 import TeamPage from './pages/TeamPage';
 import Profile from './pages/Profile';
 import Welcome from './pages/Welcome';
+import Demo from './pages/Demo';
 import NotFound from './pages/NotFound';
 
 const queryClient = new QueryClient();
@@ -38,7 +39,7 @@ const AppRoutes = () => {
   // expires while maintenance mode is on has no way to get a fresh login —
   // /admin's own password screen never issues a real session token, only
   // /login does. Every other route still shows the maintenance screen.
-  const isExemptPath = location.pathname.startsWith('/admin') || location.pathname.startsWith('/login');
+  const isExemptPath = location.pathname.startsWith('/admin') || location.pathname.startsWith('/login') || location.pathname.startsWith('/demo');
   const [offline, setOffline] = useState(false); // fail-open: default false
   const [offlineUntil, setOfflineUntil] = useState<string | null>(null);
 
@@ -80,6 +81,7 @@ const AppRoutes = () => {
       <Route path="/team" element={<TeamPage />} />
       <Route path="/profile" element={<Profile />} />
       <Route path="/welcome" element={<Welcome />} />
+      <Route path="/demo" element={<Demo />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

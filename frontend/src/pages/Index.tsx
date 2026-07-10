@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Heart, Star, Trophy, Wallet, Shield, Users, Gift, Medal, LogOut, BookOpen, ArrowRight, Check } from 'lucide-react';
+import { Heart, Star, Trophy, Wallet, Shield, Users, Gift, Medal, LogOut, BookOpen, ArrowRight, Check, PlayCircle } from 'lucide-react';
 import Footer from '@/components/Footer';
 import RegistrationModal from '@/components/RegistrationModal';
 import { getPublicPrize } from '@/lib/game-utils';
@@ -258,6 +258,15 @@ const Index: React.FC = () => {
             >
               {user ? 'Join In Now' : 'Get Started'} →
             </Button>
+            {!user && (
+              <button
+                type="button"
+                onClick={() => navigate('/demo')}
+                className="inline-flex items-center gap-2 text-white/90 hover:text-white text-sm font-bold border border-white/30 hover:border-white/50 rounded-full px-4 py-2 transition-colors"
+              >
+                <PlayCircle className="w-4 h-4" /> Watch the 75-second demo
+              </button>
+            )}
             {!user && (
               <p className="text-white/90 text-sm">
                 Already have an account?{' '}

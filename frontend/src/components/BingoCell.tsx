@@ -159,7 +159,7 @@ const BingoCell: React.FC<BingoCellProps> = ({
         isFree
           ? 'Free space'
           : needsPurchase
-            ? `Buy this square for $${cell.purchase_price}`
+            ? `Buy this square for ${cell.purchase_price} Gr8Day Bucks`
             : cell.is_referral_free
               ? 'Refer a Player'
               : cell.deed_text
@@ -268,7 +268,7 @@ const BingoCell: React.FC<BingoCellProps> = ({
             onTouchStart={(e) => e.stopPropagation()}
           >
             <p className="text-base font-black text-white text-center leading-tight">
-              Buy this square for ${cell.purchase_price}?
+              Buy this square for {cell.purchase_price} Gr8Day Bucks?
             </p>
             <p className="text-xs text-amber-200 text-center leading-snug">
               This will use your wallet balance.
@@ -395,7 +395,7 @@ const BingoCell: React.FC<BingoCellProps> = ({
           <div className="flex items-center gap-0.5 bg-amber-500 text-white rounded-full px-2 sm:px-2.5 py-0.5 shadow-md mt-0.5">
             <Lock className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
             <span className="text-[9px] sm:text-[11px] md:text-xs font-black">
-              ${cell.purchase_price}
+              {cell.purchase_price} Bucks
             </span>
           </div>
         </div>

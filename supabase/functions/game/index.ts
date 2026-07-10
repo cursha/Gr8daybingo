@@ -988,7 +988,7 @@ Deno.serve(async (req: Request) => {
           user_id: user.sub,
           amount: reward,
           transaction_type: 'secret_reward',
-          item_description: `Secret Square reward (+$${reward.toFixed(2)})`,
+          item_description: `Secret Square reward (+${reward.toFixed(2)} Gr8Day Bucks)`,
         })
         secretRewardAwarded = reward
         cell.secret_revealed = true
@@ -1294,7 +1294,7 @@ Deno.serve(async (req: Request) => {
 
       const balance = parseFloat(wallet.balance)
       if (balance < price) {
-        return errorResponse(`Insufficient funds. Need $${price}, have $${balance.toFixed(2)}`, 400)
+        return errorResponse(`Insufficient Gr8Day Bucks. Need ${price}, have ${balance.toFixed(2)}`, 400)
       }
 
       const newBalance = balance - price
@@ -1304,7 +1304,7 @@ Deno.serve(async (req: Request) => {
         user_id: user.sub,
         amount: -price,
         transaction_type: 'purchase',
-        item_description: `Purchased bingo square: ${cell.deed_text} ($${price})`,
+        item_description: `Purchased bingo square: ${cell.deed_text} (${price} Gr8Day Bucks)`,
       })
 
       purchased.push(cell_index)
@@ -1510,7 +1510,7 @@ Deno.serve(async (req: Request) => {
         .update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
       await supabase.from('wallet_transactions').insert({
         user_id: user.sub, amount, transaction_type: 'deposit',
-        item_description: `Added $${amount} to wallet`,
+        item_description: `Added ${amount} Gr8Day Bucks to wallet`,
       })
       return jsonResponse({ success: true, new_balance: newBalance })
     }
@@ -3707,7 +3707,7 @@ Deno.serve(async (req: Request) => {
         user_id: user.sub,
         amount: walletAmount,
         transaction_type: 'deposit',
-        item_description: `Added $${walletAmount.toFixed(2)} to wallet`,
+        item_description: `Added ${walletAmount.toFixed(2)} Gr8Day Bucks to wallet`,
         payment_intent_id,
       })
       if (txnError) {
@@ -4974,7 +4974,7 @@ Deno.serve(async (req: Request) => {
         await supabase.from('player_wallets').update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
         await supabase.from('wallet_transactions').insert({
           user_id: user.sub, amount: actionValue, transaction_type: 'bet_reward',
-          item_description: `I Bet Ya! reward (+$${actionValue.toFixed(2)})`,
+          item_description: `I Bet Ya! reward (+${actionValue.toFixed(2)} Gr8Day Bucks)`,
         })
         result.new_balance = newBalance
 
@@ -4991,7 +4991,7 @@ Deno.serve(async (req: Request) => {
           await supabase.from('player_wallets').update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
           await supabase.from('wallet_transactions').insert({
             user_id: user.sub, amount: -deduction, transaction_type: 'bet_penalty',
-            item_description: `I Bet Ya! penalty (-$${deduction.toFixed(2)})`,
+            item_description: `I Bet Ya! penalty (-${deduction.toFixed(2)} Gr8Day Bucks)`,
           })
         }
         result.new_balance = newBalance
@@ -5164,7 +5164,7 @@ Deno.serve(async (req: Request) => {
       await supabase.from('player_wallets').update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
       await supabase.from('wallet_transactions').insert({
         user_id: user.sub, amount: rewardAmount, transaction_type: 'bet_referral_reward',
-        item_description: `I Bet Ya! Friend Referred reward (+$${rewardAmount.toFixed(2)})`,
+        item_description: `I Bet Ya! Friend Referred reward (+${rewardAmount.toFixed(2)} Gr8Day Bucks)`,
       })
 
       cells[12] = { ...centerCell, bet_ya_label: 'Friend Referred', bet_ya_revealed: true }

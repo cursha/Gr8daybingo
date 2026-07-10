@@ -62,9 +62,10 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Medal, LogOut, Printer, ChevronDown, Shuffle } from 'lucide-react';
+import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Medal, LogOut, Printer, ChevronDown, Shuffle, Share2 } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { downloadBingoCardPdf, downloadTeamCardsPdf, TeamMemberCard } from '@/lib/bingo-pdf';
+import { shareOrDownloadImpactCard } from '@/lib/impact-card';
 
 const HEADER_LETTERS = ['GR', '8', 'D', 'A', 'Y'];
 const HEADER_COLORS = [
@@ -329,6 +330,7 @@ const GameBoard: React.FC = () => {
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [streak, setStreak] = useState<StreakData | null>(null);
   const [streakMilestones, setStreakMilestones] = useState<StreakMilestoneHit[]>([]);
+  const [shareLoading, setShareLoading] = useState(false);
 
   useEffect(() => {
     getPublicPrize()
@@ -811,6 +813,40 @@ const GameBoard: React.FC = () => {
     }
   };
 
+  const handleShareImpact = async () => {
+    if (!card) {
+      toast.error('Your card is not loaded yet. Please wait a moment and try again.');
+      return;
+    }
+    setShareLoading(true);
+    try {
+      // Real Gr8Day Deeds only — purchased and referral squares don't count,
+      // matching the leaderboard's own counting rule (see Leaderboard.tsx).
+      const cellByIndex = new Map(card.cells.map((c) => [c.index, c]));
+      const deedsThisWeek = card.completed_cells.filter((i) => {
+        const cell = cellByIndex.get(i);
+        return cell && !cell.is_free_space && !cell.is_purchasable && !cell.is_referral_free;
+      }).length;
+
+      // Username only — never a real name, this image is meant to be shared publicly.
+      const username = (user as { name?: string } | null)?.name || `GR8-${playerNumber ?? '????'}`;
+
+      const result = await shareOrDownloadImpactCard({
+        username,
+        deedsThisWeek,
+        totalDeeds: playerBadge?.total_deeds ?? 0,
+        badgeName: playerBadge?.badge_name,
+        badgeEmoji: playerBadge?.badge_emoji,
+      });
+      if (result === 'downloaded') toast.success('Your impact card is downloading.');
+    } catch (err) {
+      console.error('Failed to generate impact card', err);
+      toast.error('Could not generate your impact card. Please try again.');
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
   const handlePrintTeamPdf = async () => {
     if (!myTeam) return;
     try {
@@ -1126,6 +1162,17 @@ const GameBoard: React.FC = () => {
             >
               <Printer className="w-3.5 h-3.5 mr-0.5" />
               <span className="hidden sm:inline">Print Card</span>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleShareImpact}
+              disabled={!card || shareLoading}
+              className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
+              title="Share my impact this week"
+            >
+              <Share2 className="w-3.5 h-3.5 mr-0.5" />
+              <span className="hidden sm:inline">{shareLoading ? 'Creating…' : 'Share My Impact'}</span>
             </Button>
             <Button
               size="sm"

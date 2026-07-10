@@ -279,7 +279,7 @@ function backgroundTask(promise: Promise<unknown>): void {
 async function sendGameLaunchEmails(supabase: ReturnType<typeof getSupabase>, weekYear: string): Promise<void> {
   const { data: players, error: playersErr } = await supabase
     .from('users')
-    .select('email, first_name, name, username')
+    .select('email, first_name, name, username, last_valid_deed_date, created_at')
     .eq('email_verified', true)
     .eq('role', 'user')
 
@@ -289,9 +289,20 @@ async function sendGameLaunchEmails(supabase: ReturnType<typeof getSupabase>, we
   }
   if (!players || players.length === 0) return
 
+  // Honour the email-usage notice on the registration page: a player who
+  // hasn't played in 4 weeks stops getting the weekly announcement, out of
+  // respect for their inbox. Measured from their last real deed, or from
+  // signup if they've never played yet (so brand-new players still get a
+  // few weeks of nudges before falling off the list).
+  const fourWeeksAgo = new Date(Date.now() - 28 * 86_400_000).toISOString()
+  const activeRecipients = players.filter((p) => {
+    const referenceDate = p.last_valid_deed_date ?? p.created_at
+    return !referenceDate || referenceDate >= fourWeeksAgo
+  })
+
   let sent = 0
   let failed = 0
-  for (const player of players) {
+  for (const player of activeRecipients) {
     const firstName = player.first_name ?? player.name ?? player.username ?? null
     try {
       const tpl = newGameLaunchEmail(firstName)
@@ -303,7 +314,7 @@ async function sendGameLaunchEmails(supabase: ReturnType<typeof getSupabase>, we
       console.error('[game-launch-email] send failed for', player.email, err)
     }
   }
-  console.log(`[game-launch-email] week ${weekYear}: sent=${sent} failed=${failed}`)
+  console.log(`[game-launch-email] week ${weekYear}: sent=${sent} failed=${failed} skipped_inactive=${players.length - activeRecipients.length}`)
 }
 
 const WIN_LABELS: Record<string, string> = {

@@ -19,6 +19,7 @@ import AuthCallback from './pages/AuthCallback';
 import AuthError from './pages/AuthError';
 import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
+import EmailPolicy from './pages/EmailPolicy';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import VerifyEmail from './pages/VerifyEmail';
@@ -72,6 +73,7 @@ const AppRoutes = () => {
       <Route path="/auth/error" element={<AuthError />} />
       <Route path="/terms" element={<TermsOfService />} />
       <Route path="/privacy" element={<PrivacyPolicy />} />
+      <Route path="/email-policy" element={<EmailPolicy />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/verify-email" element={<VerifyEmail />} />

@@ -170,6 +170,11 @@ const Register: React.FC = () => {
                   autoComplete="email"
                   required
                 />
+                <p className="text-xs text-slate-500">
+                  <a href="/email-policy" target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline underline-offset-2">
+                    See how we'll use your email
+                  </a> — weekly game announcements, occasional updates, and win notifications only.
+                </p>
               </div>
             )}
             <div className="space-y-1.5">

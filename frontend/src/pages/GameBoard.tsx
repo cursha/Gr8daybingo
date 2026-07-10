@@ -1095,26 +1095,31 @@ const GameBoard: React.FC = () => {
               <DollarSign className="w-3.5 h-3.5 mr-0.5" />
               Add Funds
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => navigate('/leaderboard')}
-              className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
-              title="Leaderboard"
-            >
-              <Medal className="w-3.5 h-3.5 mr-0.5" />
-              <span className="hidden sm:inline">Leaderboard</span>
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => navigate('/prize-history')}
-              className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
-              title="Prize History"
-            >
-              <Trophy className="w-3.5 h-3.5 mr-0.5" />
-              <span className="hidden sm:inline">My Wins</span>
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
+                  title="Impact"
+                >
+                  <Trophy className="w-3.5 h-3.5 mr-0.5" />
+                  <span className="hidden sm:inline">Impact</span>
+                  <ChevronDown className="w-3 h-3 ml-0.5 hidden sm:inline" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-slate-900 border-white/10 text-white">
+                <DropdownMenuItem onClick={() => navigate('/leaderboard')} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                  <Medal className="w-3.5 h-3.5 mr-2" /> Leaderboard
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate('/prize-history')} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                  <Trophy className="w-3.5 h-3.5 mr-2" /> My Wins
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleShareImpact} disabled={!card || shareLoading} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                  <Share2 className="w-3.5 h-3.5 mr-2" /> {shareLoading ? 'Creating…' : 'Share My Impact'}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             {myTeam && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -1162,17 +1167,6 @@ const GameBoard: React.FC = () => {
             >
               <Printer className="w-3.5 h-3.5 mr-0.5" />
               <span className="hidden sm:inline">Print Card</span>
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleShareImpact}
-              disabled={!card || shareLoading}
-              className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
-              title="Share my impact this week"
-            >
-              <Share2 className="w-3.5 h-3.5 mr-0.5" />
-              <span className="hidden sm:inline">{shareLoading ? 'Creating…' : 'Share My Impact'}</span>
             </Button>
             <Button
               size="sm"

@@ -393,6 +393,41 @@ export async function adminSetSpotlightQuickTap(deedId: number): Promise<{ succe
   return apiClient.post('/game/admin/spotlight-quick-tap', { deed_id: deedId });
 }
 
+// Card-pickup reflection prompt — a short, optional self-reflection question
+// shown at the mode-picker step before a card is generated. Answering is
+// never required; a null id means the pool is empty and the frontend skips
+// the step entirely.
+export interface CardPickupPrompt {
+  id: number;
+  question_text: string;
+  is_active: boolean;
+  status: 'Draft' | 'Review' | 'Approved' | 'Retired';
+}
+
+export async function getPickupPrompt(): Promise<{ id: number | null; question_text: string | null }> {
+  return apiClient.get('/game/pickup-prompt');
+}
+
+export async function submitPickupPromptResponse(promptId: number, responseText: string): Promise<{ success: boolean }> {
+  return apiClient.post('/game/pickup-prompt-response', { prompt_id: promptId, response_text: responseText });
+}
+
+export async function adminGetCardPickupPrompts(): Promise<{ prompts: CardPickupPrompt[] }> {
+  return apiClient.get('/game/admin/card-pickup-prompts');
+}
+
+export async function adminCreateCardPickupPrompt(data: Omit<CardPickupPrompt, 'id'>): Promise<{ prompt: CardPickupPrompt }> {
+  return apiClient.post('/game/admin/card-pickup-prompts', data);
+}
+
+export async function adminUpdateCardPickupPrompt(id: number, data: Partial<Omit<CardPickupPrompt, 'id'>>): Promise<{ prompt: CardPickupPrompt }> {
+  return apiClient.put(`/game/admin/card-pickup-prompts/${id}`, data);
+}
+
+export async function adminDeleteCardPickupPrompt(id: number): Promise<void> {
+  return apiClient.delete(`/game/admin/card-pickup-prompts/${id}`);
+}
+
 export interface TeamMember {
   id: number;
   user_id: string;

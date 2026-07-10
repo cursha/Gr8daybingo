@@ -42,6 +42,8 @@ import {
   passBlackoutCell,
   pauseBlackout,
   resumeBlackout,
+  getPickupPrompt,
+  submitPickupPromptResponse,
 } from '@/lib/game-utils';
 import BingoCell from '@/components/BingoCell';
 import CelebrationOverlay from '@/components/CelebrationOverlay';
@@ -288,6 +290,8 @@ const GameBoard: React.FC = () => {
   const [showModePicker, setShowModePicker] = useState(false);
   const [pickedMode, setPickedMode] = useState<'classic' | 'blackout' | null>(null);
   const [modeConfirming, setModeConfirming] = useState(false);
+  const [pickupPrompt, setPickupPrompt] = useState<{ id: number; question_text: string } | null>(null);
+  const [pickupPromptAnswer, setPickupPromptAnswer] = useState('');
   const [blackoutRevealing, setBlackoutRevealing] = useState(false);
   const [blackoutPassingCell, setBlackoutPassingCell] = useState<number | null>(null);
   const [blackoutPausing, setBlackoutPausing] = useState(false);
@@ -388,6 +392,9 @@ const GameBoard: React.FC = () => {
       if (!status.has_card && status.blackout_offered) {
         setShowModePicker(true);
         setLoading(false);
+        getPickupPrompt()
+          .then((res) => setPickupPrompt(res.id != null ? { id: res.id, question_text: res.question_text! } : null))
+          .catch(() => setPickupPrompt(null));
         return;
       }
 
@@ -410,6 +417,12 @@ const GameBoard: React.FC = () => {
   const handleConfirmMode = async () => {
     if (!pickedMode) return;
     setModeConfirming(true);
+    // Best-effort, fire-and-forget — a failure here must never block or delay
+    // card generation. Skipping the question never calls this at all.
+    const trimmedAnswer = pickupPromptAnswer.trim();
+    if (pickupPrompt && trimmedAnswer) {
+      submitPickupPromptResponse(pickupPrompt.id, trimmedAnswer).catch(() => {});
+    }
     try {
       const cardData = await generateCard(pickedMode);
       setCard(cardData);
@@ -976,6 +989,18 @@ const GameBoard: React.FC = () => {
               <p className="text-xs opacity-80 mt-0.5">Every square starts hidden. Reveal a few at a time, complete or pass on each.</p>
             </button>
           </div>
+          {pickupPrompt && (
+            <div className="space-y-2 pt-1 border-t border-white/10">
+              <p className="text-sm font-bold text-white pt-3">{pickupPrompt.question_text}</p>
+              <Textarea
+                placeholder="Totally optional — answer or just hit Confirm."
+                value={pickupPromptAnswer}
+                onChange={(e) => setPickupPromptAnswer(e.target.value)}
+                className="bg-white/10 border-white/20 text-white placeholder:text-white/30 text-sm min-h-[70px]"
+                maxLength={1000}
+              />
+            </div>
+          )}
           <Button
             onClick={handleConfirmMode}
             disabled={!pickedMode || modeConfirming}

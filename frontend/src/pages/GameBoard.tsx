@@ -1185,7 +1185,7 @@ const GameBoard: React.FC = () => {
                     className="relative w-full flex flex-col items-center gap-0.5 sm:gap-1.5 bg-gradient-to-b from-amber-500/25 to-amber-600/10 hover:from-amber-400/35 hover:to-amber-500/15 active:scale-95 border border-amber-400/60 hover:border-amber-300 rounded-xl sm:rounded-2xl px-2.5 py-1.5 sm:px-5 sm:py-3 transition-all duration-150 disabled:opacity-50 shadow-[0_0_12px_-2px_rgba(251,191,36,0.35)]"
                   >
                     <span className="absolute -top-2 left-1/2 -translate-x-1/2 bg-amber-400 text-slate-900 text-[8px] sm:text-[9px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-full">
-                      Spotlight
+                      Gr8Day
                     </span>
                     <span className="text-[10px] sm:text-xs font-semibold text-amber-100 text-center leading-tight line-clamp-2 mt-1">
                       {spotlightQuickTap.quick_tap_label}

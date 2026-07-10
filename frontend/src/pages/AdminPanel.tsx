@@ -78,6 +78,9 @@ import {
   adminCreateCardPickupPrompt,
   adminUpdateCardPickupPrompt,
   adminDeleteCardPickupPrompt,
+  PromptResponse,
+  adminGetPromptResponses,
+  adminApprovePromptResponse,
 } from '@/lib/game-utils';
 import BingoCell from '@/components/BingoCell';
 import { Button } from '@/components/ui/button';
@@ -247,6 +250,8 @@ const AdminPanel: React.FC = () => {
   const [editingPromptId, setEditingPromptId] = useState<number | null>(null);
   const [editPromptData, setEditPromptData] = useState({ question_text: '', status: 'Approved' as CardPickupPrompt['status'], is_active: true });
   const [promptLoading, setPromptLoading] = useState(false);
+  const [promptResponses, setPromptResponses] = useState<PromptResponse[]>([]);
+  const [responseApprovalLoading, setResponseApprovalLoading] = useState<number | null>(null);
 
   // Teams state
   const [teams, setTeams] = useState<TeamItem[]>([]);
@@ -347,6 +352,12 @@ const AdminPanel: React.FC = () => {
       try {
         const ppRes = await adminGetCardPickupPrompts();
         setPickupPrompts(ppRes.prompts || []);
+      } catch { /* silent */ }
+
+      // Load card-pickup reflection responses (review queue)
+      try {
+        const prRes = await adminGetPromptResponses();
+        setPromptResponses(prRes.responses || []);
       } catch { /* silent */ }
     } catch (err: any) {
       toast.error('Failed to load admin data');
@@ -521,6 +532,16 @@ const AdminPanel: React.FC = () => {
       toast.success('Prompt deleted');
     } catch (e: any) { toast.error(e?.message || 'Failed to delete prompt'); }
     finally { setPromptLoading(false); }
+  };
+
+  const handleToggleResponseApproval = async (id: number, approved: boolean) => {
+    setResponseApprovalLoading(id);
+    try {
+      const res = await adminApprovePromptResponse(id, approved);
+      setPromptResponses(prev => prev.map(r => r.id === id ? res.response : r));
+      toast.success(approved ? 'Response approved for Community Voices' : 'Response hidden');
+    } catch (e: any) { toast.error(e?.message || 'Failed to update response'); }
+    finally { setResponseApprovalLoading(null); }
   };
 
   const handleUpdateClaimStatus = async (id: number, status: string) => {
@@ -3652,6 +3673,37 @@ const AdminPanel: React.FC = () => {
               >
                 <Plus className="w-3 h-3 mr-1" /> Add Prompt
               </Button>
+            </div>
+
+            {/* Response review queue — nothing a player typed goes public until approved here */}
+            <div className="border-t border-slate-200 pt-3 space-y-2">
+              <label className="text-xs text-slate-500 font-medium">
+                Player Responses — approve to show on the Kindness Dashboard's Community Voices (username shown, never a real name)
+              </label>
+              {promptResponses.length === 0 ? (
+                <p className="text-sm text-slate-400 italic">No responses yet.</p>
+              ) : (
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {promptResponses.map(r => (
+                    <div key={r.id} className={`border rounded-lg p-3 ${r.is_approved_for_display ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                      <p className="text-xs text-slate-500 font-medium">{r.question_text}</p>
+                      <p className="text-sm text-slate-800 mt-0.5">{r.response_text}</p>
+                      <div className="flex items-center justify-between mt-2">
+                        <p className="text-xs text-slate-400">@{r.username ?? 'unknown'}</p>
+                        <Button
+                          size="sm"
+                          variant={r.is_approved_for_display ? 'outline' : 'default'}
+                          onClick={() => handleToggleResponseApproval(r.id, !r.is_approved_for_display)}
+                          disabled={responseApprovalLoading === r.id}
+                          className={r.is_approved_for_display ? '' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}
+                        >
+                          {r.is_approved_for_display ? 'Hide' : 'Approve'}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

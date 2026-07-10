@@ -5,6 +5,8 @@ import {
   getStreakLeaderboard,
   getImpactSummary,
   getTeamLeaderboard,
+  getRecentDeeds,
+  getCommunityVoices,
   PlayerLeaderboardData,
   PlayerRankEntry,
   StreakLeaderboard,
@@ -13,13 +15,15 @@ import {
   ImpactPeriod,
   GeoCountry,
   GeoState,
+  RecentDeed,
+  CommunityVoice,
 } from '@/lib/game-utils';
 import Footer from '@/components/Footer';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   ArrowLeft, MapPin, ListChecks, Trophy, ChevronRight, Loader2, Users,
   Flame, Globe, Lock, ChevronLeft, Sparkles, Award, Grid3x3, UsersRound, Building2, Map, Eye,
-  ChevronUp, ChevronDown,
+  ChevronUp, ChevronDown, Quote,
 } from 'lucide-react';
 
 type View = 'players' | 'streaks' | 'deeds' | 'places' | 'teams';
@@ -28,19 +32,31 @@ type View = 'players' | 'streaks' | 'deeds' | 'places' | 'teams';
 const initials = (s: string) =>
   s.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('') || '?';
 
-// Performance-bar colour by relative standing (high -> low), like a BI dashboard.
+// Performance-bar colour by relative standing (high -> low) — kept as the
+// app's existing semantic status palette (emerald/amber/rose), unchanged.
 const barColor = (ratio: number) =>
   ratio >= 0.66 ? 'bg-emerald-500' : ratio >= 0.33 ? 'bg-amber-500' : 'bg-rose-500';
 
+const timeAgo = (iso: string): string => {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+};
+
 // ── building blocks ─────────────────────────────────────────────────────────────
 const Monogram: React.FC<{ label: string }> = ({ label }) => (
-  <div className="w-9 h-9 rounded-full bg-slate-800 ring-1 ring-slate-700 grid place-items-center text-xs font-semibold text-slate-300 shrink-0">
+  <div className="w-9 h-9 rounded-full bg-white/10 ring-1 ring-white/10 grid place-items-center text-xs font-bold text-indigo-100 shrink-0">
     {initials(label)}
   </div>
 );
 
 const RateBar: React.FC<{ ratio: number }> = ({ ratio }) => (
-  <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden w-full">
+  <div className="h-1.5 rounded-full bg-white/10 overflow-hidden w-full">
     <div className={`h-full rounded-full ${barColor(ratio)}`} style={{ width: `${Math.max(4, Math.min(100, ratio * 100))}%` }} />
   </div>
 );
@@ -49,21 +65,21 @@ const RateBar: React.FC<{ ratio: number }> = ({ ratio }) => (
 const Gauge: React.FC<{ value: number; label: string }> = ({ value, label }) => {
   const r = 34, c = 2 * Math.PI * r;
   const pct = Math.max(0, Math.min(100, value));
-  const stroke = pct >= 66 ? '#10b981' : pct >= 33 ? '#f59e0b' : '#3b82f6';
+  const stroke = pct >= 66 ? '#10b981' : pct >= 33 ? '#f59e0b' : '#38bdf8';
   return (
     <div className="flex flex-col items-center gap-1.5">
       <div className="relative w-[88px] h-[88px]">
         <svg viewBox="0 0 88 88" className="w-full h-full -rotate-90">
-          <circle cx="44" cy="44" r={r} fill="none" stroke="#1e293b" strokeWidth="8" />
+          <circle cx="44" cy="44" r={r} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="8" />
           <circle cx="44" cy="44" r={r} fill="none" stroke={stroke} strokeWidth="8" strokeLinecap="round"
             strokeDasharray={c} strokeDashoffset={c - (pct / 100) * c}
             style={{ transition: 'stroke-dashoffset 600ms ease' }} />
         </svg>
         <div className="absolute inset-0 grid place-items-center">
-          <span className="text-xl font-bold text-white tabular-nums">{pct}%</span>
+          <span className="text-xl font-black text-white tabular-nums">{pct}%</span>
         </div>
       </div>
-      <span className="text-[11px] uppercase tracking-wider text-slate-400 text-center">{label}</span>
+      <span className="text-[11px] uppercase tracking-wider text-indigo-300/60 text-center">{label}</span>
     </div>
   );
 };
@@ -76,15 +92,15 @@ const PERIODS: { key: ImpactPeriod; label: string }[] = [
 ];
 
 const ImpactCard: React.FC<{ icon: React.ReactNode; label: string; value?: number }> = ({ icon, label, value }) => (
-  <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
-    <div className="flex items-center gap-1.5 text-slate-400 text-[10px] uppercase tracking-wider">{icon}<span className="truncate">{label}</span></div>
-    <p className="text-2xl font-bold text-white tabular-nums mt-1">{value == null ? '—' : value.toLocaleString()}</p>
+  <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-3">
+    <div className="flex items-center gap-1.5 text-indigo-300/60 text-[10px] uppercase tracking-wider">{icon}<span className="truncate">{label}</span></div>
+    <p className="text-2xl font-black text-white tabular-nums mt-1">{value == null ? '—' : value.toLocaleString()}</p>
   </div>
 );
 
 const ImpactGroup: React.FC<{ title: string; cols: string; cards: { icon: React.ReactNode; label: string; value?: number }[] }> = ({ title, cols, cards }) => (
   <div>
-    <p className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold mb-1.5 px-0.5">{title}</p>
+    <p className="text-[11px] uppercase tracking-widest text-indigo-300/50 font-bold mb-1.5 px-0.5">{title}</p>
     <div className={`grid ${cols} gap-2`}>
       {cards.map((c, i) => <ImpactCard key={i} {...c} />)}
     </div>
@@ -170,6 +186,19 @@ const DEMO_TEAMS: { teams: TeamRankEntry[] } = {
     { team_id: 3, team_number: 1003, team_name: 'Helping Hands', deeds: 178, active_members: 4, total_members: 5 },
   ],
 };
+const DEMO_TICKER: RecentDeed[] = [
+  { deed_text: 'Held the door and got a five-minute conversation out of it.', city: 'Toronto', country_name: 'Canada', completed_at: new Date(Date.now() - 2 * 60000).toISOString() },
+  { deed_text: 'Paid for the coffee behind them in line.', city: 'Austin', country_name: 'United States', completed_at: new Date(Date.now() - 6 * 60000).toISOString() },
+  { deed_text: 'Called a friend they hadn’t spoken to in a year.', city: 'Manchester', country_name: 'United Kingdom', completed_at: new Date(Date.now() - 11 * 60000).toISOString() },
+  { deed_text: 'Helped a neighbour carry groceries up three flights.', city: 'Calgary', country_name: 'Canada', completed_at: new Date(Date.now() - 14 * 60000).toISOString() },
+  { deed_text: 'Left an encouraging note for a struggling coworker.', city: 'Sydney', country_name: 'Australia', completed_at: new Date(Date.now() - 19 * 60000).toISOString() },
+  { deed_text: 'Donated a bag of books to the little library.', city: 'London', country_name: 'United Kingdom', completed_at: new Date(Date.now() - 27 * 60000).toISOString() },
+];
+const DEMO_VOICES: CommunityVoice[] = [
+  { question_text: 'What deed are you most proud of?', response_text: 'Calling my grandmother just to talk, not because it was a holiday. She cried a little.', username: 'noah_helps' },
+  { question_text: 'How do you feel about the game?', response_text: 'It gave me a reason to actually follow through instead of just meaning to be kind.', username: 'sofia_smiles' },
+  { question_text: 'What is your mission for this week?', response_text: 'Compliment someone doing a hard job in public and mean it.', username: 'ava_cares' },
+];
 
 // ── main ────────────────────────────────────────────────────────────────────────
 const Leaderboard: React.FC = () => {
@@ -187,6 +216,8 @@ const Leaderboard: React.FC = () => {
   const [period, setPeriod] = useState<ImpactPeriod>('all');
   const [impact, setImpact] = useState<ImpactSummary | null>(null);
   const [playerSort, setPlayerSort] = useState<{ key: 'name' | 'deeds' | 'last_played'; dir: 'asc' | 'desc' }>({ key: 'deeds', dir: 'desc' });
+  const [ticker, setTicker] = useState<RecentDeed[]>([]);
+  const [voices, setVoices] = useState<CommunityVoice[]>([]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -195,15 +226,19 @@ const Leaderboard: React.FC = () => {
       setData(DEMO_DATA);
       setStreaks(DEMO_STREAKS);
       setTeams(DEMO_TEAMS);
+      setTicker(DEMO_TICKER);
+      setVoices(DEMO_VOICES);
       setLoading(false);
       return;
     }
     setLoading(true);
-    Promise.allSettled([getPlayerLeaderboard(), getStreakLeaderboard(), getTeamLeaderboard()])
-      .then(([p, s, t]) => {
+    Promise.allSettled([getPlayerLeaderboard(), getStreakLeaderboard(), getTeamLeaderboard(), getRecentDeeds(), getCommunityVoices()])
+      .then(([p, s, t, r, v]) => {
         if (p.status === 'fulfilled') setData(p.value);
         if (s.status === 'fulfilled') setStreaks(s.value);
         if (t.status === 'fulfilled') setTeams(t.value);
+        if (r.status === 'fulfilled') setTicker(r.value.deeds);
+        if (v.status === 'fulfilled') setVoices(v.value.voices);
       })
       .finally(() => setLoading(false));
   }, [authLoading, user]);
@@ -274,52 +309,80 @@ const Leaderboard: React.FC = () => {
   const maxTeamDeeds = teams?.teams.length ? teams.teams[0].deeds || 1 : 1;
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-slate-900 flex flex-col">
       {/* Header */}
-      <header className="bg-slate-950/90 backdrop-blur border-b border-slate-800 sticky top-0 z-40">
+      <header className="bg-black/30 backdrop-blur-md border-b border-white/10 sticky top-0 z-40">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
-          <button onClick={() => navigate('/game')} className="text-slate-400 hover:text-white flex items-center gap-1 text-sm">
+          <button onClick={() => navigate('/game')} className="text-indigo-200/70 hover:text-white flex items-center gap-1 text-sm font-medium">
             <ArrowLeft className="w-4 h-4" /> Play
           </button>
-          <h1 className="text-base font-semibold text-white flex-1 tracking-tight">Leaderboard</h1>
-          <button onClick={() => navigate('/')} className="text-slate-400 hover:text-white text-sm">Home</button>
+          <h1 className="text-base font-black text-white flex-1 tracking-tight">Kindness Dashboard</h1>
+          <button onClick={() => navigate('/')} className="text-indigo-200/70 hover:text-white text-sm font-medium">Home</button>
         </div>
       </header>
 
       <div className="max-w-3xl mx-auto w-full px-4 py-5 flex-1 space-y-4">
         {/* Demo banner for logged-out visitors */}
         {isDemo && (
-          <div className="flex items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+          <div className="flex items-center gap-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3">
             <Eye className="w-5 h-5 text-amber-400 shrink-0" />
             <p className="text-sm text-amber-100 flex-1">
-              <span className="font-semibold">Demo view.</span> These are sample numbers.{' '}
-              <button onClick={() => navigate('/login')} className="underline font-semibold hover:text-white">Sign in</button> to see the live Impact Board.
+              <span className="font-bold">Demo view.</span> These are sample numbers.{' '}
+              <button onClick={() => navigate('/login')} className="underline font-bold hover:text-white">Sign in</button> to see the live Kindness Dashboard.
             </p>
           </div>
         )}
 
-        {/* Hero: community total + this-week count (BI-dashboard layout) */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex items-center gap-5">
+        {/* Hero: community total + this-week count */}
+        <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-5 flex items-center gap-5">
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">Community Gr8Day Deeds</p>
-            <p className="text-4xl sm:text-5xl font-bold text-white mt-1 leading-none tabular-nums">{totalDeeds.toLocaleString()}</p>
-            <p className="text-sm text-slate-400 mt-1.5">
+            <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-300/60">Community Gr8Day Deeds</p>
+            <p className="text-4xl sm:text-5xl font-black text-white mt-1 leading-none tabular-nums">{totalDeeds.toLocaleString()}</p>
+            <p className="text-sm text-indigo-200/60 mt-1.5">
               by {totalPlayers.toLocaleString()} {totalPlayers === 1 ? 'player' : 'players'} · {heroCountries.toLocaleString()} {heroCountries === 1 ? 'country' : 'countries'}
             </p>
           </div>
           <div className="text-right shrink-0">
-            <p className="text-3xl sm:text-4xl font-bold text-blue-400 tabular-nums leading-none">{thisWeekDeeds.toLocaleString()}</p>
-            <p className="text-[11px] uppercase tracking-wider text-slate-400 mt-1.5 leading-tight">Gr8Day Deeds<br />This Week</p>
+            <p className="text-3xl sm:text-4xl font-black text-emerald-400 tabular-nums leading-none">{thisWeekDeeds.toLocaleString()}</p>
+            <p className="text-[11px] uppercase tracking-wider text-indigo-300/60 mt-1.5 leading-tight">Gr8Day Deeds<br />This Week</p>
           </div>
         </div>
 
+        {/* Happening Right Now — real recent deeds, auto-scrolling */}
+        {ticker.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 px-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-300/60">Happening Right Now</p>
+            </div>
+            <div className="overflow-hidden -mx-4 px-4">
+              <div
+                className="flex gap-2.5 w-max"
+                style={{ animation: 'ticker-scroll 40s linear infinite' }}
+                onMouseEnter={(e) => (e.currentTarget.style.animationPlayState = 'paused')}
+                onMouseLeave={(e) => (e.currentTarget.style.animationPlayState = 'running')}
+              >
+                {ticker.concat(ticker).map((d, i) => (
+                  <div key={i} className="flex-none w-64 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-3">
+                    <p className="text-xs font-semibold text-white leading-snug line-clamp-2">{d.deed_text}</p>
+                    <p className="text-[10px] text-indigo-300/50 mt-1.5 flex items-center justify-between">
+                      <span className="text-emerald-400 font-bold">{[d.city, d.country_name].filter(Boolean).join(', ') || 'Somewhere'}</span>
+                      <span>{timeAgo(d.completed_at)}</span>
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Impact summary with time filter (Issue #14) */}
         <div className="space-y-3">
-          <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
+          <div className="flex gap-1 bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg p-1">
             {PERIODS.map((p) => (
               <button key={p.key} onClick={() => setPeriod(p.key)}
-                className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer ${
-                  period === p.key ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-colors cursor-pointer ${
+                  period === p.key ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white' : 'text-indigo-200/60 hover:text-white hover:bg-white/10'
                 }`}>
                 {p.label}
               </button>
@@ -333,10 +396,10 @@ const Leaderboard: React.FC = () => {
           ]} />
 
           <ImpactGroup title="Participation" cols="grid-cols-2 sm:grid-cols-4" cards={[
-            { icon: <Users className="w-3.5 h-3.5 text-blue-400" />, label: 'Active Players', value: impact?.participation.active_players },
-            { icon: <UsersRound className="w-3.5 h-3.5 text-blue-400" />, label: 'Active Teams', value: impact?.participation.active_teams },
-            { icon: <Users className="w-3.5 h-3.5 text-slate-400" />, label: 'Lifetime Players', value: impact?.participation.lifetime_players },
-            { icon: <UsersRound className="w-3.5 h-3.5 text-slate-400" />, label: 'Lifetime Teams', value: impact?.participation.lifetime_teams },
+            { icon: <Users className="w-3.5 h-3.5 text-sky-400" />, label: 'Active Players', value: impact?.participation.active_players },
+            { icon: <UsersRound className="w-3.5 h-3.5 text-sky-400" />, label: 'Active Teams', value: impact?.participation.active_teams },
+            { icon: <Users className="w-3.5 h-3.5 text-indigo-300/60" />, label: 'Lifetime Players', value: impact?.participation.lifetime_players },
+            { icon: <UsersRound className="w-3.5 h-3.5 text-indigo-300/60" />, label: 'Lifetime Teams', value: impact?.participation.lifetime_teams },
           ]} />
 
           <ImpactGroup title="Reach" cols="grid-cols-3" cards={[
@@ -346,14 +409,32 @@ const Leaderboard: React.FC = () => {
           ]} />
         </div>
 
+        {/* Community Voices — real reflection answers, admin-approved */}
+        {voices.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-300/60 px-0.5">Community Voices</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {voices.slice(0, 4).map((v, i) => (
+                <div key={i} className="bg-gradient-to-br from-amber-500/10 to-white/5 backdrop-blur-sm border border-amber-400/20 rounded-xl p-4">
+                  <Quote className="w-4 h-4 text-amber-400 mb-1.5" />
+                  <p className="text-sm font-semibold text-white leading-snug">{v.response_text}</p>
+                  <p className="text-[11px] text-indigo-300/50 mt-2">
+                    <span className="text-amber-300 font-bold">@{v.username ?? 'player'}</span> · {v.question_text}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Tabs */}
-        <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
+        <div className="flex gap-1 bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg p-1">
           {tabs.map((t) => (
             <button
               key={t.key}
               onClick={() => { setView(t.key); setCountry(null); setStateNode(null); }}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors cursor-pointer ${
-                view === t.key ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs sm:text-sm font-bold transition-colors cursor-pointer ${
+                view === t.key ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white' : 'text-indigo-200/60 hover:text-white hover:bg-white/10'
               }`}
             >
               {t.icon}<span>{t.label}</span>
@@ -362,7 +443,7 @@ const Leaderboard: React.FC = () => {
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 text-blue-500 animate-spin" /></div>
+          <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 text-indigo-400 animate-spin" /></div>
         ) : (
           <>
             {/* ── PLAYERS ─────────────────────────────────────────── */}
@@ -378,21 +459,21 @@ const Leaderboard: React.FC = () => {
                   {sortedPlayers.length === 0 ? (
                     <Empty>No players ranked yet.</Empty>
                   ) : sortedPlayers.map((p, i) => (
-                    <div key={p.user_id} className="flex items-center gap-3 px-4 py-2.5 border-t border-slate-800/70">
-                      <span className="w-5 text-center text-sm font-semibold text-slate-500 tabular-nums">{i + 1}</span>
+                    <div key={p.user_id} className="flex items-center gap-3 px-4 py-2.5 border-t border-white/10">
+                      <span className="w-5 text-center text-sm font-bold text-indigo-300/50 tabular-nums">{i + 1}</span>
                       <Monogram label={nameOf(p)} />
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-white truncate">{nameOf(p)}</p>
-                        <p className="text-[11px] text-slate-500 truncate">
+                        <p className="font-bold text-white truncate">{nameOf(p)}</p>
+                        <p className="text-[11px] text-indigo-300/50 truncate">
                           {[p.city, p.country_name].filter(Boolean).join(', ') || (p.player_number != null ? `GR8-${p.player_number}` : '')}
                         </p>
                       </div>
                       <div className="w-28 shrink-0">
-                        <p className="text-right text-sm font-bold text-white tabular-nums">{p.deeds.toLocaleString()}</p>
+                        <p className="text-right text-sm font-black text-white tabular-nums">{p.deeds.toLocaleString()}</p>
                         <div className="mt-1"><RateBar ratio={p.deeds / maxDeeds} /></div>
                       </div>
                       <div className="w-24 shrink-0 text-right">
-                        <p className="text-xs text-slate-400 tabular-nums">{fmtPlayed(p.last_played)}</p>
+                        <p className="text-xs text-indigo-300/50 tabular-nums">{fmtPlayed(p.last_played)}</p>
                       </div>
                     </div>
                   ))}
@@ -403,11 +484,11 @@ const Leaderboard: React.FC = () => {
             {/* ── STREAKS ─────────────────────────────────────────── */}
             {view === 'streaks' && (
               <div className="space-y-3">
-                <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
+                <div className="flex gap-1 bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg p-1">
                   {(['current', 'longest'] as const).map((m) => (
                     <button key={m} onClick={() => setStreakMode(m)}
-                      className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer ${
-                        streakMode === m ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                      className={`flex-1 py-2 rounded-md text-sm font-bold transition-colors cursor-pointer ${
+                        streakMode === m ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white' : 'text-indigo-200/60 hover:text-white hover:bg-white/10'
                       }`}>
                       {m === 'current' ? 'Current streak' : 'Longest ever'}
                     </button>
@@ -421,24 +502,24 @@ const Leaderboard: React.FC = () => {
                     const name = e.username || e.name || 'Player';
                     const days = streakDays(e);
                     return (
-                      <div key={i} className="flex items-center gap-3 px-4 py-2.5 border-t border-slate-800/70">
-                        <span className="w-5 text-center text-sm font-semibold text-slate-500 tabular-nums">{i + 1}</span>
+                      <div key={i} className="flex items-center gap-3 px-4 py-2.5 border-t border-white/10">
+                        <span className="w-5 text-center text-sm font-bold text-indigo-300/50 tabular-nums">{i + 1}</span>
                         <Monogram label={name} />
-                        <p className="flex-1 min-w-0 font-medium text-white truncate">{name}</p>
+                        <p className="flex-1 min-w-0 font-bold text-white truncate">{name}</p>
                         <div className="w-28 shrink-0">
-                          <p className="text-right text-sm font-bold text-white tabular-nums flex items-center justify-end gap-1">
+                          <p className="text-right text-sm font-black text-white tabular-nums flex items-center justify-end gap-1">
                             <Flame className="w-3.5 h-3.5 text-amber-400" />{days}
                           </p>
                           <div className="mt-1"><RateBar ratio={days / maxStreak} /></div>
                         </div>
                         <div className="w-24 shrink-0 text-right">
-                          <p className="text-xs text-slate-400 tabular-nums">{fmtPlayed(e.last_valid_deed_date)}</p>
+                          <p className="text-xs text-indigo-300/50 tabular-nums">{fmtPlayed(e.last_valid_deed_date)}</p>
                         </div>
                       </div>
                     );
                   })}
                 </Panel>
-                <p className="text-center text-xs text-slate-500">A streak grows by one each day you complete at least one Gr8Day Deed.</p>
+                <p className="text-center text-xs text-indigo-300/40">A streak grows by one each day you complete at least one Gr8Day Deed.</p>
               </div>
             )}
 
@@ -450,21 +531,21 @@ const Leaderboard: React.FC = () => {
                   {(teams?.teams ?? []).length === 0 ? (
                     <Empty>No teams ranked yet.</Empty>
                   ) : (teams?.teams ?? []).map((t, i) => (
-                    <div key={t.team_id} className="flex items-center gap-3 px-4 py-2.5 border-t border-slate-800/70">
-                      <span className="w-5 text-center text-sm font-semibold text-slate-500 tabular-nums">{i + 1}</span>
+                    <div key={t.team_id} className="flex items-center gap-3 px-4 py-2.5 border-t border-white/10">
+                      <span className="w-5 text-center text-sm font-bold text-indigo-300/50 tabular-nums">{i + 1}</span>
                       <Monogram label={t.team_name} />
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-white truncate">{t.team_name}</p>
-                        <p className="text-[11px] text-slate-500 truncate">
+                        <p className="font-bold text-white truncate">{t.team_name}</p>
+                        <p className="text-[11px] text-indigo-300/50 truncate">
                           {t.team_number != null ? `Team #${t.team_number}` : ''}
                         </p>
                       </div>
                       <div className="w-28 shrink-0">
-                        <p className="text-right text-sm font-bold text-white tabular-nums">{t.deeds.toLocaleString()}</p>
+                        <p className="text-right text-sm font-black text-white tabular-nums">{t.deeds.toLocaleString()}</p>
                         <div className="mt-1"><RateBar ratio={t.deeds / maxTeamDeeds} /></div>
                       </div>
                       <div className="w-24 shrink-0 text-right">
-                        <p className="text-xs text-slate-400 tabular-nums">{t.total_members}</p>
+                        <p className="text-xs text-indigo-300/50 tabular-nums">{t.total_members}</p>
                       </div>
                     </div>
                   ))}
@@ -479,14 +560,14 @@ const Leaderboard: React.FC = () => {
                 {deeds.length === 0 ? (
                   <Empty>No deeds completed yet.</Empty>
                 ) : deeds.map((d, i) => (
-                  <div key={d.deed_id} className="flex items-center gap-3 px-4 py-2.5 border-t border-slate-800/70">
-                    <span className="w-5 text-center text-sm font-semibold text-slate-500 tabular-nums">{i + 1}</span>
+                  <div key={d.deed_id} className="flex items-center gap-3 px-4 py-2.5 border-t border-white/10">
+                    <span className="w-5 text-center text-sm font-bold text-indigo-300/50 tabular-nums">{i + 1}</span>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-white truncate">{d.deed_text}</p>
-                      {d.category && <p className="text-[10px] uppercase tracking-wider text-blue-400 font-semibold mt-0.5">{d.category}</p>}
+                      <p className="font-bold text-white truncate">{d.deed_text}</p>
+                      {d.category && <p className="text-[10px] uppercase tracking-wider text-sky-400 font-bold mt-0.5">{d.category}</p>}
                     </div>
                     <div className="w-24 shrink-0">
-                      <p className="text-right text-sm font-bold text-white tabular-nums">{d.count.toLocaleString()}</p>
+                      <p className="text-right text-sm font-black text-white tabular-nums">{d.count.toLocaleString()}</p>
                       <div className="mt-1"><RateBar ratio={d.count / maxDeedCount} /></div>
                     </div>
                   </div>
@@ -498,14 +579,14 @@ const Leaderboard: React.FC = () => {
             {view === 'places' && (
               <Panel>
                 {(country || stateNode) && (
-                  <div className="flex items-center gap-1.5 px-4 py-2.5 text-sm text-slate-400 border-b border-slate-800">
+                  <div className="flex items-center gap-1.5 px-4 py-2.5 text-sm text-indigo-300/60 border-b border-white/10">
                     <ChevronLeft className="w-4 h-4" />
                     <button className="hover:text-white" onClick={() => { setCountry(null); setStateNode(null); }}>All countries</button>
-                    {country && <><ChevronRight className="w-3 h-3 text-slate-600" /><button className="hover:text-white" onClick={() => setStateNode(null)}>{country.name}</button></>}
-                    {stateNode && <><ChevronRight className="w-3 h-3 text-slate-600" /><span className="text-white">{stateNode.name}</span></>}
+                    {country && <><ChevronRight className="w-3 h-3 text-indigo-300/30" /><button className="hover:text-white" onClick={() => setStateNode(null)}>{country.name}</button></>}
+                    {stateNode && <><ChevronRight className="w-3 h-3 text-indigo-300/30" /><span className="text-white">{stateNode.name}</span></>}
                   </div>
                 )}
-                <div className="flex items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
+                <div className="flex items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-indigo-300/50 font-bold">
                   <span className="flex-1">Region</span>
                   <span className="w-16 text-right">Deeds</span>
                   <span className="w-12 text-right">Players</span>
@@ -537,7 +618,7 @@ const Leaderboard: React.FC = () => {
           </>
         )}
 
-        <p className="text-center text-xs text-slate-600">
+        <p className="text-center text-xs text-indigo-300/40">
           Rankings count real Gr8Day Deeds only. Purchased and referral squares don't count.
         </p>
       </div>
@@ -548,14 +629,14 @@ const Leaderboard: React.FC = () => {
 
 // ── shared layout pieces ─────────────────────────────────────────────────────────
 const Panel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">{children}</div>
+  <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl overflow-hidden">{children}</div>
 );
 
 const fmtPlayed = (d?: string | null): string => {
   if (!d) return '—';
   const dt = new Date(d);
   if (isNaN(dt.getTime())) return '—';
-return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });  
+return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
 const TableHead: React.FC<{
@@ -571,7 +652,7 @@ const TableHead: React.FC<{
     return (
       <button
         onClick={() => onSort(key)}
-        className={`${className} flex items-center gap-0.5 ${idx > 1 ? 'justify-end' : ''} cursor-pointer hover:text-slate-300 transition-colors ${isActive ? 'text-slate-300' : ''}`}
+        className={`${className} flex items-center gap-0.5 ${idx > 1 ? 'justify-end' : ''} cursor-pointer hover:text-indigo-100 transition-colors ${isActive ? 'text-indigo-100' : ''}`}
       >
         {label}
         {isActive && (activeSort!.dir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
@@ -579,7 +660,7 @@ const TableHead: React.FC<{
     );
   };
   return (
-    <div className="flex items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
+    <div className="flex items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-indigo-300/50 font-bold">
       {cell(cols[0], 0, 'w-5 text-center')}
       {cell(cols[1], 1, 'flex-1')}
       {cols[2] != null && cell(cols[2], 2, 'w-24 text-right')}
@@ -589,29 +670,29 @@ const TableHead: React.FC<{
 };
 
 const Empty: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p className="text-center text-slate-500 py-10 text-sm border-t border-slate-800/70">{children}</p>
+  <p className="text-center text-indigo-300/40 py-10 text-sm border-t border-white/10">{children}</p>
 );
 
 const PlaceRow: React.FC<{
   title: string; subtitle?: string; deeds: number; players: number; onClick?: () => void; locked?: boolean;
 }> = ({ title, subtitle, deeds, players, onClick, locked }) => (
   <button type="button" onClick={onClick} disabled={!onClick}
-    className={`w-full flex items-center gap-3 px-4 py-3 text-left border-t border-slate-800/70 ${onClick ? 'hover:bg-slate-800/50 cursor-pointer' : 'cursor-default'}`}>
+    className={`w-full flex items-center gap-3 px-4 py-3 text-left border-t border-white/10 ${onClick ? 'hover:bg-white/10 cursor-pointer' : 'cursor-default'}`}>
     <div className="flex-1 min-w-0">
-      <p className="font-medium text-white truncate">{title}</p>
+      <p className="font-bold text-white truncate">{title}</p>
       {subtitle && (
-        <p className={`text-[11px] truncate flex items-center gap-1 mt-0.5 ${locked ? 'text-amber-500/80' : 'text-slate-500'}`}>
+        <p className={`text-[11px] truncate flex items-center gap-1 mt-0.5 ${locked ? 'text-amber-400/80' : 'text-indigo-300/50'}`}>
           {locked && <Lock className="w-3 h-3" />}{subtitle}
         </p>
       )}
     </div>
     <div className="w-16 text-right">
-      <p className="font-bold text-white tabular-nums leading-tight">{deeds.toLocaleString()}</p>
+      <p className="font-black text-white tabular-nums leading-tight">{deeds.toLocaleString()}</p>
     </div>
-    <div className="w-12 text-right flex items-center justify-end gap-1 text-slate-300">
-      <Users className="w-3 h-3 text-slate-500" /><span className="tabular-nums text-sm">{players}</span>
+    <div className="w-12 text-right flex items-center justify-end gap-1 text-indigo-200/70">
+      <Users className="w-3 h-3 text-indigo-300/50" /><span className="tabular-nums text-sm">{players}</span>
     </div>
-    {onClick && <ChevronRight className="w-4 h-4 text-slate-600 shrink-0" />}
+    {onClick && <ChevronRight className="w-4 h-4 text-indigo-300/40 shrink-0" />}
   </button>
 );
 

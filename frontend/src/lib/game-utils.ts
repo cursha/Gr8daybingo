@@ -428,6 +428,44 @@ export async function adminDeleteCardPickupPrompt(id: number): Promise<void> {
   return apiClient.delete(`/game/admin/card-pickup-prompts/${id}`);
 }
 
+export interface RecentDeed {
+  deed_text: string;
+  city: string | null;
+  country_name: string | null;
+  completed_at: string;
+}
+
+export async function getRecentDeeds(): Promise<{ deeds: RecentDeed[] }> {
+  return apiClient.get('/game/public/recent-deeds', { skipAuth: true });
+}
+
+export interface CommunityVoice {
+  question_text: string;
+  response_text: string;
+  username: string | null;
+}
+
+export async function getCommunityVoices(): Promise<{ voices: CommunityVoice[] }> {
+  return apiClient.get('/game/public/community-voices', { skipAuth: true });
+}
+
+export interface PromptResponse {
+  id: number;
+  question_text: string;
+  response_text: string;
+  username: string | null;
+  is_approved_for_display: boolean;
+  created_at: string;
+}
+
+export async function adminGetPromptResponses(): Promise<{ responses: PromptResponse[] }> {
+  return apiClient.get('/game/admin/prompt-responses');
+}
+
+export async function adminApprovePromptResponse(id: number, approved: boolean): Promise<{ response: PromptResponse }> {
+  return apiClient.put(`/game/admin/prompt-responses/${id}`, { is_approved_for_display: approved });
+}
+
 export type ImpactStatsPeriod = 'week' | 'month' | 'quarter' | 'year' | 'all';
 
 export interface MyImpactStats {

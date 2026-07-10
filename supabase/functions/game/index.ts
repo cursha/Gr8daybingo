@@ -1746,6 +1746,55 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: true })
     }
 
+    // ── Admin: GET /admin/prompt-responses ────────────────────────────────────
+    // Review queue for player-typed reflection answers before any of them can
+    // appear publicly in Community Voices — nothing goes live unapproved.
+    if (method === 'GET' && path === '/admin/prompt-responses') {
+      requireAdmin(authUser)
+      // user_id has no FK to users (matches this table's existing convention
+      // elsewhere in the codebase), so PostgREST can't embed it — resolve
+      // manually, same pattern as /public/world-deeds below.
+      const { data } = await supabase
+        .from('player_prompt_responses')
+        .select('id, user_id, prompt_id, response_text, is_approved_for_display, created_at, card_pickup_prompts(question_text)')
+        .order('created_at', { ascending: false })
+        .limit(200)
+      const rows = (data ?? []) as unknown as {
+        id: number; user_id: string; prompt_id: number; response_text: string
+        is_approved_for_display: boolean; created_at: string
+        card_pickup_prompts: { question_text: string } | null
+      }[]
+      const userIds = [...new Set(rows.map((r) => r.user_id))]
+      const { data: usersData } = await supabase.from('users').select('id, username').in('id', userIds)
+      const usernameById = new Map((usersData ?? []).map((u) => [u.id, u.username as string | null]))
+      return jsonResponse({
+        responses: rows.map((r) => ({
+          id: r.id,
+          question_text: r.card_pickup_prompts?.question_text ?? '',
+          response_text: r.response_text,
+          username: usernameById.get(r.user_id) ?? null,
+          is_approved_for_display: r.is_approved_for_display,
+          created_at: r.created_at,
+        })),
+      })
+    }
+
+    // ── Admin: PUT /admin/prompt-responses/:id ────────────────────────────────
+    const promptResponseApproveMatch = method === 'PUT' && path.match(/^\/admin\/prompt-responses\/(\d+)$/)
+    if (promptResponseApproveMatch) {
+      requireAdmin(authUser)
+      const id = parseInt(promptResponseApproveMatch[1])
+      const body = await req.json()
+      const { data: existingRow } = await supabase.from('player_prompt_responses').select('id').eq('id', id).maybeSingle()
+      if (!existingRow) return errorResponse('Response not found', 404)
+      const { data, error } = await supabase
+        .from('player_prompt_responses')
+        .update({ is_approved_for_display: Boolean(body.is_approved_for_display) })
+        .eq('id', id).select().single()
+      if (error) return errorResponse(error.message, 400)
+      return jsonResponse({ response: data })
+    }
+
     // ── Admin: POST /admin/spotlight-quick-tap ────────────────────────────────
     // Re-POSTing with a different deed_id replaces the current spotlight deed
     // early — no separate "clear" endpoint. It only disappears on its own once
@@ -2313,23 +2362,30 @@ Deno.serve(async (req: Request) => {
       const period = url.searchParams.get('period') ?? 'week'
       const start = impactPeriodStart(period)
 
+      // deed_id/quick_deed_id have no FK to good_deeds/quick_deeds (matches
+      // completed_deeds' existing convention), so PostgREST can't embed them
+      // — resolve manually, same pattern as /public/world-deeds below.
       let cdQuery = supabase
         .from('completed_deeds')
-        .select('deed_id, quick_deed_id, good_deeds(deed_text), quick_deeds(label)')
+        .select('deed_id, quick_deed_id')
         .eq('player_id', user.sub)
         .eq('is_hidden_from_impact_board', false)
       if (start) cdQuery = cdQuery.gte('completed_at', start)
       const { data } = await cdQuery
-      const rows = (data ?? []) as unknown as {
-        deed_id: number | null
-        quick_deed_id: number | null
-        good_deeds: { deed_text: string } | null
-        quick_deeds: { label: string } | null
-      }[]
+      const rows = (data ?? []) as { deed_id: number | null; quick_deed_id: number | null }[]
+
+      const deedIds = [...new Set(rows.map((r) => r.deed_id).filter((v): v is number => v != null))]
+      const quickDeedIds = [...new Set(rows.map((r) => r.quick_deed_id).filter((v): v is number => v != null))]
+      const [{ data: gd }, { data: qd }] = await Promise.all([
+        deedIds.length ? supabase.from('good_deeds').select('id, deed_text').in('id', deedIds) : Promise.resolve({ data: [] as { id: number; deed_text: string }[] }),
+        quickDeedIds.length ? supabase.from('quick_deeds').select('id, label').in('id', quickDeedIds) : Promise.resolve({ data: [] as { id: number; label: string }[] }),
+      ])
+      const deedTextById = new Map((gd ?? []).map((d) => [d.id, d.deed_text]))
+      const quickLabelById = new Map((qd ?? []).map((d) => [d.id, d.label]))
 
       const counts = new Map<string, number>()
       for (const r of rows) {
-        const text = r.good_deeds?.deed_text ?? r.quick_deeds?.label ?? null
+        const text = (r.deed_id != null ? deedTextById.get(r.deed_id) : null) ?? (r.quick_deed_id != null ? quickLabelById.get(r.quick_deed_id) : null) ?? null
         if (!text) continue
         counts.set(text, (counts.get(text) ?? 0) + 1)
       }
@@ -2471,6 +2527,69 @@ Deno.serve(async (req: Request) => {
         .sort((a, b) => b.total_deeds - a.total_deeds)
 
       return jsonResponse({ countries, grand_total })
+    }
+
+    // ── GET /public/recent-deeds ──────────────────────────────────────────────
+    // "Happening right now" ticker on the Kindness Dashboard. No player
+    // identity included — same anonymity level as /public/world-deeds and the
+    // leaderboard's geo/deed breakdowns, which never expose who did what.
+    if (method === 'GET' && path === '/public/recent-deeds') {
+      // deed_id/quick_deed_id have no FK to good_deeds/quick_deeds — resolve
+      // manually, same pattern as /public/world-deeds below.
+      const { data } = await supabase
+        .from('completed_deeds')
+        .select('deed_id, quick_deed_id, city, country_name, completed_at')
+        .eq('is_hidden_from_impact_board', false)
+        .order('completed_at', { ascending: false })
+        .limit(30)
+      const rows = (data ?? []) as { deed_id: number | null; quick_deed_id: number | null; city: string | null; country_name: string | null; completed_at: string }[]
+
+      const deedIds = [...new Set(rows.map((r) => r.deed_id).filter((v): v is number => v != null))]
+      const quickDeedIds = [...new Set(rows.map((r) => r.quick_deed_id).filter((v): v is number => v != null))]
+      const [{ data: gd }, { data: qd }] = await Promise.all([
+        deedIds.length ? supabase.from('good_deeds').select('id, deed_text').in('id', deedIds) : Promise.resolve({ data: [] as { id: number; deed_text: string }[] }),
+        quickDeedIds.length ? supabase.from('quick_deeds').select('id, label').in('id', quickDeedIds) : Promise.resolve({ data: [] as { id: number; label: string }[] }),
+      ])
+      const deedTextById = new Map((gd ?? []).map((d) => [d.id, d.deed_text]))
+      const quickLabelById = new Map((qd ?? []).map((d) => [d.id, d.label]))
+
+      const deeds = rows
+        .map((r) => ({
+          deed_text: (r.deed_id != null ? deedTextById.get(r.deed_id) : null) ?? (r.quick_deed_id != null ? quickLabelById.get(r.quick_deed_id) : null) ?? null,
+          city: r.city,
+          country_name: r.country_name,
+          completed_at: r.completed_at,
+        }))
+        .filter((d) => d.deed_text)
+      return jsonResponse({ deeds })
+    }
+
+    // ── GET /public/community-voices ──────────────────────────────────────────
+    // Real answers to the card-pickup reflection prompts, admin-approved only
+    // (see /admin/prompt-responses) — username shown, never a real name.
+    if (method === 'GET' && path === '/public/community-voices') {
+      // user_id has no FK to users — resolve manually, same pattern as
+      // /public/world-deeds below.
+      const { data } = await supabase
+        .from('player_prompt_responses')
+        .select('user_id, response_text, created_at, card_pickup_prompts(question_text)')
+        .eq('is_approved_for_display', true)
+        .order('created_at', { ascending: false })
+        .limit(10)
+      const rows = (data ?? []) as unknown as {
+        user_id: string; response_text: string; created_at: string
+        card_pickup_prompts: { question_text: string } | null
+      }[]
+      const userIds = [...new Set(rows.map((r) => r.user_id))]
+      const { data: usersData } = await supabase.from('users').select('id, username').in('id', userIds)
+      const usernameById = new Map((usersData ?? []).map((u) => [u.id, u.username as string | null]))
+      return jsonResponse({
+        voices: rows.map((r) => ({
+          question_text: r.card_pickup_prompts?.question_text ?? '',
+          response_text: r.response_text,
+          username: usernameById.get(r.user_id) ?? null,
+        })),
+      })
     }
 
     // ── GET /public/prize ─────────────────────────────────────────────────────

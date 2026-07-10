@@ -113,10 +113,10 @@ const BlackoutTile: React.FC<{
         <button
           onClick={() => setPendingReveal(true)}
           disabled={!canReveal || revealing}
-          className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900 hover:from-slate-700 hover:to-slate-800 border border-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-800 to-blue-900 hover:from-blue-700 hover:to-blue-800 border border-white/10 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           aria-label="Hidden square — tap to reveal"
         >
-          <span className="text-white/20 text-lg sm:text-2xl">?</span>
+          <span className="text-yellow-300 text-lg sm:text-2xl">?</span>
         </button>
         {pendingReveal && createPortal((
           <div
@@ -159,9 +159,9 @@ const BlackoutTile: React.FC<{
 
   if (isBlocked) {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center gap-0.5 bg-black/60 border border-rose-900/40">
-        <span className="text-rose-500/60 text-base sm:text-xl">✕</span>
-        <span className="text-[7px] sm:text-[9px] font-bold text-rose-500/50 uppercase tracking-widest">Passed</span>
+      <div className="w-full h-full flex flex-col items-center justify-center gap-0.5 bg-blue-800/80 border border-rose-900/40">
+        <span className="text-yellow-300/60 text-base sm:text-xl">✕</span>
+        <span className="text-[7px] sm:text-[9px] font-bold text-yellow-300/60 uppercase tracking-widest">Passed</span>
       </div>
     );
   }

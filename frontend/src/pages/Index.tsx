@@ -207,6 +207,18 @@ const Index: React.FC = () => {
             Join the global movement to make Gr8days.
           </p>
 
+          {!user && (
+            <div className="flex justify-center mb-8">
+              <button
+                type="button"
+                onClick={() => navigate('/demo')}
+                className="inline-flex items-center gap-2 text-white/90 hover:text-white text-sm font-bold border border-white/30 hover:border-white/50 rounded-full px-4 py-2 transition-colors"
+              >
+                <PlayCircle className="w-4 h-4" /> Watch the 75-second demo
+              </button>
+            </div>
+          )}
+
           {/* Mini game-board preview — real deeds */}
           <div className="flex justify-center mb-8">
             <div className="bg-white/15 backdrop-blur-sm p-3 rounded-2xl border border-white/30 shadow-xl">
@@ -258,15 +270,6 @@ const Index: React.FC = () => {
             >
               {user ? 'Join In Now' : 'Get Started'} →
             </Button>
-            {!user && (
-              <button
-                type="button"
-                onClick={() => navigate('/demo')}
-                className="inline-flex items-center gap-2 text-white/90 hover:text-white text-sm font-bold border border-white/30 hover:border-white/50 rounded-full px-4 py-2 transition-colors"
-              >
-                <PlayCircle className="w-4 h-4" /> Watch the 75-second demo
-              </button>
-            )}
             {!user && (
               <p className="text-white/90 text-sm">
                 Already have an account?{' '}

@@ -212,7 +212,7 @@ const Index: React.FC = () => {
               <button
                 type="button"
                 onClick={() => navigate('/demo')}
-                className="inline-flex items-center gap-2 text-white/90 hover:text-white text-sm font-bold border border-white/30 hover:border-white/50 rounded-full px-4 py-2 transition-colors"
+                className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-full px-5 py-2.5 shadow-lg transition-colors"
               >
                 <PlayCircle className="w-4 h-4" /> Watch the 75-second demo
               </button>

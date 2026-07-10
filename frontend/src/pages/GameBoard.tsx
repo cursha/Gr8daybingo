@@ -44,6 +44,9 @@ import {
   resumeBlackout,
   getPickupPrompt,
   submitPickupPromptResponse,
+  ImpactStatsPeriod,
+  MyImpactStats,
+  getMyImpactStats,
 } from '@/lib/game-utils';
 import BingoCell from '@/components/BingoCell';
 import CelebrationOverlay from '@/components/CelebrationOverlay';
@@ -62,7 +65,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Medal, LogOut, Printer, ChevronDown, Shuffle, Share2 } from 'lucide-react';
+import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Medal, LogOut, Printer, ChevronDown, Shuffle, Share2, X } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { downloadBingoCardPdf, downloadTeamCardsPdf, TeamMemberCard } from '@/lib/bingo-pdf';
 import { shareOrDownloadImpactCard } from '@/lib/impact-card';
@@ -81,6 +84,10 @@ const WIN_CONDITION_LABELS: Record<string, string> = {
   two_lines: 'Two Lines',
   four_corners: 'Four Corners',
   fill_card: 'Fill the Card',
+};
+
+const IMPACT_PERIOD_LABELS: Record<ImpactStatsPeriod, string> = {
+  week: 'This Week', month: 'This Month', quarter: 'This Quarter', year: 'This Year', all: 'All Time',
 };
 
 const WIN_CONDITION_DESCRIPTIONS: Record<string, string> = {
@@ -331,6 +338,11 @@ const GameBoard: React.FC = () => {
   const [streak, setStreak] = useState<StreakData | null>(null);
   const [streakMilestones, setStreakMilestones] = useState<StreakMilestoneHit[]>([]);
   const [shareLoading, setShareLoading] = useState(false);
+  const [showImpactPicker, setShowImpactPicker] = useState(false);
+  const [impactPeriod, setImpactPeriod] = useState<ImpactStatsPeriod>('week');
+  const [impactStats, setImpactStats] = useState<MyImpactStats | null>(null);
+  const [impactStatsLoading, setImpactStatsLoading] = useState(false);
+  const [selectedFeaturedDeed, setSelectedFeaturedDeed] = useState<string | null>(null);
 
   useEffect(() => {
     getPublicPrize()
@@ -813,32 +825,52 @@ const GameBoard: React.FC = () => {
     }
   };
 
-  const handleShareImpact = async () => {
-    if (!card) {
-      toast.error('Your card is not loaded yet. Please wait a moment and try again.');
-      return;
+  const loadImpactStats = async (period: ImpactStatsPeriod) => {
+    setImpactPeriod(period);
+    setImpactStatsLoading(true);
+    try {
+      const stats = await getMyImpactStats(period);
+      setImpactStats(stats);
+      // A deed featured under the old period might not exist in the new one.
+      if (!stats.top_deeds.some((d) => d.deed_text === selectedFeaturedDeed)) {
+        setSelectedFeaturedDeed(null);
+      }
+    } catch (err) {
+      console.error('Failed to load impact stats', err);
+      toast.error('Could not load your stats. Please try again.');
+      setImpactStats(null);
+    } finally {
+      setImpactStatsLoading(false);
     }
+  };
+
+  const handleOpenImpactPicker = () => {
+    setShowImpactPicker(true);
+    setSelectedFeaturedDeed(null);
+    loadImpactStats('week');
+  };
+
+  const handleGenerateImpactCard = async () => {
+    if (!impactStats) return;
     setShareLoading(true);
     try {
-      // Real Gr8Day Deeds only — purchased and referral squares don't count,
-      // matching the leaderboard's own counting rule (see Leaderboard.tsx).
-      const cellByIndex = new Map(card.cells.map((c) => [c.index, c]));
-      const deedsThisWeek = card.completed_cells.filter((i) => {
-        const cell = cellByIndex.get(i);
-        return cell && !cell.is_free_space && !cell.is_purchasable && !cell.is_referral_free;
-      }).length;
-
+      const featured = selectedFeaturedDeed
+        ? impactStats.top_deeds.find((d) => d.deed_text === selectedFeaturedDeed)
+        : null;
       // Username only — never a real name, this image is meant to be shared publicly.
       const username = (user as { name?: string } | null)?.name || `GR8-${playerNumber ?? '????'}`;
 
       const result = await shareOrDownloadImpactCard({
         username,
-        deedsThisWeek,
+        periodLabel: IMPACT_PERIOD_LABELS[impactPeriod],
+        count: featured ? featured.count : impactStats.total,
+        featuredDeedText: featured ? featured.deed_text : null,
         totalDeeds: playerBadge?.total_deeds ?? 0,
         badgeName: playerBadge?.badge_name,
         badgeEmoji: playerBadge?.badge_emoji,
       });
       if (result === 'downloaded') toast.success('Your impact card is downloading.');
+      setShowImpactPicker(false);
     } catch (err) {
       console.error('Failed to generate impact card', err);
       toast.error('Could not generate your impact card. Please try again.');
@@ -1115,8 +1147,8 @@ const GameBoard: React.FC = () => {
                 <DropdownMenuItem onClick={() => navigate('/prize-history')} className="cursor-pointer focus:bg-white/10 focus:text-white">
                   <Trophy className="w-3.5 h-3.5 mr-2" /> My Wins
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleShareImpact} disabled={!card || shareLoading} className="cursor-pointer focus:bg-white/10 focus:text-white">
-                  <Share2 className="w-3.5 h-3.5 mr-2" /> {shareLoading ? 'Creating…' : 'Share My Impact'}
+                <DropdownMenuItem onClick={handleOpenImpactPicker} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                  <Share2 className="w-3.5 h-3.5 mr-2" /> Share My Impact
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1721,6 +1753,84 @@ const GameBoard: React.FC = () => {
           milestones={streakMilestones}
           onClose={() => setStreakMilestones([])}
         />
+      )}
+      {showImpactPicker && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+          onClick={() => setShowImpactPicker(false)}
+        >
+          <div
+            className="bg-indigo-950 rounded-2xl shadow-2xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-black text-white">Share My Impact</h2>
+              <button onClick={() => setShowImpactPicker(false)} className="text-white/50 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-5 gap-1 mb-4">
+              {(['week', 'month', 'quarter', 'year', 'all'] as ImpactStatsPeriod[]).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => loadImpactStats(p)}
+                  className={`text-[10px] sm:text-xs font-bold py-2 rounded-lg transition-colors ${
+                    impactPeriod === p ? 'bg-emerald-500 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'
+                  }`}
+                >
+                  {IMPACT_PERIOD_LABELS[p].replace('This ', '')}
+                </button>
+              ))}
+            </div>
+
+            {impactStatsLoading ? (
+              <div className="flex justify-center py-10">
+                <div className="animate-spin rounded-full h-6 w-6 border-2 border-indigo-400 border-t-transparent" />
+              </div>
+            ) : impactStats && impactStats.total > 0 ? (
+              <div className="space-y-2 mb-4">
+                <button
+                  onClick={() => setSelectedFeaturedDeed(null)}
+                  className={`w-full text-left rounded-xl border-2 p-3 transition-all ${
+                    selectedFeaturedDeed === null ? 'border-emerald-400 bg-emerald-500/15' : 'border-white/10 bg-white/5 hover:border-white/30'
+                  }`}
+                >
+                  <p className="font-bold text-white text-sm">Total — {impactStats.total} Gr8Day Deed{impactStats.total === 1 ? '' : 's'}</p>
+                  <p className="text-xs text-indigo-200/60 mt-0.5">{IMPACT_PERIOD_LABELS[impactPeriod]}</p>
+                </button>
+
+                {impactStats.top_deeds.length > 0 && (
+                  <>
+                    <p className="text-[11px] uppercase tracking-wider text-indigo-300/50 font-bold pt-1">Or feature one deed</p>
+                    {impactStats.top_deeds.map((d) => (
+                      <button
+                        key={d.deed_text}
+                        onClick={() => setSelectedFeaturedDeed(d.deed_text)}
+                        className={`w-full text-left rounded-xl border-2 p-3 transition-all ${
+                          selectedFeaturedDeed === d.deed_text ? 'border-amber-400 bg-amber-500/15' : 'border-white/10 bg-white/5 hover:border-white/30'
+                        }`}
+                      >
+                        <p className="font-bold text-white text-sm">{d.deed_text}</p>
+                        <p className="text-xs text-indigo-200/60 mt-0.5">{d.count} time{d.count === 1 ? '' : 's'}</p>
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-indigo-200/50 text-center py-8">No Gr8Day Deeds in this period yet — try a longer time frame.</p>
+            )}
+
+            <Button
+              onClick={handleGenerateImpactCard}
+              disabled={!impactStats || impactStats.total === 0 || shareLoading || impactStatsLoading}
+              className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold"
+            >
+              {shareLoading ? 'Creating…' : 'Generate & Share'}
+            </Button>
+          </div>
+        </div>
       )}
       <Footer tone="dark" />
     </div>

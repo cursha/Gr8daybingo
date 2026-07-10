@@ -363,6 +363,9 @@ async function awardNewBingoLines(
 function impactPeriodStart(period: string): string | null {
   const now = new Date()
   const y = now.getUTCFullYear(), m = now.getUTCMonth()
+  // Same ISO week boundary (Monday) the rest of the app already uses for
+  // card generation — see getCurrentWeekYear/getWeekStart.
+  if (period === 'week') return getWeekStart(getCurrentWeekYear()).toISOString()
   if (period === 'month') return new Date(Date.UTC(y, m, 1)).toISOString()
   if (period === 'quarter') return new Date(Date.UTC(y, Math.floor(m / 3) * 3, 1)).toISOString()
   if (period === 'year') return new Date(Date.UTC(y, 0, 1)).toISOString()
@@ -2298,6 +2301,44 @@ Deno.serve(async (req: Request) => {
         participation: { active_players: activePlayers, lifetime_players: lifetimePlayers, active_teams: activeTeams, lifetime_teams: lifetimeTeams },
         reach: { cities, provinces, countries },
       })
+    }
+
+    // ── GET /my-impact-stats ──────────────────────────────────────────────────
+    // Player-facing (not community-wide): powers the "Share My Impact" card
+    // customization — a period total plus a per-deed breakdown, so a player
+    // can feature a specific deed ("Bought 12 Beverages this month") instead
+    // of just a total. period = week | month | quarter | year | all.
+    if (method === 'GET' && path === '/my-impact-stats') {
+      const user = requireAuth(authUser)
+      const period = url.searchParams.get('period') ?? 'week'
+      const start = impactPeriodStart(period)
+
+      let cdQuery = supabase
+        .from('completed_deeds')
+        .select('deed_id, quick_deed_id, good_deeds(deed_text), quick_deeds(label)')
+        .eq('player_id', user.sub)
+        .eq('is_hidden_from_impact_board', false)
+      if (start) cdQuery = cdQuery.gte('completed_at', start)
+      const { data } = await cdQuery
+      const rows = (data ?? []) as unknown as {
+        deed_id: number | null
+        quick_deed_id: number | null
+        good_deeds: { deed_text: string } | null
+        quick_deeds: { label: string } | null
+      }[]
+
+      const counts = new Map<string, number>()
+      for (const r of rows) {
+        const text = r.good_deeds?.deed_text ?? r.quick_deeds?.label ?? null
+        if (!text) continue
+        counts.set(text, (counts.get(text) ?? 0) + 1)
+      }
+      const topDeeds = Array.from(counts.entries())
+        .map(([deed_text, count]) => ({ deed_text, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5)
+
+      return jsonResponse({ period, total: rows.length, top_deeds: topDeeds })
     }
 
     // ── GET /public/countries ─────────────────────────────────────────────────

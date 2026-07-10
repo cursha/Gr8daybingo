@@ -9,9 +9,16 @@
 export interface ImpactCardData {
   /** Player's username — never a real name (this is shareable/public). */
   username: string;
-  /** Real Gr8Day Deeds completed on the current week's card (purchased and
-   *  referral squares excluded, matching the leaderboard's own counting rule). */
-  deedsThisWeek: number;
+  /** e.g. "This Week", "This Month", "This Quarter", "This Year", "All Time". */
+  periodLabel: string;
+  /** Count of real Gr8Day Deeds in the chosen period — either the period
+   *  total, or the count for featuredDeedText when one is picked. Purchased
+   *  and referral squares are excluded, matching the leaderboard's rule. */
+  count: number;
+  /** When set, the card features one specific deed ("Bought a stranger's
+   *  coffee") instead of a plain total — a more concrete, less boastful
+   *  thing to be proud of than a bare number. */
+  featuredDeedText?: string | null;
   totalDeeds: number;
   badgeName?: string | null;
   badgeEmoji?: string | null;
@@ -28,6 +35,30 @@ function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: n
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
+}
+
+// Greedy word-wrap for canvas text — canvas has no native wrapping. Caps at
+// maxLines so a long deed_text can never overflow the card; the last kept
+// line gets an ellipsis if any words had to be dropped.
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number): string[] {
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let current = '';
+  let consumedAll = true;
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    const candidate = current ? `${current} ${word}` : word;
+    if (ctx.measureText(candidate).width > maxWidth && current) {
+      lines.push(current);
+      if (lines.length === maxLines) { consumedAll = i === words.length - 1; current = ''; break; }
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  if (!consumedAll) lines[lines.length - 1] = lines[lines.length - 1].replace(/[.…]*$/, '') + '…';
+  return lines;
 }
 
 // canvas.toDataURL is synchronous (unlike toBlob, which is a callback-based
@@ -114,25 +145,35 @@ export function renderImpactCard(data: ImpactCardData): Blob {
   roundRectPath(ctx, panelX, panelY, panelW, panelH, 32);
   ctx.stroke();
 
+  const periodUpper = data.periodLabel.toUpperCase();
   ctx.textAlign = 'center';
   ctx.font = '800 26px system-ui, -apple-system, "Segoe UI", sans-serif';
   ctx.fillStyle = '#fde047';
-  ctx.fillText('THIS WEEK I DELIVERED', WIDTH / 2, panelY + 90);
+  ctx.fillText(data.featuredDeedText ? 'PROUD TO HAVE' : `${periodUpper} I DELIVERED`, WIDTH / 2, panelY + 90);
 
   const grad = ctx.createLinearGradient(panelX, panelY, panelX + panelW, panelY);
   grad.addColorStop(0, '#34d399');
   grad.addColorStop(1, '#0ea5e9');
   ctx.fillStyle = grad;
   ctx.font = '900 240px system-ui, -apple-system, "Segoe UI", sans-serif';
-  ctx.fillText(String(data.deedsThisWeek), WIDTH / 2, panelY + 340);
+  ctx.fillText(String(data.count), WIDTH / 2, panelY + 340);
 
   ctx.fillStyle = 'rgba(255,255,255,0.85)';
-  ctx.font = '800 38px system-ui, -apple-system, "Segoe UI", sans-serif';
-  ctx.fillText(data.deedsThisWeek === 1 ? 'Gr8Day Deed' : 'Gr8Day Deeds', WIDTH / 2, panelY + 400);
-
-  ctx.fillStyle = 'rgba(255,255,255,0.55)';
-  ctx.font = '600 26px system-ui, -apple-system, "Segoe UI", sans-serif';
-  ctx.fillText('Real deeds. Real kindness. Really happening.', WIDTH / 2, panelY + 460);
+  if (data.featuredDeedText) {
+    // Deed text can run long — wrap to at most 2 lines so it never overflows.
+    ctx.font = '800 34px system-ui, -apple-system, "Segoe UI", sans-serif';
+    const lines = wrapText(ctx, data.featuredDeedText, panelW - 100, 2);
+    lines.forEach((line, i) => ctx.fillText(line, WIDTH / 2, panelY + 400 + i * 42));
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '600 26px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillText(data.periodLabel, WIDTH / 2, panelY + 400 + lines.length * 42 + 34);
+  } else {
+    ctx.font = '800 38px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillText(data.count === 1 ? 'Gr8Day Deed' : 'Gr8Day Deeds', WIDTH / 2, panelY + 400);
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '600 26px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillText('Real deeds. Real kindness. Really happening.', WIDTH / 2, panelY + 460);
+  }
 
   // Secondary stat row: lifetime total + badge
   const rowY = panelY + panelH + 70;
@@ -185,7 +226,9 @@ export async function shareOrDownloadImpactCard(data: ImpactCardData): Promise<'
       await navigator.share({
         files: [file],
         title: 'Havagr8day Bingo — My Impact',
-        text: `This week I delivered ${data.deedsThisWeek} Gr8Day Deed${data.deedsThisWeek === 1 ? '' : 's'}!`,
+        text: data.featuredDeedText
+          ? `${data.periodLabel}, I ${data.featuredDeedText.toLowerCase()} ${data.count} time${data.count === 1 ? '' : 's'}!`
+          : `${data.periodLabel}, I delivered ${data.count} Gr8Day Deed${data.count === 1 ? '' : 's'}!`,
       });
       return 'shared';
     } catch (err) {

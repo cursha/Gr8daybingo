@@ -428,6 +428,18 @@ export async function adminDeleteCardPickupPrompt(id: number): Promise<void> {
   return apiClient.delete(`/game/admin/card-pickup-prompts/${id}`);
 }
 
+export type ImpactStatsPeriod = 'week' | 'month' | 'quarter' | 'year' | 'all';
+
+export interface MyImpactStats {
+  period: string;
+  total: number;
+  top_deeds: { deed_text: string; count: number }[];
+}
+
+export async function getMyImpactStats(period: ImpactStatsPeriod): Promise<MyImpactStats> {
+  return apiClient.get(`/game/my-impact-stats?period=${period}`);
+}
+
 export interface TeamMember {
   id: number;
   user_id: string;

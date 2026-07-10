@@ -1335,6 +1335,7 @@ const AdminPanel: React.FC = () => {
 
   const configFields = [
     { key: 'signup_bonus_amount', label: 'Signup Bonus Amount ($)', type: 'number' },
+    { key: 'referral_bonus_amount', label: 'Referral Bonus Amount ($)', type: 'number' },
     { key: 'dollar1_pct', label: '$0.50 Square Percentage', type: 'number' },
     { key: 'dollar2_pct', label: '$1.00 Square Percentage', type: 'number' },
     { key: 'dollar5_pct', label: '$2.00 Square Percentage', type: 'number' },

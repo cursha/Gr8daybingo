@@ -309,6 +309,14 @@ Deno.serve(async (req: Request) => {
           // Referral validated — this player is now trusted too.
           await supabase.from('users').update({ is_trusted: true }).eq('id', user.id)
 
+          // Referral bonus: admin-editable dollar amount credited to each
+          // referrer's wallet now that their friend's email is verified.
+          // Mirrors the signup_bonus_amount pattern in registration/index.ts.
+          const { data: bonusCfg } = await supabase
+            .from('game_configs').select('config_value')
+            .eq('config_key', 'referral_bonus_amount').maybeSingle()
+          const referralBonus = bonusCfg?.config_value != null ? parseFloat(bonusCfg.config_value) : 5.0
+
           const referrerIds = [...new Set(pendingRefs.map((r: { user_id: string }) => r.user_id))]
           for (const rid of referrerIds) {
             const { data: referrer } = await supabase
@@ -316,6 +324,26 @@ Deno.serve(async (req: Request) => {
             if (referrer?.email) {
               const tpl = referralJoinedEmail(user.first_name ?? user.email ?? null)
               await sendEmail({ to: referrer.email, subject: tpl.subject, html: tpl.html })
+            }
+
+            if (referralBonus > 0) {
+              let { data: wallet } = await supabase
+                .from('player_wallets').select('*').eq('user_id', rid).maybeSingle()
+              if (!wallet) {
+                const { data: newWallet } = await supabase
+                  .from('player_wallets').insert({ user_id: rid, balance: 0 }).select().single()
+                wallet = newWallet
+              }
+              const newBalance = parseFloat(wallet.balance ?? 0) + referralBonus
+              await supabase.from('player_wallets')
+                .update({ balance: newBalance, updated_at: new Date().toISOString() })
+                .eq('user_id', rid)
+              await supabase.from('wallet_transactions').insert({
+                user_id: rid,
+                amount: referralBonus,
+                transaction_type: 'referral_bonus',
+                item_description: `Referral bonus — a friend you invited joined (+$${referralBonus.toFixed(2)})`,
+              })
             }
           }
         }

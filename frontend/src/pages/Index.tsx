@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Heart, Star, Trophy, Wallet, Shield, Users, Gift, Medal, LogOut, BookOpen, ArrowRight, Check, PlayCircle } from 'lucide-react';
+import { Heart, Star, Trophy, Wallet, Shield, Users, Gift, Medal, LogOut, BookOpen, ArrowRight, Check, PlayCircle, Grid3x3 } from 'lucide-react';
 import Footer from '@/components/Footer';
 import RegistrationModal from '@/components/RegistrationModal';
 import { getPublicPrize } from '@/lib/game-utils';
@@ -123,6 +123,15 @@ const Index: React.FC = () => {
             </Button>
             {user ? (
               <>
+                <Button
+                  size="sm"
+                  onClick={() => navigate('/game')}
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold shadow-md border-2 border-yellow-300 px-2 sm:px-3"
+                  title="Go to my card"
+                >
+                  <Grid3x3 className="w-4 h-4 sm:mr-1" />
+                  <span className="hidden sm:inline">Play</span>
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"

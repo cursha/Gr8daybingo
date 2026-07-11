@@ -4,6 +4,13 @@ Version format: `v{major}.{minor}` — bumped once per push. Major increments
 (and minor resets to 0) when a push adds new functionality; minor increments
 when a push is fixes only.
 
+## v7.1 — 2026-07-11
+### Fixed
+- Landing page header had no way for an already-logged-in visitor to reach
+  their bingo card without logging out first (Wallet/Admin/Log Out were
+  there, but no Play link). Added a "Play" button to the header that goes
+  straight to `/game`.
+
 ## v7.0 — 2026-07-11
 ### Added
 - Prize voucher email now shows the current prize image (`prize_image_url`

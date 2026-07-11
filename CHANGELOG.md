@@ -4,6 +4,14 @@ Version format: `v{major}.{minor}` — bumped once per push. Major increments
 (and minor resets to 0) when a push adds new functionality; minor increments
 when a push is fixes only.
 
+## v8.1 — 2026-07-11
+### Fixed
+- Weekly Member Update's AI prompt was hardcoded in the edge function,
+  against this app's own "nothing is hardwired, everything runs off
+  tables" convention. Moved to an admin-editable `weekly_update_prompt_template`
+  config (Admin Panel → Weekly Member Update), with the previous hardcoded
+  text now just the fallback default when left blank.
+
 ## v8.0 — 2026-07-11
 ### Added
 - Weekly Member Update: new `weekly-member-update` edge function, cron'd for

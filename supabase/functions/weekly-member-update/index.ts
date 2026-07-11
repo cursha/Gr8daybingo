@@ -3,6 +3,22 @@ import { getSupabase } from '../_shared/db.ts'
 import { sendEmail } from '../_shared/email.ts'
 import { weeklyMemberUpdateEmail, weeklyUpdateFailedAlertEmail } from '../_shared/email.ts'
 
+// Admin-editable via game_configs.weekly_update_prompt_template (Admin Panel
+// → Weekly Member Update). {{STATS}} is always substituted with this week's
+// computed stats block before the call; if a custom template omits it, the
+// stats block is appended instead so a prompt edit can never silently drop
+// the week's real numbers. {{DEED_COUNT}} is Claude's own output token,
+// substituted per-recipient after the call — not touched here.
+const DEFAULT_PROMPT_TEMPLATE = `You write a short, warm weekly email update for Havagr8day Bingo, a game where players complete real acts of kindness to mark bingo squares.
+
+Facts you can draw from (pick 2-3 that make the most interesting, upbeat story — vary which ones you lead with and how you phrase them each time you're called, don't just list them mechanically):
+{{STATS}}
+
+Write for a player who already plays the game. Warm, genuine, a little playful, never corporate or salesy. 2-3 short paragraphs, plain text (no markdown, no HTML). Somewhere natural in the message, include the exact literal placeholder token {{DEED_COUNT}} as part of a sentence about the reader's own personal deed count this week (e.g. "You personally logged {{DEED_COUNT}} deeds this week" — but vary the wording each time).
+
+Respond with ONLY a JSON object, no other text, in exactly this shape:
+{"subject": "short warm subject line, under 60 characters, varies each time", "body": "the email body as described above"}`
+
 // Monday-based week start (UTC), matching the app's ISO-week convention.
 function getCurrentWeekStart(): Date {
   const now = new Date()
@@ -59,10 +75,14 @@ Deno.serve(async (req: Request) => {
   const supabase = getSupabase()
 
   try {
-    // ── How much of the active base gets emailed this run ──────────────────
-    const { data: cfgRow } = await supabase
-      .from('game_configs').select('config_value').eq('config_key', 'weekly_update_percentage').maybeSingle()
-    const pct = Math.max(0, Math.min(100, parseInt(cfgRow?.config_value ?? '0', 10) || 0))
+    // ── How much of the active base gets emailed this run, and the prompt ──
+    const { data: cfgRows } = await supabase
+      .from('game_configs').select('config_key, config_value')
+      .in('config_key', ['weekly_update_percentage', 'weekly_update_prompt_template'])
+    const cfg: Record<string, string> = {}
+    for (const r of cfgRows ?? []) cfg[r.config_key] = r.config_value ?? ''
+
+    const pct = Math.max(0, Math.min(100, parseInt(cfg['weekly_update_percentage'] ?? '0', 10) || 0))
     if (pct <= 0) {
       return jsonResponse({ success: true, sent: 0, skipped_reason: 'weekly_update_percentage is 0 or unset' })
     }
@@ -148,15 +168,10 @@ Deno.serve(async (req: Request) => {
       spotlightDeedText ? `This week's featured "Deed of the Week": ${spotlightDeedText}` : null,
     ].filter(Boolean).join('\n')
 
-    const prompt = `You write a short, warm weekly email update for Havagr8day Bingo, a game where players complete real acts of kindness to mark bingo squares.
-
-Facts you can draw from (pick 2-3 that make the most interesting, upbeat story — vary which ones you lead with and how you phrase them each time you're called, don't just list them mechanically):
-${statsLines}
-
-Write for a player who already plays the game. Warm, genuine, a little playful, never corporate or salesy. 2-3 short paragraphs, plain text (no markdown, no HTML). Somewhere natural in the message, include the exact literal placeholder token {{DEED_COUNT}} as part of a sentence about the reader's own personal deed count this week (e.g. "You personally logged {{DEED_COUNT}} deeds this week" — but vary the wording each time).
-
-Respond with ONLY a JSON object, no other text, in exactly this shape:
-{"subject": "short warm subject line, under 60 characters, varies each time", "body": "the email body as described above"}`
+    const promptTemplate = cfg['weekly_update_prompt_template']?.trim() || DEFAULT_PROMPT_TEMPLATE
+    const prompt = promptTemplate.includes('{{STATS}}')
+      ? promptTemplate.replaceAll('{{STATS}}', statsLines)
+      : `${promptTemplate}\n\nFacts for this week:\n${statsLines}`
 
     const claudeResp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',

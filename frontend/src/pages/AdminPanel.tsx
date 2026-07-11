@@ -1429,8 +1429,10 @@ const AdminPanel: React.FC = () => {
     { key: 'geo_drilldown_threshold', label: 'Leaderboard: players before a region drills to cities', type: 'number' },
     { key: 'non_referred_daily_deed_limit', label: 'Non-referred players: max Gr8Day Deeds per 24h (0 = no limit)', type: 'number' },
     { key: 'blackout_min_hidden_remaining', label: 'Blackout: minimum hidden squares remaining (reveal trims back once hit)', type: 'number' },
-    { key: 'weekly_update_percentage', label: 'Weekly Update: % of Active Members Emailed (0 = off)', type: 'number' },
   ];
+
+  const weeklyUpdatePercentage = editConfigs['weekly_update_percentage'] || '';
+  const weeklyUpdatePromptTemplate = editConfigs['weekly_update_prompt_template'] || '';
 
   const blackoutWeightsSum = (['0', '1', '2', '3'] as const).reduce((s, k) => s + (parseFloat(blackoutWeights[k]) || 0), 0);
 
@@ -2294,6 +2296,51 @@ const AdminPanel: React.FC = () => {
             </div>
             <Button onClick={handleSaveConfig} className="bg-indigo-600 hover:bg-indigo-700 text-white">
               <Save className="w-4 h-4 mr-1" /> Save Configuration
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Weekly Member Update */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5 text-sky-500" />
+              Weekly Member Update
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-xs text-slate-500">
+              Every Wednesday, a rotating slice of active members (least-recently-contacted first) gets a
+              short update written by Claude, covering this week's community stats and the current Admin
+              Spotlight Deed. Requires an <code>ANTHROPIC_API_KEY</code> secret to actually send — safely
+              skips the run and alerts admins otherwise.
+            </p>
+            <div>
+              <label className="text-sm font-medium text-slate-700 mb-1 block">% of Active Members Emailed (0 = off)</label>
+              <Input
+                type="number"
+                min="0"
+                max="100"
+                value={weeklyUpdatePercentage}
+                onChange={(e) => setEditConfigs((prev) => ({ ...prev, weekly_update_percentage: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-slate-700 mb-1 block">AI Prompt Template</label>
+              <Textarea
+                placeholder="Leave blank to use the built-in default prompt."
+                value={weeklyUpdatePromptTemplate}
+                onChange={(e) => setEditConfigs((prev) => ({ ...prev, weekly_update_prompt_template: e.target.value }))}
+                className="min-h-[160px] font-mono text-xs"
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                Must include <code>{'{{STATS}}'}</code> (this week's community stats get inserted there) and{' '}
+                <code>{'{{DEED_COUNT}}'}</code> somewhere in the instructions for the reader's personal count.
+                Leave blank to use the built-in default.
+              </p>
+            </div>
+            <Button onClick={handleSaveConfig} className="bg-sky-600 hover:bg-sky-700 text-white">
+              <Save className="w-4 h-4 mr-1" /> Save Weekly Update Settings
             </Button>
           </CardContent>
         </Card>

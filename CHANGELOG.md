@@ -4,6 +4,12 @@ Version format: `v{major}.{minor}` — bumped once per push. Major increments
 (and minor resets to 0) when a push adds new functionality; minor increments
 when a push is fixes only.
 
+## v7.0 — 2026-07-11
+### Added
+- Prize voucher email now shows the current prize image (`prize_image_url`
+  from `game_configs`, the same image shown on the site's prize showcase)
+  above the voucher code, when one is set.
+
 ## v6.0 — 2026-07-10
 ### Added
 - Kindness Dashboard: `Leaderboard.tsx` rebuilt with the game's real visual

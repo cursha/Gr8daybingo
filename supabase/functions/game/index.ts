@@ -3904,11 +3904,11 @@ Deno.serve(async (req: Request) => {
         try {
           const { data: cfgRows } = await supabase
             .from('game_configs').select('config_key, config_value')
-            .in('config_key', ['prize_title', 'prize_voucher_code'])
+            .in('config_key', ['prize_title', 'prize_voucher_code', 'prize_image_url'])
           const cfg: Record<string, string> = {}
           for (const r of cfgRows ?? []) cfg[r.config_key] = r.config_value ?? ''
           if (cfg['prize_voucher_code']) {
-            const tpl = prizeVoucherEmail(existingClaim.full_name ?? null, cfg['prize_title'] ?? null, cfg['prize_voucher_code'])
+            const tpl = prizeVoucherEmail(existingClaim.full_name ?? null, cfg['prize_title'] ?? null, cfg['prize_voucher_code'], cfg['prize_image_url'] ?? null)
             await sendEmail({ to: existingClaim.email, subject: tpl.subject, html: tpl.html })
           }
         } catch (err) {

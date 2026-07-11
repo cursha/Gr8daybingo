@@ -294,13 +294,19 @@ export function prizeClaimConfirmationEmail(name: string | null): { subject: str
 // Sent when an admin marks a prize claim "fulfilled" — the actual redeemable
 // voucher code, not sent any earlier in the claim flow since it represents
 // a real reward being handed over, not just an acknowledged submission.
-export function prizeVoucherEmail(name: string | null, prizeTitle: string | null, voucherCode: string): { subject: string; html: string } {
+export function prizeVoucherEmail(name: string | null, prizeTitle: string | null, voucherCode: string, prizeImageUrl?: string | null): { subject: string; html: string } {
   const hi = name && name.trim() ? name.trim() : 'there'
   const prizeLine = prizeTitle && prizeTitle.trim() ? `<p><strong>🎁 Prize:</strong> ${prizeTitle.trim()}</p>` : ''
+  const prizeImage = prizeImageUrl && prizeImageUrl.trim()
+    ? `<div style="margin:0 0 16px;text-align:center">
+        <img src="${prizeImageUrl.trim()}" alt="${(prizeTitle && prizeTitle.trim()) || 'Your prize'}" width="240" style="max-width:240px;width:100%;height:auto;border-radius:12px;border:1px solid #E2E8F0;display:inline-block" />
+      </div>`
+    : ''
   return {
     subject: 'Your Havagr8day prize voucher',
     html: layout(`
       <h2 style="margin:0 0 12px;color:#10B981;font-size:20px">Your prize is ready, ${hi}! 🎉</h2>
+      ${prizeImage}
       ${prizeLine}
       <div style="margin:16px 0;padding:16px;background:#F0FDF4;border:2px dashed #10B981;border-radius:10px;text-align:center">
         <p style="margin:0 0 4px;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.06em">Your voucher code</p>

@@ -4,6 +4,16 @@ Version format: `v{major}.{minor}` — bumped once per push. Major increments
 (and minor resets to 0) when a push adds new functionality; minor increments
 when a push is fixes only.
 
+## v8.2 — 2026-07-11
+### Fixed
+- Extended the AI-prompt pattern to the "Announce New Game to All Players"
+  email (`POST /admin/announce-game`): if the admin leaves "Additional
+  Message" blank, Claude writes a short warm note from that week's Prize/
+  Game Type/Theme, using a new admin-editable `game_announcement_prompt_template`
+  config. Purely additive — typing your own message still works exactly as
+  before, and a missing key or failed call just sends with no extra message
+  rather than blocking the announcement.
+
 ## v8.1 — 2026-07-11
 ### Fixed
 - Weekly Member Update's AI prompt was hardcoded in the edge function,

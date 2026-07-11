@@ -1439,6 +1439,7 @@ const AdminPanel: React.FC = () => {
   const prizeImageUrl = editConfigs['prize_image_url'] || '';
   const prizeTitle = editConfigs['prize_title'] || '';
   const prizeVoucherCode = editConfigs['prize_voucher_code'] || '';
+  const gameAnnouncementPromptTemplate = editConfigs['game_announcement_prompt_template'] || '';
 
   const currentWinCondition = editConfigs['win_condition'] || 'one_line';
   const selectedWC = WIN_CONDITIONS.find((wc) => wc.id === currentWinCondition);
@@ -3443,9 +3444,9 @@ const AdminPanel: React.FC = () => {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Additional Message <span className="text-slate-400 text-xs">(optional)</span></label>
+              <label className="text-sm font-medium text-slate-700">Additional Message <span className="text-slate-400 text-xs">(optional — leave blank to have Claude write one)</span></label>
               <textarea
-                placeholder="Any extra note to include in the email..."
+                placeholder="Leave blank and Claude will write a short warm note from the Prize/Game Type/Theme above, using the AI Prompt Template below."
                 value={announceExtra}
                 onChange={(e) => setAnnounceExtra(e.target.value)}
                 rows={3}
@@ -3459,6 +3460,25 @@ const AdminPanel: React.FC = () => {
             >
               {announceLoading ? 'Sending…' : 'Send Announcement to All Players'}
             </Button>
+
+            <div className="pt-3 mt-3 border-t border-slate-200 space-y-2">
+              <label className="text-sm font-medium text-slate-700 block">AI Prompt Template <span className="text-slate-400 text-xs">(optional)</span></label>
+              <Textarea
+                placeholder="Leave blank to use the built-in default prompt."
+                value={gameAnnouncementPromptTemplate}
+                onChange={(e) => setEditConfigs((prev) => ({ ...prev, game_announcement_prompt_template: e.target.value }))}
+                className="min-h-[140px] font-mono text-xs"
+              />
+              <p className="text-xs text-slate-400">
+                Used only when Additional Message above is left blank, and only if an <code>ANTHROPIC_API_KEY</code>{' '}
+                secret is configured — otherwise the email just sends with no extra message. Include{' '}
+                <code>{'{{PRIZE}}'}</code>, <code>{'{{GAME_TYPE}}'}</code>, and <code>{'{{THEME}}'}</code> so Claude
+                knows this week's details.
+              </p>
+              <Button onClick={handleSaveConfig} variant="outline" size="sm">
+                <Save className="w-4 h-4 mr-1" /> Save AI Prompt
+              </Button>
+            </div>
           </CardContent>
         </Card>
         </section>

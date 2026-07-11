@@ -271,6 +271,20 @@ function backgroundTask(promise: Promise<unknown>): void {
   if (edgeRuntime?.waitUntil) edgeRuntime.waitUntil(safe)
 }
 
+// Admin-editable via game_configs.game_announcement_prompt_template (Admin
+// Panel → Announce New Game to All Players). Only used when the admin leaves
+// "Additional Message" blank — see POST /admin/announce-game.
+const DEFAULT_ANNOUNCE_PROMPT_TEMPLATE = `You write a short, warm note to include in this week's Havagr8day Bingo game announcement email, sent to every player when a new week's game starts.
+
+This week's details:
+Prize: {{PRIZE}}
+Game Type: {{GAME_TYPE}}
+Theme: {{THEME}}
+
+Write 2-3 warm, genuine, playful sentences (plain text, no markdown, no quotes) getting players excited for this week's game. Vary your wording and angle each time you're called — don't just restate the prize/game type/theme as a list, weave them in naturally.
+
+Respond with ONLY the note text, nothing else.`
+
 /** Sends the "new game launch" email to every verified player, once per game
  *  cycle — see /generate-card, which is the only caller and only invokes this
  *  once it has atomically won the per-week_year claim in
@@ -3543,6 +3557,49 @@ Deno.serve(async (req: Request) => {
         return errorResponse('prize and game_type are required', 400)
       }
 
+      // If the admin left "Additional Message" blank, offer to have Claude
+      // write one from the prize/game type/theme — purely a nice-to-have
+      // flourish, so any failure (no key, bad response) just falls back to
+      // no extra message rather than blocking the send.
+      let effectiveExtraMessage = extra_message
+      if (!effectiveExtraMessage?.trim()) {
+        const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+        if (anthropicKey) {
+          try {
+            const { data: promptCfg } = await supabase
+              .from('game_configs').select('config_value').eq('config_key', 'game_announcement_prompt_template').maybeSingle()
+            const template = promptCfg?.config_value?.trim() || DEFAULT_ANNOUNCE_PROMPT_TEMPLATE
+            const prompt = template
+              .replaceAll('{{PRIZE}}', prize)
+              .replaceAll('{{GAME_TYPE}}', game_type)
+              .replaceAll('{{THEME}}', theme || 'none set this week')
+
+            const claudeResp = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                'x-api-key': anthropicKey,
+                'anthropic-version': '2023-06-01',
+              },
+              body: JSON.stringify({
+                model: 'claude-sonnet-5',
+                max_tokens: 300,
+                messages: [{ role: 'user', content: prompt }],
+              }),
+            })
+            if (claudeResp.ok) {
+              const claudeJson = await claudeResp.json()
+              const text: string = claudeJson?.content?.[0]?.text ?? ''
+              if (text.trim()) effectiveExtraMessage = text.trim()
+            } else {
+              console.error('[announce-game] Claude API call failed', claudeResp.status, await claudeResp.text().catch(() => ''))
+            }
+          } catch (err) {
+            console.error('[announce-game] AI extra-message generation failed', err)
+          }
+        }
+      }
+
       const { data: players, error: playersErr } = await supabase
         .from('users')
         .select('email, first_name, name, username')
@@ -3558,13 +3615,13 @@ Deno.serve(async (req: Request) => {
       let failed = 0
       for (const player of players) {
         const displayName = player.first_name ?? player.name ?? player.username ?? null
-        const tpl = gameAnnouncementEmail({ name: displayName, prize, gameType: game_type, theme, extraMessage: extra_message })
+        const tpl = gameAnnouncementEmail({ name: displayName, prize, gameType: game_type, theme, extraMessage: effectiveExtraMessage })
         const result = await sendEmail({ to: player.email, subject: tpl.subject, html: tpl.html })
         if (result.sent) sent++
         else failed++
       }
 
-      return jsonResponse({ success: true, sent, failed })
+      return jsonResponse({ success: true, sent, failed, ai_generated_extra_message: effectiveExtraMessage !== extra_message })
     }
 
     // ── POST /admin/void-cell ─────────────────────────────────────────────────

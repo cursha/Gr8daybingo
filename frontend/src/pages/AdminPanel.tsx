@@ -1429,6 +1429,7 @@ const AdminPanel: React.FC = () => {
     { key: 'geo_drilldown_threshold', label: 'Leaderboard: players before a region drills to cities', type: 'number' },
     { key: 'non_referred_daily_deed_limit', label: 'Non-referred players: max Gr8Day Deeds per 24h (0 = no limit)', type: 'number' },
     { key: 'blackout_min_hidden_remaining', label: 'Blackout: minimum hidden squares remaining (reveal trims back once hit)', type: 'number' },
+    { key: 'weekly_update_percentage', label: 'Weekly Update: % of Active Members Emailed (0 = off)', type: 'number' },
   ];
 
   const blackoutWeightsSum = (['0', '1', '2', '3'] as const).reduce((s, k) => s + (parseFloat(blackoutWeights[k]) || 0), 0);

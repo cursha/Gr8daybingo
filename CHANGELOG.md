@@ -4,6 +4,18 @@ Version format: `v{major}.{minor}` — bumped once per push. Major increments
 (and minor resets to 0) when a push adds new functionality; minor increments
 when a push is fixes only.
 
+## v8.0 — 2026-07-11
+### Added
+- Weekly Member Update: new `weekly-member-update` edge function, cron'd for
+  Wednesdays 15:00 UTC, emails a rotating slice of active members (least-
+  recently-contacted first, % controlled by the new `weekly_update_percentage`
+  admin config) a short Claude-written note covering this week's community
+  stats and the Admin Spotlight Deed. Falls back to alerting admins and
+  skipping the send entirely if the Claude call fails or returns unusable
+  output, rather than sending a broken email. New `weekly_update_log` table
+  and `users.last_sent_at` column. Requires an `ANTHROPIC_API_KEY` secret to
+  actually send — safely no-ops (and alerts admins) until one is set.
+
 ## v7.1 — 2026-07-11
 ### Fixed
 - Landing page header had no way for an already-logged-in visitor to reach

@@ -318,6 +318,48 @@ export function prizeVoucherEmail(name: string | null, prizeTitle: string | null
   }
 }
 
+// Weekly member update — a short, Claude-written note sent to a rotating
+// slice of active players (least-recently-contacted first). `subject` and
+// `body` are the AI-generated content for this week's run; `body` has
+// already had {{DEED_COUNT}} substituted with this recipient's own count
+// before this function is called.
+export function weeklyMemberUpdateEmail(name: string | null, subject: string, body: string): { subject: string; html: string } {
+  const hi = name && name.trim() ? name.trim() : 'there'
+  const paragraphs = body
+    .split(/\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `<p>${p}</p>`)
+    .join('')
+  return {
+    subject,
+    html: layout(`
+      <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">Hey ${hi} 👋</h2>
+      ${paragraphs}
+      <p style="text-align:center;margin:24px 0">
+        <a href="${SITE_URL}/game" style="display:inline-block;background:#DC2626;color:#fff;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none;border:2px solid #FCD34D">Play This Week</a>
+      </p>
+      <p style="color:#64748b;font-size:13px">Have a gr8 day — and make someone else's gr8 too.</p>
+    `),
+  }
+}
+
+// Internal alert — fires when the weekly member update's Claude call fails
+// or returns something unusable, so the whole week's batch is skipped
+// rather than sending a broken/generic email. Reuses admin_alert_recipients,
+// same pattern as adminLockoutEmail / adminPasswordResetEmail.
+export function weeklyUpdateFailedAlertEmail(reason: string): { subject: string; html: string } {
+  return {
+    subject: 'Havagr8day Bingo — weekly member update skipped',
+    html: layout(`
+      <h2 style="margin:0 0 12px;color:#DC2626;font-size:20px">Weekly member update did not send</h2>
+      <p>This week's AI-generated member update was skipped rather than sending a broken or generic email.</p>
+      <p style="margin:16px 0;padding:12px 16px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;color:#991B1B;font-size:13px;font-family:monospace">${reason}</p>
+      <p style="color:#64748b;font-size:13px">No emails went out for this run. It will try again next scheduled run.</p>
+    `),
+  }
+}
+
 // Letter Two — Curt's "A Quick Note About Winning". Sent ~24-48 hours after
 // sign-up (scheduled via Resend's scheduled_at at registration time).
 export function secondLetterEmail(_name: string | null): { subject: string; html: string } {

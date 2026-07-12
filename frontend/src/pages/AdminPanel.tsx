@@ -1432,7 +1432,7 @@ const AdminPanel: React.FC = () => {
   ];
 
   const weeklyUpdatePercentage = editConfigs['weekly_update_percentage'] || '';
-  const weeklyUpdatePromptTemplate = editConfigs['weekly_update_prompt_template'] || '';
+  const weeklyUpdatePrompt = editConfigs['weekly_update_prompt'] || '';
 
   const blackoutWeightsSum = (['0', '1', '2', '3'] as const).reduce((s, k) => s + (parseFloat(blackoutWeights[k]) || 0), 0);
 
@@ -2317,7 +2317,7 @@ const AdminPanel: React.FC = () => {
               skips the run and alerts admins otherwise.
             </p>
             <div>
-              <label className="text-sm font-medium text-slate-700 mb-1 block">% of Active Members Emailed (0 = off)</label>
+              <label className="text-sm font-medium text-slate-700 mb-1 block">Weekly Update % of Members (0 = off)</label>
               <Input
                 type="number"
                 min="0"
@@ -2327,17 +2327,17 @@ const AdminPanel: React.FC = () => {
               />
             </div>
             <div>
-              <label className="text-sm font-medium text-slate-700 mb-1 block">AI Prompt Template</label>
+              <label className="text-sm font-medium text-slate-700 mb-1 block">Weekly Update Writing Style</label>
               <Textarea
-                placeholder="Leave blank to use the built-in default prompt."
-                value={weeklyUpdatePromptTemplate}
-                onChange={(e) => setEditConfigs((prev) => ({ ...prev, weekly_update_prompt_template: e.target.value }))}
-                className="min-h-[160px] font-mono text-xs"
+                placeholder="Write in a warm, encouraging tone. Keep it under 100 words. Sound like a friendly community update, not a corporate newsletter."
+                value={weeklyUpdatePrompt}
+                onChange={(e) => setEditConfigs((prev) => ({ ...prev, weekly_update_prompt: e.target.value }))}
+                className="min-h-[80px] text-sm"
               />
               <p className="text-xs text-slate-400 mt-1">
-                Must include <code>{'{{STATS}}'}</code> (this week's community stats get inserted there) and{' '}
-                <code>{'{{DEED_COUNT}}'}</code> somewhere in the instructions for the reader's personal count.
-                Leave blank to use the built-in default.
+                1-2 sentences of tone/style guidance for the AI. The structure (subject + body, this week's
+                stats, the personal deed count) is fixed in code and always applied — this only shapes how it
+                sounds. Leave blank to use the placeholder text above as the default.
               </p>
             </div>
             <Button onClick={handleSaveConfig} className="bg-sky-600 hover:bg-sky-700 text-white">

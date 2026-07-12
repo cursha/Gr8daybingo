@@ -3,21 +3,30 @@ import { getSupabase } from '../_shared/db.ts'
 import { sendEmail } from '../_shared/email.ts'
 import { weeklyMemberUpdateEmail, weeklyUpdateFailedAlertEmail } from '../_shared/email.ts'
 
-// Admin-editable via game_configs.weekly_update_prompt_template (Admin Panel
-// → Weekly Member Update). {{STATS}} is always substituted with this week's
-// computed stats block before the call; if a custom template omits it, the
-// stats block is appended instead so a prompt edit can never silently drop
-// the week's real numbers. {{DEED_COUNT}} is Claude's own output token,
-// substituted per-recipient after the call — not touched here.
-const DEFAULT_PROMPT_TEMPLATE = `You write a short, warm weekly email update for Havagr8day Bingo, a game where players complete real acts of kindness to mark bingo squares.
+// Fixed in code, not admin-editable — the structural contract (JSON output,
+// {{DEED_COUNT}} token, stat-picking instruction) that a prompt edit must
+// never be able to break. Only the tone/style portion is admin-editable —
+// see weekly_update_prompt in game_configs, appended at the end.
+const FIXED_BASE_PROMPT = `You write the weekly email update for Havagr8day Bingo, a game where players complete real acts of kindness to mark bingo squares.
 
-Facts you can draw from (pick 2-3 that make the most interesting, upbeat story — vary which ones you lead with and how you phrase them each time you're called, don't just list them mechanically):
+Generate both a subject line and a body for this week's update.
+
+Requirements:
+- Include the exact literal placeholder token {{DEED_COUNT}} naturally in the body, for the member's personal deed count this week (e.g. "You personally logged {{DEED_COUNT}} deeds this week" — vary the wording each time you're called)
+- From the stat pool below, pick the 1-2 most interesting or notable stats to feature this week — don't just list all of them, choose what a member would actually find compelling
+- Mention this week's Deed of the Week
+- Keep the body short — this is a weekly email, not an essay
+- Keep the subject line short (under ~50 characters) and specific to this week's content — avoid generic phrasing that would repeat week to week
+
+Stat pool for this week:
 {{STATS}}
 
-Write for a player who already plays the game. Warm, genuine, a little playful, never corporate or salesy. 2-3 short paragraphs, plain text (no markdown, no HTML). Somewhere natural in the message, include the exact literal placeholder token {{DEED_COUNT}} as part of a sentence about the reader's own personal deed count this week (e.g. "You personally logged {{DEED_COUNT}} deeds this week" — but vary the wording each time).
+Deed of the Week: {{SPOTLIGHT_DEED}}
 
 Respond with ONLY a JSON object, no other text, in exactly this shape:
-{"subject": "short warm subject line, under 60 characters, varies each time", "body": "the email body as described above"}`
+{"subject": "...", "body": "..."}`
+
+const DEFAULT_STYLE_GUIDANCE = 'Write in a warm, encouraging tone. Keep it under 100 words. Sound like a friendly community update, not a corporate newsletter.'
 
 // Monday-based week start (UTC), matching the app's ISO-week convention.
 function getCurrentWeekStart(): Date {
@@ -78,7 +87,7 @@ Deno.serve(async (req: Request) => {
     // ── How much of the active base gets emailed this run, and the prompt ──
     const { data: cfgRows } = await supabase
       .from('game_configs').select('config_key, config_value')
-      .in('config_key', ['weekly_update_percentage', 'weekly_update_prompt_template'])
+      .in('config_key', ['weekly_update_percentage', 'weekly_update_prompt'])
     const cfg: Record<string, string> = {}
     for (const r of cfgRows ?? []) cfg[r.config_key] = r.config_value ?? ''
 
@@ -119,15 +128,18 @@ Deno.serve(async (req: Request) => {
     const weekStart = getCurrentWeekStart()
     const weekStartIso = weekStart.toISOString()
     const weekOf = toDateOnly(weekStart)
+    const lastWeekStart = new Date(weekStart.getTime() - 7 * 86_400_000)
+    const lastWeekStartIso = lastWeekStart.toISOString()
 
     const { data: weekDeeds } = await supabase
       .from('completed_deeds')
-      .select('id, category, country_name')
+      .select('id, category, country_name, city')
       .eq('is_hidden_from_impact_board', false)
       .gte('completed_at', weekStartIso)
 
     const totalDeedsThisWeek = weekDeeds?.length ?? 0
     const countriesThisWeek = new Set((weekDeeds ?? []).map((d) => d.country_name).filter(Boolean)).size
+    const citiesThisWeek = new Set((weekDeeds ?? []).map((d) => d.city).filter(Boolean)).size
 
     let topCategory: string | null = null
     if (weekDeeds && weekDeeds.length > 0) {
@@ -141,6 +153,34 @@ Deno.serve(async (req: Request) => {
         if (n > best) { best = n; topCategory = cat }
       }
     }
+
+    // Week-over-week % change in community deed volume.
+    const { count: lastWeekDeedsCount } = await supabase
+      .from('completed_deeds')
+      .select('id', { count: 'exact', head: true })
+      .eq('is_hidden_from_impact_board', false)
+      .gte('completed_at', lastWeekStartIso)
+      .lt('completed_at', weekStartIso)
+    const lastWeekDeeds = lastWeekDeedsCount ?? 0
+    const wowPctChange = lastWeekDeeds > 0
+      ? Math.round(((totalDeedsThisWeek - lastWeekDeeds) / lastWeekDeeds) * 100)
+      : null
+
+    // New players who joined this week.
+    const { count: newPlayersCount } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .gte('created_at', weekStartIso)
+    const newPlayersThisWeek = newPlayersCount ?? 0
+
+    // Bingos achieved this week — one draw_entry_ledger row per newly-
+    // completed line, same ledger awardNewBingoLines writes to in game/index.ts.
+    const { count: bingosCount } = await supabase
+      .from('draw_entry_ledger')
+      .select('id', { count: 'exact', head: true })
+      .eq('reason', 'Bingo completed — bonus entries')
+      .gte('created_at', weekStartIso)
+    const bingosThisWeek = bingosCount ?? 0
 
     // Deed of the Week — the current admin spotlight deed, only if it's
     // still stamped for the current week (same expiry rule the Quick Tap
@@ -163,15 +203,19 @@ Deno.serve(async (req: Request) => {
 
     const statsLines = [
       `Total Gr8Day Deeds completed by the whole community this week: ${totalDeedsThisWeek}`,
+      `New players who joined this week: ${newPlayersThisWeek}`,
       `Countries with at least one deed this week: ${countriesThisWeek}`,
+      `Cities with at least one deed this week: ${citiesThisWeek}`,
+      `Bingos (completed lines) achieved this week: ${bingosThisWeek}`,
       topCategory ? `Most popular deed category this week: ${topCategory}` : null,
-      spotlightDeedText ? `This week's featured "Deed of the Week": ${spotlightDeedText}` : null,
+      wowPctChange !== null ? `Community deeds ${wowPctChange >= 0 ? 'up' : 'down'} ${Math.abs(wowPctChange)}% vs last week (last week: ${lastWeekDeeds}, this week: ${totalDeedsThisWeek})` : null,
     ].filter(Boolean).join('\n')
 
-    const promptTemplate = cfg['weekly_update_prompt_template']?.trim() || DEFAULT_PROMPT_TEMPLATE
-    const prompt = promptTemplate.includes('{{STATS}}')
-      ? promptTemplate.replaceAll('{{STATS}}', statsLines)
-      : `${promptTemplate}\n\nFacts for this week:\n${statsLines}`
+    const styleGuidance = cfg['weekly_update_prompt']?.trim() || DEFAULT_STYLE_GUIDANCE
+    const prompt = FIXED_BASE_PROMPT
+      .replaceAll('{{STATS}}', statsLines)
+      .replaceAll('{{SPOTLIGHT_DEED}}', spotlightDeedText ?? 'none set this week')
+      + `\n\nStyle guidance: ${styleGuidance}`
 
     const claudeResp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',

@@ -37,6 +37,11 @@ const PlayerProfilePage: React.FC = () => {
     try {
       const data = await getPlayerProfile(username);
       setProfile(data);
+      // "me" is a self-referencing alias — swap the URL to the real username
+      // once loaded so a copied/shared link works for anyone, not just self.
+      if (username.toLowerCase() === 'me' && data.username) {
+        navigate(`/players/${encodeURIComponent(data.username)}`, { replace: true });
+      }
     } catch (err: any) {
       if (err?.status === 404) {
         setNotFound(true);
@@ -46,7 +51,7 @@ const PlayerProfilePage: React.FC = () => {
     } finally {
       setDataLoading(false);
     }
-  }, [username]);
+  }, [username, navigate]);
 
   useEffect(() => {
     if (user) loadProfile();

@@ -65,7 +65,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Medal, LogOut, Printer, ChevronDown, Shuffle, Share2, X } from 'lucide-react';
+import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Medal, LogOut, Printer, ChevronDown, Shuffle, Share2, X, UserCircle } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { downloadBingoCardPdf, downloadTeamCardsPdf, TeamMemberCard } from '@/lib/bingo-pdf';
 import { shareOrDownloadImpactCard } from '@/lib/impact-card';
@@ -1143,6 +1143,9 @@ const GameBoard: React.FC = () => {
               <DropdownMenuContent align="end" className="bg-slate-900 border-white/10 text-white">
                 <DropdownMenuItem onClick={() => navigate('/leaderboard')} className="cursor-pointer focus:bg-white/10 focus:text-white">
                   <Medal className="w-3.5 h-3.5 mr-2" /> Leaderboard
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate('/players/me')} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                  <UserCircle className="w-3.5 h-3.5 mr-2" /> My Profile
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate('/prize-history')} className="cursor-pointer focus:bg-white/10 focus:text-white">
                   <Trophy className="w-3.5 h-3.5 mr-2" /> My Wins

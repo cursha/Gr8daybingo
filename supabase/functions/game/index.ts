@@ -4556,14 +4556,18 @@ Deno.serve(async (req: Request) => {
     // My Impact and Community Voices rather than the older Leaderboard convention.
     const playerProfileMatch = path.match(/^\/players\/([^/]+)$/)
     if (method === 'GET' && playerProfileMatch) {
-      requireAuth(authUser)
+      const me = requireAuth(authUser)
       const lookupUsername = decodeURIComponent(playerProfileMatch[1])
 
-      const { data: targetUser } = await supabase
+      // "me" is a self-referencing alias (no username lookup needed) so the
+      // frontend can link to "my profile" without having to know its own
+      // username — the page then swaps the URL to the real username once loaded.
+      const profileQuery = supabase
         .from('users')
         .select('id, username, player_number, created_at, current_streak_days, longest_streak_days, country_id')
-        .ilike('username', lookupUsername)
-        .maybeSingle()
+      const { data: targetUser } = lookupUsername.toLowerCase() === 'me'
+        ? await profileQuery.eq('id', me.sub).maybeSingle()
+        : await profileQuery.ilike('username', lookupUsername).maybeSingle()
       if (!targetUser || !targetUser.username) return errorResponse('Player not found', 404)
 
       const { data: cards } = await supabase

@@ -4548,6 +4548,83 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    // ── GET /players/:username ────────────────────────────────────────────────
+    // Viewable by any registered player (requireAuth, not self-only) — deliberately
+    // narrower than /leaderboard/players' display_name (which can include a real
+    // name): a profile only ever shows the username, never first/last name, and
+    // never city — just country — matching the stricter privacy bar set for Share
+    // My Impact and Community Voices rather than the older Leaderboard convention.
+    const playerProfileMatch = path.match(/^\/players\/([^/]+)$/)
+    if (method === 'GET' && playerProfileMatch) {
+      requireAuth(authUser)
+      const lookupUsername = decodeURIComponent(playerProfileMatch[1])
+
+      const { data: targetUser } = await supabase
+        .from('users')
+        .select('id, username, player_number, created_at, current_streak_days, longest_streak_days, country_id')
+        .ilike('username', lookupUsername)
+        .maybeSingle()
+      if (!targetUser || !targetUser.username) return errorResponse('Player not found', 404)
+
+      const { data: cards } = await supabase
+        .from('player_cards')
+        .select('completed_cells, purchased_cells, referral_cells')
+        .eq('user_id', targetUser.id)
+
+      let totalDeeds = 0
+      for (const card of (cards ?? [])) {
+        const completed: number[] = Array.isArray(card.completed_cells) ? card.completed_cells : parseJsonArr(card.completed_cells)
+        const purchased: number[] = Array.isArray(card.purchased_cells) ? card.purchased_cells : parseJsonArr(card.purchased_cells)
+        const referral: number[] = Array.isArray(card.referral_cells) ? card.referral_cells : parseJsonArr(card.referral_cells)
+        const purchasedSet = new Set(purchased)
+        const referralSet = new Set(referral)
+        for (const idx of completed) {
+          if (!purchasedSet.has(idx) && !referralSet.has(idx) && idx !== 12) totalDeeds++
+        }
+      }
+      // Matches /leaderboard/players' fuller "all-time deeds" definition
+      // (cards + quick taps) — note this is a wider count than /my-profile's
+      // own badge (cards only, no quick taps), a pre-existing inconsistency
+      // between those two endpoints that this doesn't attempt to fix.
+      const { count: quickTapCount } = await supabase
+        .from('quick_deed_logs')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', targetUser.id)
+      totalDeeds += quickTapCount ?? 0
+
+      const badge = getBadge(totalDeeds)
+
+      const { data: teamMembership } = await supabase
+        .from('team_members').select('team_id').eq('user_id', targetUser.id).maybeSingle()
+      let teamName: string | null = null
+      if (teamMembership?.team_id) {
+        const { data: t } = await supabase.from('teams').select('team_name').eq('id', teamMembership.team_id).maybeSingle()
+        teamName = t?.team_name ?? null
+      }
+
+      let countryName: string | null = null
+      if (targetUser.country_id) {
+        const { data: c } = await supabase.from('countries').select('name').eq('id', targetUser.country_id).maybeSingle()
+        countryName = c?.name ?? null
+      }
+
+      return jsonResponse({
+        username: targetUser.username,
+        player_number: targetUser.player_number,
+        member_since: targetUser.created_at,
+        total_deeds: totalDeeds,
+        badge_name: badge.name,
+        badge_emoji: badge.emoji,
+        next_badge_name: badge.next_name,
+        next_badge_emoji: badge.next_emoji,
+        deeds_to_next_badge: badge.deeds_to_next,
+        current_streak_days: targetUser.current_streak_days ?? 0,
+        longest_streak_days: targetUser.longest_streak_days ?? 0,
+        country_name: countryName,
+        team_name: teamName,
+      })
+    }
+
     // ── GET /admin/player-badges ──────────────────────────────────────────────
     if (method === 'GET' && path === '/admin/player-badges') {
       requireAdmin(authUser)

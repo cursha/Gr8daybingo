@@ -485,12 +485,17 @@ const Leaderboard: React.FC = () => {
                     <div key={p.user_id} className="flex items-center gap-3 px-4 py-2.5 border-t border-white/10">
                       <span className="w-5 text-center text-sm font-bold text-indigo-300/50 tabular-nums">{i + 1}</span>
                       <Monogram label={nameOf(p)} />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-bold text-white truncate">{nameOf(p)}</p>
+                      <button
+                        type="button"
+                        disabled={!p.username || isDemo}
+                        onClick={() => p.username && navigate(`/players/${encodeURIComponent(p.username)}`)}
+                        className="flex-1 min-w-0 text-left disabled:cursor-default"
+                      >
+                        <p className={`font-bold text-white truncate ${p.username && !isDemo ? 'hover:underline' : ''}`}>{nameOf(p)}</p>
                         <p className="text-[11px] text-indigo-300/50 truncate">
                           {[p.city, p.country_name].filter(Boolean).join(', ') || (p.player_number != null ? `GR8-${p.player_number}` : '')}
                         </p>
-                      </div>
+                      </button>
                       <div className="w-28 shrink-0">
                         <p className="text-right text-sm font-black text-white tabular-nums">{p.deeds.toLocaleString()}</p>
                         <div className="mt-1"><RateBar ratio={p.deeds / maxDeeds} /></div>

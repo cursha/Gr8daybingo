@@ -346,6 +346,26 @@ export async function getMyProfile(): Promise<PlayerBadge> {
   return apiClient.get<PlayerBadge>('/game/my-profile');
 }
 
+export interface PlayerProfile {
+  username: string;
+  player_number: number | null;
+  member_since: string;
+  total_deeds: number;
+  badge_name: string;
+  badge_emoji: string;
+  next_badge_name: string | null;
+  next_badge_emoji: string | null;
+  deeds_to_next_badge: number | null;
+  current_streak_days: number;
+  longest_streak_days: number;
+  country_name: string | null;
+  team_name: string | null;
+}
+
+export async function getPlayerProfile(username: string): Promise<PlayerProfile> {
+  return apiClient.get<PlayerProfile>(`/game/players/${encodeURIComponent(username)}`);
+}
+
 export interface QuickDeed {
   id: number;
   label: string;

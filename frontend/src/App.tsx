@@ -28,6 +28,7 @@ import PrizeHistory from './pages/PrizeHistory';
 import TradeSquares from './pages/TradeSquares';
 import TeamPage from './pages/TeamPage';
 import Profile from './pages/Profile';
+import PlayerProfile from './pages/PlayerProfile';
 import Welcome from './pages/Welcome';
 import Demo from './pages/Demo';
 import NotFound from './pages/NotFound';
@@ -82,6 +83,7 @@ const AppRoutes = () => {
       <Route path="/trade" element={<TradeSquares />} />
       <Route path="/team" element={<TeamPage />} />
       <Route path="/profile" element={<Profile />} />
+      <Route path="/players/:username" element={<PlayerProfile />} />
       <Route path="/welcome" element={<Welcome />} />
       <Route path="/demo" element={<Demo />} />
       <Route path="*" element={<NotFound />} />

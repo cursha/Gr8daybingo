@@ -53,11 +53,11 @@ export interface CellData {
   // this flag set — the deed content is genuinely absent from the response,
   // not just visually covered client-side.
   is_hidden?: boolean;
-  // I Bet Ya — present on center cell (index 12) in classic mode
-  bet_ya_outcome_type?: string | null;
-  bet_ya_label?: string | null;
-  bet_ya_action_value?: number | null;
-  bet_ya_revealed?: boolean;
+  // I Dare Ya — present on center cell (index 12) in classic mode
+  dare_ya_outcome_type?: string | null;
+  dare_ya_label?: string | null;
+  dare_ya_action_value?: number | null;
+  dare_ya_revealed?: boolean;
 }
 
 export interface StreakMilestone {
@@ -126,21 +126,21 @@ export interface CardData {
   blackout?: BlackoutState | null;
 }
 
-export type BetYaActionType = 'free_square' | 'refer_friend' | 'fund_credit' | 'remove_funds' | 'replace_three' | 'nothing';
+export type DareYaActionType = 'free_square' | 'refer_friend' | 'fund_credit' | 'remove_funds' | 'replace_three' | 'nothing';
 
-export interface BetYaOutcome {
+export interface DareYaOutcome {
   id: number;
   label: string;
   odds_percent: number;
-  action_type: BetYaActionType;
+  action_type: DareYaActionType;
   credit_amount: number;
   remove_amount: number;
   reward_amount: number;
   is_active: boolean;
 }
 
-export interface BetYaRevealResult {
-  outcome: BetYaActionType;
+export interface DareYaRevealResult {
+  outcome: DareYaActionType;
   label: string;
   amount: number;
   new_balance?: number;
@@ -151,11 +151,11 @@ export interface BetYaRevealResult {
   draw_bonus_entries?: number;
 }
 
-export async function revealBetYa(cardId: number): Promise<BetYaRevealResult> {
-  return apiClient.post<BetYaRevealResult>('/game/bet-ya-reveal', { card_id: cardId });
+export async function revealDareYa(cardId: number): Promise<DareYaRevealResult> {
+  return apiClient.post<DareYaRevealResult>('/game/dare-ya-reveal', { card_id: cardId });
 }
 
-export interface BetYaReferFriendResult {
+export interface DareYaReferFriendResult {
   matched: boolean;
   message?: string;
   label?: string;
@@ -166,24 +166,24 @@ export interface BetYaReferFriendResult {
   draw_bonus_entries?: number;
 }
 
-export async function submitBetYaReferFriend(cardId: number, email: string): Promise<BetYaReferFriendResult> {
-  return apiClient.post<BetYaReferFriendResult>('/game/bet-ya-refer-friend', { card_id: cardId, email });
+export async function submitDareYaReferFriend(cardId: number, email: string): Promise<DareYaReferFriendResult> {
+  return apiClient.post<DareYaReferFriendResult>('/game/dare-ya-refer-friend', { card_id: cardId, email });
 }
 
-export async function adminGetBetYaOutcomes(): Promise<{ outcomes: BetYaOutcome[] }> {
-  return apiClient.get('/game/admin/bet-ya-outcomes');
+export async function adminGetDareYaOutcomes(): Promise<{ outcomes: DareYaOutcome[] }> {
+  return apiClient.get('/game/admin/dare-ya-outcomes');
 }
 
-export async function adminCreateBetYaOutcome(data: Omit<BetYaOutcome, 'id'>): Promise<{ outcome: BetYaOutcome }> {
-  return apiClient.post('/game/admin/bet-ya-outcomes', data);
+export async function adminCreateDareYaOutcome(data: Omit<DareYaOutcome, 'id'>): Promise<{ outcome: DareYaOutcome }> {
+  return apiClient.post('/game/admin/dare-ya-outcomes', data);
 }
 
-export async function adminUpdateBetYaOutcome(id: number, data: Partial<Omit<BetYaOutcome, 'id'>>): Promise<{ outcome: BetYaOutcome }> {
-  return apiClient.put(`/game/admin/bet-ya-outcomes/${id}`, data);
+export async function adminUpdateDareYaOutcome(id: number, data: Partial<Omit<DareYaOutcome, 'id'>>): Promise<{ outcome: DareYaOutcome }> {
+  return apiClient.put(`/game/admin/dare-ya-outcomes/${id}`, data);
 }
 
-export async function adminDeleteBetYaOutcome(id: number): Promise<void> {
-  return apiClient.delete(`/game/admin/bet-ya-outcomes/${id}`);
+export async function adminDeleteDareYaOutcome(id: number): Promise<void> {
+  return apiClient.delete(`/game/admin/dare-ya-outcomes/${id}`);
 }
 
 export interface WinCondition {

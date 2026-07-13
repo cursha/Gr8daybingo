@@ -106,11 +106,11 @@ const BingoCell: React.FC<BingoCellProps> = ({
     setPendingPurchase(false);
   };
 
-  // Fill the Card (blackout) mode never rolls an I Bet Ya outcome onto the
+  // Fill the Card (blackout) mode never rolls an I Dare Ya outcome onto the
   // centre cell (see supabase/functions/game/index.ts card generation) — it's
   // left as a plain free space there. The outcome itself is hidden from the
   // client until revealed, so win_condition (never secret) is what we gate
-  // on here, not cell.bet_ya_outcome_type.
+  // on here, not cell.dare_ya_outcome_type.
   const isCentreSquare = cell.index === 12 && cell.is_free_space && winCondition !== 'fill_card';
 
   const handleClick = () => {
@@ -306,12 +306,12 @@ const BingoCell: React.FC<BingoCellProps> = ({
         </span>
       )}
 
-      {/* ===== CENTRE SQUARE — I BET YA! ===== */}
+      {/* ===== CENTRE SQUARE — I DARE YA! ===== */}
       {isCentreSquare && (
         <div className="absolute inset-0 flex items-center justify-center">
           <img
             src={dareUsed ? '/dare-centre.png' : '/dare-centre.png'}
-            alt="I Bet Ya! Click & Commit"
+            alt="I Dare Ya! Click & Commit"
             className={`w-full h-full object-cover transition-all duration-300 ${dareUsed ? 'grayscale opacity-40' : 'hover:scale-105'}`}
           />
           {dareUsed && (

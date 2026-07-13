@@ -23,15 +23,34 @@ interface Cell {
   secret_revealed?: boolean
   quantity: number
   category: string | null
-  // I Bet Ya — snapshotted at generation, revealed on first center-cell click
+  // I Dare Ya — snapshotted at generation, revealed on first center-cell click.
+  // Renamed 2026-07-23 from "Bet Ya"; the bet_ya_* fields stay declared
+  // (never written on new cards) purely so a card generated before that
+  // rename still reads correctly — see dareYaField() below.
+  dare_ya_outcome_type?: string | null
+  dare_ya_label?: string | null
+  dare_ya_action_value?: number | null
+  dare_ya_revealed?: boolean
   bet_ya_outcome_type?: string | null
   bet_ya_label?: string | null
   bet_ya_action_value?: number | null
   bet_ya_revealed?: boolean
 }
 
+// A card generated before the 2026-07-23 Bet Ya -> Dare Ya rename has these
+// fields under the old bet_ya_* keys in its already-persisted card_data JSON;
+// a card generated after only ever has dare_ya_*. Prefer the new key, fall
+// back to the old one, so both keep working without a data backfill.
+function dareYaField<K extends 'outcome_type' | 'label' | 'action_value' | 'revealed'>(
+  cell: Cell, key: K,
+): Cell[`dare_ya_${K}`] {
+  const newKey = `dare_ya_${key}` as const
+  const oldKey = `bet_ya_${key}` as const
+  return (cell[newKey] ?? cell[oldKey]) as Cell[`dare_ya_${K}`]
+}
+
 // ── Security: strip secret fields before sending cells to client ─────────────
-// is_secret/secret_reward and bet_ya outcome details must never be exposed
+// is_secret/secret_reward and dare_ya outcome details must never be exposed
 // until the respective square has been revealed by the player.
 function sanitizeCells(cells: Cell[], completedCells: number[], hiddenCells?: number[]): unknown[] {
   const hiddenSet = new Set(hiddenCells ?? [])
@@ -50,14 +69,19 @@ function sanitizeCells(cells: Cell[], completedCells: number[], hiddenCells?: nu
 
     const secretRevealed = c.secret_revealed === true || completedCells.includes(c.index)
     const { is_secret, secret_reward, secret_revealed,
+            dare_ya_outcome_type, dare_ya_label, dare_ya_action_value,
             bet_ya_outcome_type, bet_ya_label, bet_ya_action_value,
             ...rest } = c
     return {
       ...rest,
       ...(is_secret && secretRevealed ? { is_secret: true, secret_reward, secret_revealed: true } : {}),
-      // Expose I Bet Ya details only after the player has clicked and revealed
-      ...(c.bet_ya_revealed
-        ? { bet_ya_outcome_type, bet_ya_label, bet_ya_action_value }
+      // Expose I Dare Ya details only after the player has clicked and revealed
+      ...(dareYaField(c, 'revealed')
+        ? {
+            dare_ya_outcome_type: dareYaField(c, 'outcome_type'),
+            dare_ya_label: dareYaField(c, 'label'),
+            dare_ya_action_value: dareYaField(c, 'action_value'),
+          }
         : {}),
     }
   })
@@ -815,20 +839,20 @@ Deno.serve(async (req: Request) => {
           return roll <= dollar1Pct ? 0.5 : roll <= dollar1Pct + dollar2Pct ? 1.0 : 2.0
         })
 
-        // Snapshot one I Bet Ya outcome onto the center cell (classic modes only).
+        // Snapshot one I Dare Ya outcome onto the center cell (classic modes only).
         // fill_card (blackout) leaves the center as a plain free space.
-        interface BetYaRow {
+        interface DareYaRow {
           id: number; label: string; odds_percent: number; action_type: string
           credit_amount: number; remove_amount: number; reward_amount: number
         }
-        let betYaOutcomeType: string | null = null
-        let betYaLabel: string | null = null
-        let betYaActionValue: number | null = null
+        let dareYaOutcomeType: string | null = null
+        let dareYaLabel: string | null = null
+        let dareYaActionValue: number | null = null
         if (adminWinCondition !== 'fill_card') {
-          const { data: betYaRows } = await supabase
-            .from('bet_ya_outcomes').select('id, label, odds_percent, action_type, credit_amount, remove_amount, reward_amount')
+          const { data: dareYaRows } = await supabase
+            .from('dare_ya_outcomes').select('id, label, odds_percent, action_type, credit_amount, remove_amount, reward_amount')
             .eq('is_active', true)
-          const pool = (betYaRows ?? []) as BetYaRow[]
+          const pool = (dareYaRows ?? []) as DareYaRow[]
           if (pool.length > 0) {
             const total = pool.reduce((s, r) => s + Number(r.odds_percent), 0)
             const randBuf = new Uint32Array(1)
@@ -839,11 +863,11 @@ Deno.serve(async (req: Request) => {
               roll -= Number(r.odds_percent)
               if (roll <= 0) { picked = r; break }
             }
-            betYaOutcomeType = picked.action_type
-            betYaLabel = picked.label
+            dareYaOutcomeType = picked.action_type
+            dareYaLabel = picked.label
             // Freeze the one dollar amount relevant to this outcome type at
-            // generation time — the reveal endpoint just reads bet_ya_action_value.
-            betYaActionValue = picked.action_type === 'fund_credit' ? Number(picked.credit_amount)
+            // generation time — the reveal endpoint just reads dare_ya_action_value.
+            dareYaActionValue = picked.action_type === 'fund_credit' ? Number(picked.credit_amount)
               : picked.action_type === 'remove_funds' ? Number(picked.remove_amount)
               : picked.action_type === 'refer_friend' ? Number(picked.reward_amount)
               : 0
@@ -855,14 +879,14 @@ Deno.serve(async (req: Request) => {
         for (let i = 0; i < 25; i++) {
           if (i === 12) {
             cells.push({
-              index: 12, deed_text: 'I Bet Ya!',
-              deed_text_long: 'Tap the centre square to take the I BET YA challenge — you might win a little, lose a little, or get dared to refer a friend. The centre is a free space and always counts toward your Bingo.',
+              index: 12, deed_text: 'I Dare Ya!',
+              deed_text_long: 'Tap the centre square to take the I DARE YA challenge — you might win a little, lose a little, or get dared to refer a friend. The centre is a free space and always counts toward your Bingo.',
               deed_id: null, is_free_space: true, is_purchasable: false, purchase_price: null,
               is_referral_free: false, is_secret: false, secret_reward: null, quantity: 1, category: null,
-              bet_ya_outcome_type: betYaOutcomeType,
-              bet_ya_label: betYaLabel,
-              bet_ya_action_value: betYaActionValue,
-              bet_ya_revealed: false,
+              dare_ya_outcome_type: dareYaOutcomeType,
+              dare_ya_label: dareYaLabel,
+              dare_ya_action_value: dareYaActionValue,
+              dare_ya_revealed: false,
             })
           } else {
             const deed = selectedDeeds[deedIdx++]
@@ -5076,12 +5100,12 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: true })
     }
 
-    // ── POST /bet-ya-reveal ───────────────────────────────────────────────────
-    // Player clicks the centre cell — execute the pre-snapshotted I Bet Ya
+    // ── POST /dare-ya-reveal ──────────────────────────────────────────────────
+    // Player clicks the centre cell — execute the pre-snapshotted I Dare Ya
     // outcome. Fires once per card for every outcome except refer_friend
-    // (bet_ya_revealed guards re-entry); refer_friend stays unrevealed and
-    // re-invocable until /bet-ya-refer-friend actually matches an email.
-    if (method === 'POST' && path === '/bet-ya-reveal') {
+    // (dare_ya_revealed guards re-entry); refer_friend stays unrevealed and
+    // re-invocable until /dare-ya-refer-friend actually matches an email.
+    if (method === 'POST' && path === '/dare-ya-reveal') {
       const user = requireAuth(authUser)
       const body = await req.json()
       const { card_id } = body as { card_id: number }
@@ -5093,18 +5117,18 @@ Deno.serve(async (req: Request) => {
       const cells: Cell[] = JSON.parse(card.card_data)
       const centerCell = cells[12]
 
-      if (!centerCell?.bet_ya_outcome_type) {
-        return errorResponse('No I Bet Ya outcome on this card', 400)
+      if (!centerCell || !dareYaField(centerCell, 'outcome_type')) {
+        return errorResponse('No I Dare Ya outcome on this card', 400)
       }
-      if (centerCell.bet_ya_revealed) {
-        return errorResponse('I Bet Ya outcome already revealed', 400)
+      if (dareYaField(centerCell, 'revealed')) {
+        return errorResponse('I Dare Ya outcome already revealed', 400)
       }
 
-      const outcomeType = centerCell.bet_ya_outcome_type
-      const actionValue = Number(centerCell.bet_ya_action_value ?? 0)
+      const outcomeType = dareYaField(centerCell, 'outcome_type') as string
+      const actionValue = Number(dareYaField(centerCell, 'action_value') ?? 0)
       const result: Record<string, unknown> = {
         outcome: outcomeType,
-        label: centerCell.bet_ya_label ?? outcomeType,
+        label: dareYaField(centerCell, 'label') ?? outcomeType,
         amount: actionValue,
       }
 
@@ -5125,7 +5149,7 @@ Deno.serve(async (req: Request) => {
           .select('id')
           .maybeSingle()
         if (!claimed) {
-          return errorResponse('This I Bet Ya square was already processed. Please refresh and try again.', 409)
+          return errorResponse('This I Dare Ya square was already processed. Please refresh and try again.', 409)
         }
       }
 
@@ -5145,8 +5169,8 @@ Deno.serve(async (req: Request) => {
         const newBalance = parseFloat(wallet.balance) + actionValue
         await supabase.from('player_wallets').update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
         await supabase.from('wallet_transactions').insert({
-          user_id: user.sub, amount: actionValue, transaction_type: 'bet_reward',
-          item_description: `I Bet Ya! reward (+${actionValue.toFixed(2)} Gr8Day Bucks)`,
+          user_id: user.sub, amount: actionValue, transaction_type: 'dare_reward',
+          item_description: `I Dare Ya! reward (+${actionValue.toFixed(2)} Gr8Day Bucks)`,
         })
         result.new_balance = newBalance
 
@@ -5162,8 +5186,8 @@ Deno.serve(async (req: Request) => {
         if (deduction > 0) {
           await supabase.from('player_wallets').update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
           await supabase.from('wallet_transactions').insert({
-            user_id: user.sub, amount: -deduction, transaction_type: 'bet_penalty',
-            item_description: `I Bet Ya! penalty (-${deduction.toFixed(2)} Gr8Day Bucks)`,
+            user_id: user.sub, amount: -deduction, transaction_type: 'dare_penalty',
+            item_description: `I Dare Ya! penalty (-${deduction.toFixed(2)} Gr8Day Bucks)`,
           })
         }
         result.new_balance = newBalance
@@ -5224,13 +5248,15 @@ Deno.serve(async (req: Request) => {
 
       // Mark revealed on the center cell — except refer_friend, which stays
       // pending/retryable (identical to the no-match case in
-      // /bet-ya-refer-friend) until a submitted email actually matches and
-      // credits the reward. Setting bet_ya_revealed here unconditionally
+      // /dare-ya-refer-friend) until a submitted email actually matches and
+      // credits the reward. Setting dare_ya_revealed here unconditionally
       // would permanently disable the centre square client-side the moment
       // the player closes the modal, before they ever get to submit an
       // email — locking them out of a reward they haven't had a chance to
-      // claim yet.
-      cells[12] = outcomeType === 'refer_friend' ? centerCell : { ...centerCell, bet_ya_revealed: true }
+      // claim yet. Written under the new key only — dareYaField() always
+      // checks it first, so this "wins" over a legacy bet_ya_revealed even
+      // on a pre-rename card.
+      cells[12] = outcomeType === 'refer_friend' ? centerCell : { ...centerCell, dare_ya_revealed: true }
 
       const allCompleted = [...new Set([...updatedCompleted, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
       const isBingo = checkBingo(allCompleted, card.win_condition)
@@ -5261,13 +5287,13 @@ Deno.serve(async (req: Request) => {
       return jsonResponse(result)
     }
 
-    // ── POST /bet-ya-refer-friend ─────────────────────────────────────────────
+    // ── POST /dare-ya-refer-friend ────────────────────────────────────────────
     // Player submits an email at the "refer_friend" center square. Matches
     // against an already-validated referral (friend registered with this
     // email, referred by the current player) that hasn't been paid out via
     // this flow before. No match / already-credited: no state change, the
     // player can retry with a different email indefinitely.
-    if (method === 'POST' && path === '/bet-ya-refer-friend') {
+    if (method === 'POST' && path === '/dare-ya-refer-friend') {
       const user = requireAuth(authUser)
       const body = await req.json()
       const { card_id } = body as { card_id: number }
@@ -5283,7 +5309,7 @@ Deno.serve(async (req: Request) => {
 
       const cells: Cell[] = JSON.parse(card.card_data)
       const centerCell = cells[12]
-      if (centerCell?.bet_ya_outcome_type !== 'refer_friend') {
+      if (!centerCell || dareYaField(centerCell, 'outcome_type') !== 'refer_friend') {
         return errorResponse('This card\'s centre square is not a refer-a-friend outcome', 400)
       }
       const completed = parseJsonArr(card.completed_cells) as number[]
@@ -5297,7 +5323,7 @@ Deno.serve(async (req: Request) => {
         .eq('user_id', user.sub)
         .eq('referred_email', email)
         .eq('is_validated', true)
-        .is('bet_ya_credited_at', null)
+        .is('dare_ya_credited_at', null)
         .maybeSingle()
 
       if (!referralMatch) {
@@ -5308,7 +5334,7 @@ Deno.serve(async (req: Request) => {
       // Atomically claim the centre square before paying out anything, so two
       // concurrent claims against two DIFFERENT valid referrals can't both
       // credit the wallet for a square that's only supposed to complete once.
-      // Same optimistic-concurrency pattern as /bet-ya-reveal: only the
+      // Same optimistic-concurrency pattern as /dare-ya-reveal: only the
       // request that still sees the row's pre-read updated_at wins the claim;
       // a losing concurrent request is rejected here, before it ever stamps a
       // referral or touches the wallet.
@@ -5324,9 +5350,9 @@ Deno.serve(async (req: Request) => {
       }
 
       // Stamp the referral row so a future retry/race can't double-pay it.
-      await supabase.from('referrals').update({ bet_ya_credited_at: new Date().toISOString() }).eq('id', referralMatch.id)
+      await supabase.from('referrals').update({ dare_ya_credited_at: new Date().toISOString() }).eq('id', referralMatch.id)
 
-      const rewardAmount = Number(centerCell.bet_ya_action_value ?? 0)
+      const rewardAmount = Number(dareYaField(centerCell, 'action_value') ?? 0)
       let { data: wallet } = await supabase.from('player_wallets').select('*').eq('user_id', user.sub).maybeSingle()
       if (!wallet) {
         const { data: w } = await supabase.from('player_wallets').insert({ user_id: user.sub, balance: 0 }).select().single()
@@ -5335,11 +5361,11 @@ Deno.serve(async (req: Request) => {
       const newBalance = parseFloat(wallet.balance) + rewardAmount
       await supabase.from('player_wallets').update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
       await supabase.from('wallet_transactions').insert({
-        user_id: user.sub, amount: rewardAmount, transaction_type: 'bet_referral_reward',
-        item_description: `I Bet Ya! Friend Referred reward (+${rewardAmount.toFixed(2)} Gr8Day Bucks)`,
+        user_id: user.sub, amount: rewardAmount, transaction_type: 'dare_referral_reward',
+        item_description: `I Dare Ya! Friend Referred reward (+${rewardAmount.toFixed(2)} Gr8Day Bucks)`,
       })
 
-      cells[12] = { ...centerCell, bet_ya_label: 'Friend Referred', bet_ya_revealed: true }
+      cells[12] = { ...centerCell, dare_ya_label: 'Friend Referred', dare_ya_revealed: true }
       const updatedCompleted = [...completed, 12]
       const purchased = parseJsonArr(card.purchased_cells) as number[]
       const referral = parseJsonArr(card.referral_cells) as number[]
@@ -5373,10 +5399,10 @@ Deno.serve(async (req: Request) => {
       return jsonResponse(result)
     }
 
-    // ── GET /admin/bet-ya-outcomes ────────────────────────────────────────────
-    if (method === 'GET' && path === '/admin/bet-ya-outcomes') {
+    // ── GET /admin/dare-ya-outcomes ───────────────────────────────────────────
+    if (method === 'GET' && path === '/admin/dare-ya-outcomes') {
       requireAdmin(authUser)
-      let { data } = await supabase.from('bet_ya_outcomes').select('*').order('id')
+      let { data } = await supabase.from('dare_ya_outcomes').select('*').order('id')
       // If the table has been emptied out (e.g. all rows manually deleted
       // outside the admin API), reseed an equal split across all six outcome
       // types rather than leaving card generation with no active pool to draw from.
@@ -5389,7 +5415,7 @@ Deno.serve(async (req: Request) => {
           { label: 'Mix It Up!', action_type: 'replace_three', odds_percent: 16.66, credit_amount: 0, remove_amount: 0, reward_amount: 0 },
           { label: 'No Effect', action_type: 'nothing', odds_percent: 16.66, credit_amount: 0, remove_amount: 0, reward_amount: 0 },
         ].map((row) => ({ ...row, is_active: true, updated_at: new Date().toISOString() }))
-        const { data: seeded, error: seedErr } = await supabase.from('bet_ya_outcomes').insert(EQUAL_SPLIT_DEFAULTS).select()
+        const { data: seeded, error: seedErr } = await supabase.from('dare_ya_outcomes').insert(EQUAL_SPLIT_DEFAULTS).select()
         if (seedErr) return errorResponse(seedErr.message, 500)
         data = seeded
       }
@@ -5404,7 +5430,7 @@ Deno.serve(async (req: Request) => {
       pendingIsActive: boolean,
       pendingPercent: number,
     ): Promise<string | null> {
-      const { data: rows } = await supabase.from('bet_ya_outcomes').select('id, odds_percent, is_active')
+      const { data: rows } = await supabase.from('dare_ya_outcomes').select('id, odds_percent, is_active')
       let total = (rows ?? [])
         .filter((r) => r.id !== excludeId && r.is_active)
         .reduce((s, r) => s + Number(r.odds_percent), 0)
@@ -5416,9 +5442,9 @@ Deno.serve(async (req: Request) => {
     }
 
     // Guards against admin typos (e.g. a stray minus sign) silently corrupting
-    // wallet payouts or the odds draw — every numeric field on a bet_ya_outcomes
+    // wallet payouts or the odds draw — every numeric field on a dare_ya_outcomes
     // row must be non-negative, and odds_percent must be a valid percentage.
-    function validateBetYaNumeric(
+    function validateDareYaNumeric(
       oddsPercent: number, creditAmount: number, removeAmount: number, rewardAmount: number,
     ): string | null {
       if (!Number.isFinite(oddsPercent) || oddsPercent < 0 || oddsPercent > 100) {
@@ -5430,8 +5456,8 @@ Deno.serve(async (req: Request) => {
       return null
     }
 
-    // ── POST /admin/bet-ya-outcomes ───────────────────────────────────────────
-    if (method === 'POST' && path === '/admin/bet-ya-outcomes') {
+    // ── POST /admin/dare-ya-outcomes ──────────────────────────────────────────
+    if (method === 'POST' && path === '/admin/dare-ya-outcomes') {
       requireAdmin(authUser)
       const body = await req.json()
       const VALID_TYPES = ['free_square','refer_friend','fund_credit','remove_funds','replace_three','nothing']
@@ -5440,12 +5466,12 @@ Deno.serve(async (req: Request) => {
       const creditAmount = Number(body.credit_amount ?? 0)
       const removeAmount = Number(body.remove_amount ?? 0)
       const rewardAmount = Number(body.reward_amount ?? 5)
-      const numErr = validateBetYaNumeric(oddsPercent, creditAmount, removeAmount, rewardAmount)
+      const numErr = validateDareYaNumeric(oddsPercent, creditAmount, removeAmount, rewardAmount)
       if (numErr) return errorResponse(numErr, 400)
       const isActive = body.is_active !== false
       const sumErr = await assertActiveOddsSumTo100(null, isActive, oddsPercent)
       if (sumErr) return errorResponse(sumErr, 400)
-      const { data, error } = await supabase.from('bet_ya_outcomes').insert({
+      const { data, error } = await supabase.from('dare_ya_outcomes').insert({
         label: String(body.label ?? '').trim(),
         odds_percent: oddsPercent,
         action_type: body.action_type,
@@ -5459,13 +5485,13 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ outcome: data })
     }
 
-    // ── PUT /admin/bet-ya-outcomes/:id ────────────────────────────────────────
-    const betYaUpdateMatch = method === 'PUT' && path.match(/^\/admin\/bet-ya-outcomes\/(\d+)$/)
-    if (betYaUpdateMatch) {
+    // ── PUT /admin/dare-ya-outcomes/:id ───────────────────────────────────────
+    const dareYaUpdateMatch = method === 'PUT' && path.match(/^\/admin\/dare-ya-outcomes\/(\d+)$/)
+    if (dareYaUpdateMatch) {
       requireAdmin(authUser)
-      const id = parseInt(betYaUpdateMatch[1])
+      const id = parseInt(dareYaUpdateMatch[1])
       const body = await req.json()
-      const { data: existingRow } = await supabase.from('bet_ya_outcomes').select('*').eq('id', id).maybeSingle()
+      const { data: existingRow } = await supabase.from('dare_ya_outcomes').select('*').eq('id', id).maybeSingle()
       if (!existingRow) return errorResponse('Outcome not found', 404)
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
       if (body.label != null) updates.label = String(body.label).trim()
@@ -5483,22 +5509,22 @@ Deno.serve(async (req: Request) => {
       const pendingCredit = (updates.credit_amount as number | undefined) ?? Number(existingRow.credit_amount)
       const pendingRemove = (updates.remove_amount as number | undefined) ?? Number(existingRow.remove_amount)
       const pendingReward = (updates.reward_amount as number | undefined) ?? Number(existingRow.reward_amount)
-      const numErr = validateBetYaNumeric(pendingPercent, pendingCredit, pendingRemove, pendingReward)
+      const numErr = validateDareYaNumeric(pendingPercent, pendingCredit, pendingRemove, pendingReward)
       if (numErr) return errorResponse(numErr, 400)
       const pendingIsActive = (updates.is_active as boolean | undefined) ?? Boolean(existingRow.is_active)
       const sumErr = await assertActiveOddsSumTo100(id, pendingIsActive, pendingPercent)
       if (sumErr) return errorResponse(sumErr, 400)
-      const { data, error } = await supabase.from('bet_ya_outcomes').update(updates).eq('id', id).select().single()
+      const { data, error } = await supabase.from('dare_ya_outcomes').update(updates).eq('id', id).select().single()
       if (error) return errorResponse(error.message, 400)
       return jsonResponse({ outcome: data })
     }
 
-    // ── DELETE /admin/bet-ya-outcomes/:id ─────────────────────────────────────
-    const betYaDeleteMatch = method === 'DELETE' && path.match(/^\/admin\/bet-ya-outcomes\/(\d+)$/)
-    if (betYaDeleteMatch) {
+    // ── DELETE /admin/dare-ya-outcomes/:id ────────────────────────────────────
+    const dareYaDeleteMatch = method === 'DELETE' && path.match(/^\/admin\/dare-ya-outcomes\/(\d+)$/)
+    if (dareYaDeleteMatch) {
       requireAdmin(authUser)
-      const id = parseInt(betYaDeleteMatch[1])
-      const { data: existingRow } = await supabase.from('bet_ya_outcomes').select('is_active').eq('id', id).maybeSingle()
+      const id = parseInt(dareYaDeleteMatch[1])
+      const { data: existingRow } = await supabase.from('dare_ya_outcomes').select('is_active').eq('id', id).maybeSingle()
       if (!existingRow) return errorResponse('Outcome not found', 404)
       // Only an active row's removal can break the 100% invariant — deleting
       // an already-inactive row never changes the active total.
@@ -5506,7 +5532,7 @@ Deno.serve(async (req: Request) => {
         const sumErr = await assertActiveOddsSumTo100(id, false, 0)
         if (sumErr) return errorResponse(sumErr, 400)
       }
-      await supabase.from('bet_ya_outcomes').delete().eq('id', id)
+      await supabase.from('dare_ya_outcomes').delete().eq('id', id)
       return jsonResponse({ success: true })
     }
 

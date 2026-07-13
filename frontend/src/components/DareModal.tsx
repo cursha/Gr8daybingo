@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { BetYaRevealResult, BetYaReferFriendResult } from '@/lib/game-utils';
+import { DareYaRevealResult, DareYaReferFriendResult } from '@/lib/game-utils';
 import { X } from 'lucide-react';
 
 interface DareModalProps {
-  result: BetYaRevealResult;
+  result: DareYaRevealResult;
   onClose: () => void;
-  onSubmitReferralEmail?: (email: string) => Promise<BetYaReferFriendResult>;
+  onSubmitReferralEmail?: (email: string) => Promise<DareYaReferFriendResult>;
 }
 
 const outcomeStyle: Record<string, { bg: string; text: string; border: string; emoji: string }> = {
@@ -22,7 +22,7 @@ const DareModal: React.FC<DareModalProps> = ({ result, onClose, onSubmitReferral
   const style = outcomeStyle[result.outcome] ?? outcomeStyle.nothing;
   const [referEmail, setReferEmail] = useState('');
   const [referSubmitting, setReferSubmitting] = useState(false);
-  const [referResult, setReferResult] = useState<BetYaReferFriendResult | null>(null);
+  const [referResult, setReferResult] = useState<DareYaReferFriendResult | null>(null);
 
   const handleReferSubmit = async () => {
     if (!onSubmitReferralEmail || !referEmail.trim() || referSubmitting) return;
@@ -63,7 +63,7 @@ const DareModal: React.FC<DareModalProps> = ({ result, onClose, onSubmitReferral
         </button>
 
         <div className="text-center z-10">
-          <p className="text-xs font-bold tracking-[0.3em] text-white/50 uppercase mb-1">I Bet Ya!</p>
+          <p className="text-xs font-bold tracking-[0.3em] text-white/50 uppercase mb-1">I Dare Ya!</p>
           <p className="text-4xl mb-1">{style.emoji}</p>
           <p className={`text-2xl font-black ${style.text} drop-shadow`}>{result.label}</p>
         </div>

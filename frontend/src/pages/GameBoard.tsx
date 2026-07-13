@@ -9,7 +9,7 @@ import {
   WalletData,
   PendingDeed,
   MyTeamData,
-  BetYaRevealResult,
+  DareYaRevealResult,
   PlayerBadge,
   generateCard,
   markCell,
@@ -24,8 +24,8 @@ import {
   resetCard,
   getMyTeam,
   getMyTrades,
-  revealBetYa,
-  submitBetYaReferFriend,
+  revealDareYa,
+  submitDareYaReferFriend,
   getMyProfile,
   getMyStreak,
   QuickTapDeed,
@@ -100,7 +100,7 @@ const WIN_CONDITION_DESCRIPTIONS: Record<string, string> = {
 // A Blackout square is always in exactly one of these states, by construction
 // server-side: still hidden, permanently blocked (passed on), open in the
 // current group (revealed but not yet resolved), or completed. No purchase,
-// referral, secret, or I-Bet-Ya treatment applies to any Blackout square.
+// referral, secret, or I-Dare-Ya treatment applies to any Blackout square.
 const BlackoutTile: React.FC<{
   cell: CardData['cells'][number];
   isCompleted: boolean;
@@ -322,8 +322,8 @@ const GameBoard: React.FC = () => {
   const [playerNumber, setPlayerNumber] = useState<number | null>(null);
   const [playerBadge, setPlayerBadge] = useState<PlayerBadge | null>(null);
   const [myTeam, setMyTeam] = useState<MyTeamData | null>(null);
-  const [betYaResult, setBetYaResult] = useState<BetYaRevealResult | null>(null);
-  const [betYaLoading, setBetYaLoading] = useState(false);
+  const [dareYaResult, setDareYaResult] = useState<DareYaRevealResult | null>(null);
+  const [dareYaLoading, setDareYaLoading] = useState(false);
   const [pendingTradeCount, setPendingTradeCount] = useState(0);
   const [quickTapDeeds, setQuickTapDeeds] = useState<QuickTapDeed[]>([]);
   const [quickTapSource, setQuickTapSource] = useState<'custom' | 'default'>('default');
@@ -417,7 +417,7 @@ const GameBoard: React.FC = () => {
       // playing the same card (and reloading the page) for the rest of the
       // week, so that would re-show the full-screen "You Won!" modal on
       // every single visit. The overlay only belongs to the exact moment a
-      // mark/purchase/bet-ya action just flips the card to is_bingo (see the
+      // mark/purchase/dare-ya action just flips the card to is_bingo (see the
       // action handlers below), never to a page load.
       const cardData = await generateCard(status.has_card ? undefined : 'classic');
       setCard(cardData);
@@ -908,13 +908,13 @@ const GameBoard: React.FC = () => {
     }
   };
 
-  const handleBetYaReveal = async () => {
-    if (!card || betYaLoading) return;
+  const handleDareYaReveal = async () => {
+    if (!card || dareYaLoading) return;
     const wasAlreadyBingo = card.is_bingo;
-    setBetYaLoading(true);
+    setDareYaLoading(true);
     try {
-      const result = await revealBetYa(card.card_id);
-      setBetYaResult(result);
+      const result = await revealDareYa(card.card_id);
+      setDareYaResult(result);
       if (typeof result.new_balance === 'number') {
         setWallet((prev) => prev ? { ...prev, balance: result.new_balance! } : prev);
       }
@@ -938,13 +938,13 @@ const GameBoard: React.FC = () => {
     } catch (err: any) {
       toast.error(err?.message || 'Could not reveal your dare. Please try again.');
     } finally {
-      setBetYaLoading(false);
+      setDareYaLoading(false);
     }
   };
 
-  const handleBetYaReferFriend = async (email: string) => {
+  const handleDareYaReferFriend = async (email: string) => {
     if (!card) throw new Error('No active card');
-    const result = await submitBetYaReferFriend(card.card_id, email);
+    const result = await submitDareYaReferFriend(card.card_id, email);
     if (result.matched) {
       if (typeof result.new_balance === 'number') {
         setWallet((prev) => prev ? { ...prev, balance: result.new_balance! } : prev);
@@ -999,7 +999,7 @@ const GameBoard: React.FC = () => {
         ...card.completed_cells,
         ...card.purchased_cells,
         ...card.referral_cells,
-        // The I BET YA centre is a free space — it always counts (toward both
+        // The I DARE YA centre is a free space — it always counts (toward both
         // the progress bar and Bingo), even though it is never "marked".
         ...card.cells.filter((c) => c.is_free_space).map((c) => c.index),
       ]).size
@@ -1537,8 +1537,8 @@ const GameBoard: React.FC = () => {
                               setCellProgress((prev) => ({ ...prev, [idx]: p }))
                             }
                             onUnmark={handleUnmark}
-                            onDare={handleBetYaReveal}
-                            dareUsed={card.cells.find(c => c.index === 12)?.bet_ya_revealed === true}
+                            onDare={handleDareYaReveal}
+                            dareUsed={card.cells.find(c => c.index === 12)?.dare_ya_revealed === true}
                             winCondition={card.win_condition}
                             pickThreeMode={pickThreeMode}
                             pickThreeEligible={isPickThreeEligible(cell.index)}
@@ -1738,11 +1738,11 @@ const GameBoard: React.FC = () => {
         onNewGame={handleStartNewGame}
         newGameLoading={actionLoading}
       />
-      {betYaResult && (
+      {dareYaResult && (
         <DareModal
-          result={betYaResult}
-          onClose={() => setBetYaResult(null)}
-          onSubmitReferralEmail={handleBetYaReferFriend}
+          result={dareYaResult}
+          onClose={() => setDareYaResult(null)}
+          onSubmitReferralEmail={handleDareYaReferFriend}
         />
       )}
       {showEditProfile && (

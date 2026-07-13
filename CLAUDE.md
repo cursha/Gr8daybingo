@@ -122,7 +122,7 @@ The platform is a **configurable kindness-gamification engine**. Nothing is hard
 ### Key Design Principles (from Curt directly)
 - All ratios, prices, and configs are in editable fields — nothing hardcoded
 - Winner rotation logic is **secret and table-driven** to reduce cheating. If someone is the only winner, they win. If others haven't won yet, the system favours them. This must never be publicly disclosed.
-- **[Phase 3, supersedes the old fixed-REFER-A-PLAYER rule]** The centre square is **"I Bet Ya!"** — a weighted-odds square. At card generation, one of six outcomes is randomly rolled (per the admin-configured `bet_ya_outcomes` odds table, active rows always summing to 100%) and frozen onto the card: `free_square`, `refer_friend`, `fund_credit`, `remove_funds`, `replace_three`, or `nothing`. The outcome is only revealed/applied when the player clicks the centre square. `refer_friend` is now just one of the six possible outcomes, not the guaranteed default — a player may or may not see a referral prompt on a given card.
+- **[Phase 3, supersedes the old fixed-REFER-A-PLAYER rule]** The centre square is **"I Dare Ya!"** (renamed 2026-07-23 from "I Bet Ya!" — Curt's call, back to the feature's original branding) — a weighted-odds square. At card generation, one of six outcomes is randomly rolled (per the admin-configured `dare_ya_outcomes` odds table, active rows always summing to 100%) and frozen onto the card: `free_square`, `refer_friend`, `fund_credit`, `remove_funds`, `replace_three`, or `nothing`. The outcome is only revealed/applied when the player clicks the centre square. `refer_friend` is now just one of the six possible outcomes, not the guaranteed default — a player may or may not see a referral prompt on a given card.
 - Nothing is mandatory for the player. They can ignore the centre square, skip purchases, play casually — it's their choice.
 - Players can buy 1–3 squares (random), but don't have to.
 - Deed quantity: some deeds require multiple completions (e.g. "Buy 3 coffees"). Progress shows as `1 · 2 · 3 · 4`. Tapping cycles through. Most deeds default to quantity 1.
@@ -425,7 +425,7 @@ The game is built around performing real acts of kindness. The full deeds list l
 
 Some deeds have a **quantity counter** (e.g. "Buy 3 coffees for strangers"). These show progress as `1 · 2 · 3` and require all steps completed before the square is marked.
 
-The centre square is the **"I Bet Ya!"** weighted-odds square (see §4) — `refer_friend` is one of six possible outcomes rolled at generation, not a fixed default.
+The centre square is the **"I Dare Ya!"** weighted-odds square (see §4) — `refer_friend` is one of six possible outcomes rolled at generation, not a fixed default.
 
 ---
 

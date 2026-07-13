@@ -4,6 +4,26 @@ Version format: `v{major}.{minor}` — bumped once per push. Major increments
 (and minor resets to 0) when a push adds new functionality; minor increments
 when a push is fixes only.
 
+## v9.0 — 2026-07-13
+### Added
+- Player profile pages (`/players/:username`) — viewable by any registered
+  player, not just the profile owner. Shows username (never real name),
+  badge, career deed total, current/longest streak, country, and team.
+  Player rows on the Leaderboard's Players tab are now clickable through
+  to this. "My Profile" added to GameBoard's toolbar dropdown, linking to
+  `/players/me` — a self-referencing alias the backend resolves to the
+  authenticated player without the frontend needing to know its own
+  username; the page swaps the URL to the real username once loaded.
+### Fixed
+- Weekly Member Update reconciled against the formal written spec: the AI
+  prompt is now a fixed base (in code) + a short admin-authored style/tone
+  snippet (`game_configs.weekly_update_prompt`, renamed from
+  `weekly_update_prompt_template`) rather than a fully replaceable prompt.
+  Stat pool expanded — new players this week, cities (not just countries),
+  bingos achieved this week, week-over-week % change — all computed once
+  and handed to Claude uncurated. Admin Panel field renamed "AI Prompt
+  Template" → "Weekly Update Writing Style" to match.
+
 ## v8.2 — 2026-07-11
 ### Fixed
 - Extended the AI-prompt pattern to the "Announce New Game to All Players"

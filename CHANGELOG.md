@@ -4,6 +4,16 @@ Version format: `v{major}.{minor}` — bumped once per push. Major increments
 (and minor resets to 0) when a push adds new functionality; minor increments
 when a push is fixes only.
 
+## v9.1 — 2026-07-13
+### Fixed
+- Renamed "I Bet Ya" back to "I Dare Ya" throughout — table (`bet_ya_outcomes`
+  → `dare_ya_outcomes`), endpoints, all internal identifiers, visible labels,
+  and CLAUDE.md. Reverses the 2026-07-05 fix that went the other direction.
+  Backward-compatible: outcome data is persisted as JSON keys inside existing
+  `player_cards.card_data`, not just DB columns, so a hard rename would have
+  broken the centre square on every card already in play — new cards write
+  `dare_ya_*` only, reads fall back to legacy `bet_ya_*` for pre-rename cards.
+
 ## v9.0 — 2026-07-13
 ### Added
 - Player profile pages (`/players/:username`) — viewable by any registered

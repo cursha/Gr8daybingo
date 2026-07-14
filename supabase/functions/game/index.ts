@@ -4088,6 +4088,29 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    // ── GET /admin/weekly-updates ─────────────────────────────────────────────
+    // History of weekly member update emails actually sent, most recent first —
+    // written by weekly-member-update's send loop, one row per delivered email.
+    if (method === 'GET' && path === '/admin/weekly-updates') {
+      requireAdmin(authUser)
+      const { data: logs } = await supabase
+        .from('weekly_update_log')
+        .select('id, player_id, sent_at, week_of, message_snapshot, users!inner(first_name, name, username, email)')
+        .order('sent_at', { ascending: false })
+        .limit(50)
+      return jsonResponse({
+        logs: (logs ?? []).map((l: any) => ({
+          id: l.id,
+          player_id: l.player_id,
+          sent_at: l.sent_at,
+          week_of: l.week_of,
+          message_snapshot: l.message_snapshot,
+          name: l.users?.first_name ?? l.users?.name ?? l.users?.username ?? null,
+          email: l.users?.email ?? null,
+        })),
+      })
+    }
+
     // ── GET /admin/draw-leaderboard ───────────────────────────────────────────
     // Per-player draw-entry data for the admin leaderboard (individual only).
     if (method === 'GET' && path === '/admin/draw-leaderboard') {

@@ -975,6 +975,21 @@ export async function getAdminDrawResults(): Promise<{ winners: DrawWinner[] }> 
   return apiClient.get('/game/admin/draw-results');
 }
 
+// ---------- Weekly Update Log (admin) ----------
+export interface WeeklyUpdateLogEntry {
+  id: number;
+  player_id: string;
+  sent_at: string;
+  week_of: string;
+  message_snapshot: string;
+  name: string | null;
+  email: string | null;
+}
+
+export async function getAdminWeeklyUpdates(): Promise<{ logs: WeeklyUpdateLogEntry[] }> {
+  return apiClient.get('/game/admin/weekly-updates');
+}
+
 export interface DrawLeaderboardPlayer {
   user_id: string;
   player_name: string;

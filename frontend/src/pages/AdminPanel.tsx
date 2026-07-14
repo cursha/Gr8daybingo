@@ -43,6 +43,8 @@ import {
   updateAdminDeedCategory,
   DrawWinner,
   getAdminDrawResults,
+  WeeklyUpdateLogEntry,
+  getAdminWeeklyUpdates,
   DrawLeaderboardPlayer,
   getAdminDrawLeaderboard,
   adminGetSpotlightQuickTap,
@@ -165,6 +167,9 @@ const AdminPanel: React.FC = () => {
 
   // Draw results state
   const [drawWinners, setDrawWinners] = useState<DrawWinner[]>([]);
+
+  // Weekly update email log state
+  const [weeklyUpdateLogs, setWeeklyUpdateLogs] = useState<WeeklyUpdateLogEntry[]>([]);
 
   // Draw entry leaderboard state
   const [drawLeaderboard, setDrawLeaderboard] = useState<DrawLeaderboardPlayer[]>([]);
@@ -386,6 +391,15 @@ const AdminPanel: React.FC = () => {
     try {
       const res = await getAdminDrawResults();
       setDrawWinners(res.winners || []);
+    } catch {
+      // silent
+    }
+  };
+
+  const loadWeeklyUpdates = async () => {
+    try {
+      const res = await getAdminWeeklyUpdates();
+      setWeeklyUpdateLogs(res.logs || []);
     } catch {
       // silent
     }
@@ -757,6 +771,7 @@ const AdminPanel: React.FC = () => {
       loadPendingDeeds('pending');
       loadPrizeClaims();
       loadDrawResults();
+      loadWeeklyUpdates();
       loadDrawLeaderboard();
       loadMembers();
       loadTeams();
@@ -1486,6 +1501,7 @@ const AdminPanel: React.FC = () => {
               { id: 'section-draw', label: 'Draw', icon: <Ticket className="w-3.5 h-3.5" /> },
               { id: 'section-prize-claims', label: 'Prize Claims', icon: <Gift className="w-3.5 h-3.5" /> },
               { id: 'section-announce', label: 'Announce', icon: <Mail className="w-3.5 h-3.5" /> },
+              { id: 'section-weekly-updates', label: 'Weekly Updates', icon: <Mail className="w-3.5 h-3.5 text-teal-500" /> },
               { id: 'section-reset', label: 'Reset', icon: <Settings className="w-3.5 h-3.5" /> },
             ].map(({ id, label, icon }) => (
               <button
@@ -3790,6 +3806,53 @@ const AdminPanel: React.FC = () => {
                 </div>
               )}
             </div>
+          </CardContent>
+        </Card>
+        </section>
+
+        {/* Weekly Update Emails */}
+        <section id="section-weekly-updates">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5 text-teal-500" />
+              Weekly Update Emails
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-slate-500 mb-3">
+              History of the AI-generated weekly member update emails actually delivered, most recent first.
+            </p>
+            {weeklyUpdateLogs.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2">
+                <Mail className="w-8 h-8 text-slate-300" />
+                No weekly update emails sent yet.
+              </div>
+            ) : (
+              <div className="border rounded-lg overflow-hidden">
+                <div className="max-h-[360px] overflow-y-auto divide-y">
+                  {weeklyUpdateLogs.map((l) => {
+                    const subjectLine = l.message_snapshot.split('\n')[0].replace(/^Subject:\s*/, '');
+                    return (
+                      <div key={l.id} className="px-3 py-3 text-sm">
+                        <div className="space-y-0.5">
+                          <p className="font-semibold text-slate-800">{l.name ?? 'Unknown'}</p>
+                          {l.email && (
+                            <p className="text-slate-500 text-xs">
+                              <a href={`mailto:${l.email}`} className="text-indigo-600 hover:underline">{l.email}</a>
+                            </p>
+                          )}
+                          <p className="text-xs text-slate-600 italic">"{subjectLine}"</p>
+                          <p className="text-xs text-slate-400">
+                            Week of {l.week_of} · sent {new Date(l.sent_at).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
         </section>

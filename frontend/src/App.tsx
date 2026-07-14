@@ -25,6 +25,7 @@ import ResetPassword from './pages/ResetPassword';
 import VerifyEmail from './pages/VerifyEmail';
 import ResendVerification from './pages/ResendVerification';
 import PrizeHistory from './pages/PrizeHistory';
+import PastWinners from './pages/PastWinners';
 import TradeSquares from './pages/TradeSquares';
 import TeamPage from './pages/TeamPage';
 import Profile from './pages/Profile';
@@ -80,6 +81,7 @@ const AppRoutes = () => {
       <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/resend-verification" element={<ResendVerification />} />
       <Route path="/prize-history" element={<PrizeHistory />} />
+      <Route path="/winners" element={<PastWinners />} />
       <Route path="/trade" element={<TradeSquares />} />
       <Route path="/team" element={<TeamPage />} />
       <Route path="/profile" element={<Profile />} />

@@ -3,25 +3,36 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Heart, Star, Trophy, Wallet, Shield, Users, Gift, Medal, LogOut, BookOpen, ArrowRight, Check, PlayCircle, Grid3x3 } from 'lucide-react';
+import { Heart, Star, Trophy, Wallet, Shield, Users, Gift, Medal, LogOut, BookOpen, ArrowRight, Check, PlayCircle, Grid3x3, PartyPopper } from 'lucide-react';
 import Footer from '@/components/Footer';
 import RegistrationModal from '@/components/RegistrationModal';
-import { getPublicPrize } from '@/lib/game-utils';
+import { getPublicPrize, getLatestWinner, PublicWinner } from '@/lib/game-utils';
 
 const LOGO_IMAGE = '/assets/havagr8day-bingo-logo.png';
 const PATTERN_IMAGE = 'https://mgx-backend-cdn.metadl.com/generate/images/1035418/2026-04-16/mwrzlxiaafbq/good-deeds-pattern.png';
 // Sky blue matching the reference card
 const HERO_BG = '#4FB3E8';
 
+function formatWinnerWeek(weekYear: string): string {
+  const [, wStr] = weekYear.split('-W');
+  return `Week ${parseInt(wStr, 10)}`;
+}
+
 const Index: React.FC = () => {
   const navigate = useNavigate();
   const { user, loading, logout } = useAuth();
   const [prize, setPrize] = useState<{ prize_image_url: string; prize_title: string } | null>(null);
+  const [latestWinner, setLatestWinner] = useState<PublicWinner | null>(null);
+  const [winnerLoading, setWinnerLoading] = useState(true);
 
   useEffect(() => {
     getPublicPrize()
       .then((p) => setPrize(p))
       .catch(() => setPrize(null));
+    getLatestWinner()
+      .then((r) => setLatestWinner(r.winner))
+      .catch(() => setLatestWinner(null))
+      .finally(() => setWinnerLoading(false));
   }, []);
 
   const handleLogin = () => {
@@ -120,6 +131,16 @@ const Index: React.FC = () => {
             >
               <Medal className="w-4 h-4 sm:mr-1" />
               <span className="hidden sm:inline">Leaderboard</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/winners')}
+              className="text-white hover:bg-white/20 hover:text-white px-2 sm:px-3"
+              title="Past Winners"
+            >
+              <Trophy className="w-4 h-4 sm:mr-1" />
+              <span className="hidden sm:inline">Winners</span>
             </Button>
             {user ? (
               <>
@@ -311,6 +332,44 @@ const Index: React.FC = () => {
           </div>
         </div>
       </section>
+
+      {/* Latest Winner Announcement */}
+      {!winnerLoading && (
+        <section className="py-8 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600">
+          <div className="max-w-3xl mx-auto px-4 text-center">
+            {latestWinner ? (
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-5 text-white">
+                <div className="bg-white/15 rounded-full p-3 flex-shrink-0">
+                  <PartyPopper className="w-7 h-7" />
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-widest text-white/70 font-bold mb-0.5">
+                    {formatWinnerWeek(latestWinner.week_year)} Draw Winner
+                  </p>
+                  <p className="text-lg sm:text-xl font-black">
+                    {latestWinner.display_name}
+                    {latestWinner.prize_title ? <> won {latestWinner.prize_title}!</> : <> won this week's draw!</>}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/winners')}
+                  className="sm:ml-4 text-sm font-semibold text-white/90 underline underline-offset-2 hover:text-white flex-shrink-0"
+                >
+                  Past Winners
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2 text-white/90">
+                <Trophy className="w-5 h-5" />
+                <p className="text-sm sm:text-base font-semibold">
+                  No draw has run yet — the first weekly winner will be announced right here.
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Prize Showcase */}
       {prize && prize.prize_image_url && (

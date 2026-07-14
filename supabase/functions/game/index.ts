@@ -361,6 +361,40 @@ const WIN_LABELS: Record<string, string> = {
 }
 function winLabel(cond: string): string { return WIN_LABELS[cond] ?? cond }
 
+/** Shape a draw_winners row for public display — display name and prize come
+ *  from the snapshot columns taken at draw time (see runWeeklyDraw), so this
+ *  never needs a live join and stays correct even after the user is deleted
+ *  or the admin changes this week's prize. Rows created before the snapshot
+ *  columns existed fall back to a best-effort live lookup so old data still
+ *  renders something. Never exposes email or user_id. */
+async function formatPublicWinner(
+  supabase: ReturnType<typeof getSupabase>,
+  row: {
+    user_id: string | null
+    week_year: string
+    selected_at: string
+    winner_display_name: string | null
+    prize_title_snapshot: string | null
+    prize_image_url_snapshot: string | null
+  },
+): Promise<{ display_name: string; prize_title: string | null; prize_image_url: string | null; week_year: string; selected_at: string }> {
+  let displayName = row.winner_display_name
+  if (!displayName && row.user_id) {
+    const { data: u } = await supabase
+      .from('users').select('first_name, last_name, username, player_number').eq('id', row.user_id).maybeSingle()
+    displayName = u
+      ? [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || (u.player_number ? `GR8-${u.player_number}` : null)
+      : null
+  }
+  return {
+    display_name: displayName ?? 'A Havagr8day player',
+    prize_title: row.prize_title_snapshot ?? null,
+    prize_image_url: row.prize_image_url_snapshot ?? null,
+    week_year: row.week_year,
+    selected_at: row.selected_at,
+  }
+}
+
 /** Award a fresh 6-20 roll for every newly-completed line (any of the 12
  *  possible rows/columns/diagonals) on this action, and send the one-time
  *  "you've won" email the first time the configured win_condition is
@@ -2649,6 +2683,32 @@ Deno.serve(async (req: Request) => {
       const cfg: Record<string, string> = {}
       for (const r of rows ?? []) cfg[r.config_key] = r.config_value ?? ''
       return jsonResponse({ prize_image_url: cfg['prize_image_url'] ?? '', prize_title: cfg['prize_title'] ?? "This Week's Prize" })
+    }
+
+    // ── GET /public/latest-winner ─────────────────────────────────────────────
+    // Most recent weekly draw winner, for the homepage banner. No auth — same
+    // public-leaderboard precedent as /public/prize and /leaderboard/players.
+    if (method === 'GET' && path === '/public/latest-winner') {
+      const { data: row } = await supabase
+        .from('draw_winners')
+        .select('user_id, week_year, selected_at, winner_display_name, prize_title_snapshot, prize_image_url_snapshot')
+        .order('selected_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      return jsonResponse({ winner: row ? await formatPublicWinner(supabase, row) : null })
+    }
+
+    // ── GET /public/past-winners ──────────────────────────────────────────────
+    if (method === 'GET' && path === '/public/past-winners') {
+      const limitParam = parseInt(url.searchParams.get('limit') ?? '12')
+      const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 52) : 12
+      const { data: rows } = await supabase
+        .from('draw_winners')
+        .select('user_id, week_year, selected_at, winner_display_name, prize_title_snapshot, prize_image_url_snapshot')
+        .order('selected_at', { ascending: false })
+        .limit(limit)
+      const winners = await Promise.all((rows ?? []).map((r) => formatPublicWinner(supabase, r)))
+      return jsonResponse({ winners })
     }
 
     // ── GET /public/offline-status ────────────────────────────────────────────

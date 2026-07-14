@@ -203,6 +203,23 @@ export async function runWeeklyDraw(
   const poolEntries = candidates.reduce((s, c) => s + c.active_entries, 0)
   const winnerActive = candidates.find((c) => c.user_id === winner.user_id)?.active_entries ?? 0
 
+  // Winner display info — fetched once, reused for both the snapshot below
+  // and the notification email further down.
+  const { data: u } = await supabase
+    .from('users').select('email, first_name, last_name, name, username, player_number').eq('id', winner.user_id).maybeSingle()
+  const winnerDisplayName =
+    [u?.first_name, u?.last_name].filter(Boolean).join(' ') ||
+    u?.username ||
+    (u?.player_number ? `GR8-${u.player_number}` : null)
+
+  // Snapshot the prize that's live right now — game_configs.prize_title/
+  // prize_image_url are mutable and get overwritten for the next week, so
+  // this is the only way a public "past winners" view stays accurate.
+  const { data: prizeCfgRows } = await supabase
+    .from('game_configs').select('config_key, config_value').in('config_key', ['prize_title', 'prize_image_url'])
+  const prizeCfg: Record<string, string> = {}
+  for (const r of prizeCfgRows ?? []) prizeCfg[r.config_key] = r.config_value ?? ''
+
   // Record the winner (existing table + new reporting columns).
   const drawId = crypto.randomUUID()
   await supabase.from('draw_winners').insert({
@@ -210,6 +227,9 @@ export async function runWeeklyDraw(
     odds_weight: recentIds.has(winner.user_id) ? settings.recentWinnerWeight : 1.0,
     winning_active_entries: winnerActive, total_pool_entries: poolEntries,
     eligible_players: candidates.length,
+    winner_display_name: winnerDisplayName,
+    prize_title_snapshot: prizeCfg['prize_title'] || null,
+    prize_image_url_snapshot: prizeCfg['prize_image_url'] || null,
   })
 
   // Audit the selection, then reset the winner's active entries if configured.
@@ -233,10 +253,6 @@ export async function runWeeklyDraw(
   if (!settings.allowRollovers) {
     await supabase.rpc('draw_rollover_reset', { p_week_year: drawWeekYear })
   }
-
-  // Winner display info for the notification email.
-  const { data: u } = await supabase
-    .from('users').select('email, first_name, name, username').eq('id', winner.user_id).maybeSingle()
 
   return {
     ran: true, already_ran: false, winner_id: winner.user_id,

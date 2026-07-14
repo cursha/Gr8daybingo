@@ -718,6 +718,22 @@ export async function getPublicPrize(): Promise<PrizeInfo> {
   return apiClient.get<PrizeInfo>('/game/public/prize', { skipAuth: true });
 }
 
+export interface PublicWinner {
+  display_name: string;
+  prize_title: string | null;
+  prize_image_url: string | null;
+  week_year: string;
+  selected_at: string;
+}
+
+export async function getLatestWinner(): Promise<{ winner: PublicWinner | null }> {
+  return apiClient.get<{ winner: PublicWinner | null }>('/game/public/latest-winner', { skipAuth: true } as any);
+}
+
+export async function getPastWinners(limit = 12): Promise<{ winners: PublicWinner[] }> {
+  return apiClient.get<{ winners: PublicWinner[] }>(`/game/public/past-winners?limit=${limit}`, { skipAuth: true } as any);
+}
+
 // Deliberately does NOT pass skipAuth: true — a logged-in test player's
 // Offline Mode exemption is checked server-side off their token, so this
 // call needs to send it when one exists. Still works fine for logged-out

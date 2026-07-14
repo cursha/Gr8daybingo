@@ -51,6 +51,181 @@ function getCurrentWeekYear(): string {
   return `${year}-W${String(week).padStart(2, '0')}`
 }
 
+// ── Subject-line stat pool (separate from the body's 7-stat pool above) ────
+// Code picks 2-4 of these at random each run — not left to Claude's judgment
+// like the body is — so the subject line varies week to week instead of
+// converging on whatever Claude finds most "interesting." A stat is only
+// ever in the pool if its value is non-zero/meaningful this range.
+interface SubjectLineStat {
+  key: 'deeds' | 'bingos' | 'top_deed' | 'active_players'
+  promptPhrase: string
+  fallbackFragment: string
+}
+
+async function computeSubjectLineStatPool(
+  supabase: ReturnType<typeof getSupabase>,
+  rangeStartIso: string,
+  rangeEndIso: string | null,
+): Promise<SubjectLineStat[]> {
+  let deedsQuery = supabase
+    .from('completed_deeds')
+    .select('id, deed_id, player_id')
+    .eq('is_hidden_from_impact_board', false)
+    .gte('completed_at', rangeStartIso)
+  if (rangeEndIso) deedsQuery = deedsQuery.lt('completed_at', rangeEndIso)
+  const { data: rangeDeeds } = await deedsQuery
+  const totalDeeds = rangeDeeds?.length ?? 0
+
+  let bingoQuery = supabase
+    .from('draw_entry_ledger')
+    .select('id', { count: 'exact', head: true })
+    .eq('reason', 'Bingo completed — bonus entries')
+    .gte('created_at', rangeStartIso)
+  if (rangeEndIso) bingoQuery = bingoQuery.lt('created_at', rangeEndIso)
+  const { count: bingoCount } = await bingoQuery
+  const totalBingos = bingoCount ?? 0
+
+  const activePlayers = new Set((rangeDeeds ?? []).map((d) => d.player_id).filter(Boolean)).size
+
+  let topDeedText: string | null = null
+  if (rangeDeeds && rangeDeeds.length > 0) {
+    const counts = new Map<number, number>()
+    for (const d of rangeDeeds) {
+      if (d.deed_id == null) continue
+      counts.set(d.deed_id, (counts.get(d.deed_id) ?? 0) + 1)
+    }
+    let best = 0
+    let bestId: number | null = null
+    for (const [id, n] of counts) { if (n > best) { best = n; bestId = id } }
+    if (bestId != null) {
+      const { data: deedRow } = await supabase.from('good_deeds').select('deed_text').eq('id', bestId).maybeSingle()
+      topDeedText = deedRow?.deed_text ?? null
+    }
+  }
+
+  const pool: SubjectLineStat[] = []
+  if (totalDeeds > 0) {
+    pool.push({
+      key: 'deeds',
+      promptPhrase: `${totalDeeds} Gr8Day Deeds were completed by the community this week`,
+      fallbackFragment: `${totalDeeds} deed${totalDeeds === 1 ? '' : 's'}`,
+    })
+  }
+  if (totalBingos > 0) {
+    pool.push({
+      key: 'bingos',
+      promptPhrase: `${totalBingos} bingo${totalBingos === 1 ? '' : 's'} were completed this week`,
+      fallbackFragment: `${totalBingos} bingo${totalBingos === 1 ? '' : 's'}`,
+    })
+  }
+  if (topDeedText) {
+    pool.push({
+      key: 'top_deed',
+      promptPhrase: `the most popular deed this week was "${topDeedText}"`,
+      fallbackFragment: `"${topDeedText}" was the top deed`,
+    })
+  }
+  if (activePlayers > 0) {
+    pool.push({
+      key: 'active_players',
+      promptPhrase: `${activePlayers} active player${activePlayers === 1 ? '' : 's'} took part this week`,
+      fallbackFragment: `${activePlayers} active player${activePlayers === 1 ? '' : 's'}`,
+    })
+  }
+  return pool
+}
+
+/** Randomly select 2-4 stats from the pool (Fisher-Yates shuffle, then take
+ *  a random count in [2,4]). Falls back to whatever's available — even a
+ *  single stat, or none — when the pool is smaller than 2. Cosmetic variety
+ *  only, not security-sensitive, so Math.random() is fine here. */
+function pickRandomStats(pool: SubjectLineStat[]): SubjectLineStat[] {
+  if (pool.length <= 2) return pool
+  const shuffled = [...pool]
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  const count = Math.min(shuffled.length, 2 + Math.floor(Math.random() * 3)) // 2, 3, or 4
+  return shuffled.slice(0, count)
+}
+
+function fallbackSubjectLine(selected: SubjectLineStat[]): string {
+  if (selected.length === 0) return 'Your HavaGr8Day weekly update'
+  return `${selected.map((s) => s.fallbackFragment).join(', ')} this week!`
+}
+
+// Claude responses can include a thinking block before the text block, so
+// content[0] isn't reliably the answer — find the first block actually
+// typed 'text' instead of assuming position.
+function extractResponseText(content: unknown): string {
+  if (!Array.isArray(content)) return ''
+  const block = content.find((b: any) => b?.type === 'text')
+  return block?.text ?? ''
+}
+
+/** Generate the subject line from the selected stats. Always resolves —
+ *  never throws — so a slow/failed/malformed Anthropic call falls back to a
+ *  static template built from the same selected stats rather than blocking
+ *  the send. 5s timeout, no retry. The API key is read once from the
+ *  environment and never included in any returned value or log line. */
+async function generateSubjectLine(
+  anthropicKey: string,
+  selected: SubjectLineStat[],
+): Promise<{ subject: string; source: 'ai' | 'fallback'; fallback_reason?: string }> {
+  if (selected.length === 0) {
+    return { subject: fallbackSubjectLine(selected), source: 'fallback', fallback_reason: 'no_stats_available' }
+  }
+
+  const statLines = selected.map((s) => `- ${s.promptPhrase}`).join('\n')
+  const prompt = `Write ONE short, warm, on-brand subject line for the Havagr8day Bingo weekly member update email.
+
+Weave these real numbers in naturally — don't just list them:
+${statLines}
+
+Rules: under 60 characters. No quotation marks. No generic filler like "Check out this week's update!". Respond with ONLY the subject line text, nothing else — no quotes, no markdown, no preamble.`
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 5000)
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-5',
+        max_tokens: 300,
+        thinking: { type: 'disabled' },
+        messages: [{ role: 'user', content: prompt }],
+      }),
+      signal: controller.signal,
+    })
+    if (!resp.ok) {
+      console.error('[weekly-member-update] subject-line Claude call failed, status', resp.status)
+      return { subject: fallbackSubjectLine(selected), source: 'fallback', fallback_reason: `api_error_${resp.status}` }
+    }
+    const json = await resp.json()
+    // Models often wrap their whole answer in quotes even when told not to
+    // ("Like this!" instead of Like this!) — strip one such wrapping pair
+    // before validating. Only double quotes count as "quotation marks" here
+    // — apostrophes ('week's', 'let's', 'we're') are normal contractions in
+    // a warm sentence and must not trip this check, or virtually every
+    // response fails validation regardless of content.
+    const rawText: string = extractResponseText(json?.content).trim()
+    const raw = rawText.replace(/^["“”](.*)["“”]$/, '$1').trim()
+    if (!raw || raw.length > 60 || /["“”]/.test(raw)) {
+      console.error('[weekly-member-update] subject-line output failed validation:', raw ? 'invalid' : 'empty')
+      return { subject: fallbackSubjectLine(selected), source: 'fallback', fallback_reason: 'failed_validation' }
+    }
+    return { subject: raw, source: 'ai' }
+  } catch (err) {
+    const reason = err instanceof Error && err.name === 'AbortError' ? 'timeout' : 'api_error'
+    console.error('[weekly-member-update] subject-line call failed:', reason)
+    return { subject: fallbackSubjectLine(selected), source: 'fallback', fallback_reason: reason }
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 async function alertAdmins(supabase: ReturnType<typeof getSupabase>, reason: string): Promise<void> {
   try {
     const { data: recipients } = await supabase
@@ -82,8 +257,47 @@ Deno.serve(async (req: Request) => {
   }
 
   const supabase = getSupabase()
+  const url = new URL(req.url)
 
   try {
+    // ── Dry run: subject-line generation only, against last week's real,
+    // fully-completed numbers. Runs the stat-pool + selection + Claude call
+    // N times (5-10, default 8) so Curt can review both output quality and
+    // that stat selection is actually varying. Never touches recipients,
+    // never sends anything, never writes weekly_update_log/last_sent_at.
+    if (url.searchParams.get('dry_run') === 'true') {
+      const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+      if (!anthropicKey) {
+        return jsonResponse({ dry_run: true, error: 'ANTHROPIC_API_KEY not configured' })
+      }
+      const countParam = parseInt(url.searchParams.get('count') ?? '8')
+      const runs = Number.isFinite(countParam) ? Math.min(Math.max(countParam, 5), 10) : 8
+
+      const weekStart = getCurrentWeekStart()
+      const weekStartIso = weekStart.toISOString()
+      const lastWeekStartIso = new Date(weekStart.getTime() - 7 * 86_400_000).toISOString()
+
+      const pool = await computeSubjectLineStatPool(supabase, lastWeekStartIso, weekStartIso)
+      const results = []
+      for (let i = 0; i < runs; i++) {
+        const selected = pickRandomStats(pool)
+        const { subject, source, fallback_reason } = await generateSubjectLine(anthropicKey, selected)
+        results.push({
+          run: i + 1,
+          selected_stats: selected.map((s) => s.key),
+          subject,
+          source,
+          fallback_reason: fallback_reason ?? null,
+        })
+      }
+      return jsonResponse({
+        dry_run: true,
+        week_of: lastWeekStartIso.slice(0, 10),
+        stat_pool_available: pool.map((s) => s.key),
+        results,
+      })
+    }
+
     // ── How much of the active base gets emailed this run, and the prompt ──
     const { data: cfgRows } = await supabase
       .from('game_configs').select('config_key, config_value')
@@ -130,7 +344,6 @@ Deno.serve(async (req: Request) => {
     const weekOf = toDateOnly(weekStart)
     const lastWeekStart = new Date(weekStart.getTime() - 7 * 86_400_000)
     const lastWeekStartIso = lastWeekStart.toISOString()
-
     const { data: weekDeeds } = await supabase
       .from('completed_deeds')
       .select('id, category, country_name, city')
@@ -227,6 +440,7 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         model: 'claude-sonnet-5',
         max_tokens: 600,
+        thinking: { type: 'disabled' },
         messages: [{ role: 'user', content: prompt }],
       }),
     })
@@ -238,7 +452,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const claudeJson = await claudeResp.json()
-    const rawText: string = claudeJson?.content?.[0]?.text ?? ''
+    const rawText: string = extractResponseText(claudeJson?.content)
     let parsed: { subject?: string; body?: string } = {}
     try {
       const match = rawText.match(/\{[\s\S]*\}/)
@@ -252,8 +466,20 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: false, sent: 0, skipped_reason: 'Claude output failed validation' })
     }
 
-    const subject = parsed.subject.trim()
     const bodyTemplate = parsed.body.trim()
+
+    // ── Subject line: separate stat-pool-driven generation, replacing
+    // whatever subject the combined call above produced. Falls back to a
+    // static template on failure but never blocks the send — the body
+    // generation above is what determines whether this week's update goes
+    // out at all; the subject line just varies which stats it highlights.
+    const subjectStatPool = await computeSubjectLineStatPool(supabase, weekStartIso, null)
+    const selectedSubjectStats = pickRandomStats(subjectStatPool)
+    const subjectResult = await generateSubjectLine(anthropicKey, selectedSubjectStats)
+    const subject = subjectResult.subject
+    if (subjectResult.source === 'fallback') {
+      console.error('[weekly-member-update] subject line used fallback template, reason:', subjectResult.fallback_reason)
+    }
 
     // ── Merge + send per recipient ──────────────────────────────────────────
     let sent = 0
@@ -298,6 +524,8 @@ Deno.serve(async (req: Request) => {
       eligible_active: active.length,
       recipients: recipients.length,
       week_of: weekOf,
+      subject_source: subjectResult.source,
+      subject_stats_used: selectedSubjectStats.map((s) => s.key),
     })
   } catch (err) {
     console.error('weekly-member-update error:', err)

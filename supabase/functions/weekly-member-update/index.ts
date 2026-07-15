@@ -2,6 +2,7 @@ import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { getSupabase } from '../_shared/db.ts'
 import { sendEmail } from '../_shared/email.ts'
 import { weeklyMemberUpdateEmail, weeklyUpdateFailedAlertEmail } from '../_shared/email.ts'
+import { callAnthropicForText } from '../_shared/anthropic.ts'
 
 // Fixed in code, not admin-editable — the structural contract (JSON output,
 // {{DEED_COUNT}} token, stat-picking instruction) that a prompt edit must
@@ -155,20 +156,12 @@ function fallbackSubjectLine(selected: SubjectLineStat[]): string {
   return `${selected.map((s) => s.fallbackFragment).join(', ')} this week!`
 }
 
-// Claude responses can include a thinking block before the text block, so
-// content[0] isn't reliably the answer — find the first block actually
-// typed 'text' instead of assuming position.
-function extractResponseText(content: unknown): string {
-  if (!Array.isArray(content)) return ''
-  const block = content.find((b: any) => b?.type === 'text')
-  return block?.text ?? ''
-}
-
 /** Generate the subject line from the selected stats. Always resolves —
  *  never throws — so a slow/failed/malformed Anthropic call falls back to a
  *  static template built from the same selected stats rather than blocking
- *  the send. 5s timeout, no retry. The API key is read once from the
- *  environment and never included in any returned value or log line. */
+ *  the send. Char-limit/quote validation is specific to this call site and
+ *  lives here; the network call, 5s timeout, and thinking-disabled behavior
+ *  are shared — see callAnthropicForText. */
 async function generateSubjectLine(
   anthropicKey: string,
   selected: SubjectLineStat[],
@@ -185,45 +178,23 @@ ${statLines}
 
 Rules: under 60 characters. No quotation marks. No generic filler like "Check out this week's update!". Respond with ONLY the subject line text, nothing else — no quotes, no markdown, no preamble.`
 
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 5000)
-  try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-5',
-        max_tokens: 300,
-        thinking: { type: 'disabled' },
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      signal: controller.signal,
-    })
-    if (!resp.ok) {
-      console.error('[weekly-member-update] subject-line Claude call failed, status', resp.status)
-      return { subject: fallbackSubjectLine(selected), source: 'fallback', fallback_reason: `api_error_${resp.status}` }
-    }
-    const json = await resp.json()
-    // Models often wrap their whole answer in quotes even when told not to
-    // ("Like this!" instead of Like this!) — strip one such wrapping pair
-    // before validating. Only double quotes count as "quotation marks" here
-    // — apostrophes ('week's', 'let's', 'we're') are normal contractions in
-    // a warm sentence and must not trip this check, or virtually every
-    // response fails validation regardless of content.
-    const rawText: string = extractResponseText(json?.content).trim()
-    const raw = rawText.replace(/^["“”](.*)["“”]$/, '$1').trim()
-    if (!raw || raw.length > 60 || /["“”]/.test(raw)) {
-      console.error('[weekly-member-update] subject-line output failed validation:', raw ? 'invalid' : 'empty')
-      return { subject: fallbackSubjectLine(selected), source: 'fallback', fallback_reason: 'failed_validation' }
-    }
-    return { subject: raw, source: 'ai' }
-  } catch (err) {
-    const reason = err instanceof Error && err.name === 'AbortError' ? 'timeout' : 'api_error'
-    console.error('[weekly-member-update] subject-line call failed:', reason)
-    return { subject: fallbackSubjectLine(selected), source: 'fallback', fallback_reason: reason }
-  } finally {
-    clearTimeout(timeoutId)
+  const result = await callAnthropicForText(anthropicKey, { prompt, maxTokens: 300 })
+  if (!result.ok) {
+    console.error('[weekly-member-update] subject-line call failed:', result.reason)
+    return { subject: fallbackSubjectLine(selected), source: 'fallback', fallback_reason: result.reason }
   }
+  // Models often wrap their whole answer in quotes even when told not to
+  // ("Like this!" instead of Like this!) — strip one such wrapping pair
+  // before validating. Only double quotes count as "quotation marks" here
+  // — apostrophes ('week's', 'let's', 'we're') are normal contractions in
+  // a warm sentence and must not trip this check, or virtually every
+  // response fails validation regardless of content.
+  const raw = result.text.replace(/^["“”](.*)["“”]$/, '$1').trim()
+  if (!raw || raw.length > 60 || /["“”]/.test(raw)) {
+    console.error('[weekly-member-update] subject-line output failed validation:', raw ? 'invalid' : 'empty')
+    return { subject: fallbackSubjectLine(selected), source: 'fallback', fallback_reason: 'failed_validation' }
+  }
+  return { subject: raw, source: 'ai' }
 }
 
 async function alertAdmins(supabase: ReturnType<typeof getSupabase>, reason: string): Promise<void> {
@@ -430,33 +401,21 @@ Deno.serve(async (req: Request) => {
       .replaceAll('{{SPOTLIGHT_DEED}}', spotlightDeedText ?? 'none set this week')
       + `\n\nStyle guidance: ${styleGuidance}`
 
-    const claudeResp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-5',
-        max_tokens: 600,
-        thinking: { type: 'disabled' },
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    })
+    // maxTokens 600 is the largest of the four call sites sharing this
+    // helper (see _shared/anthropic.ts), so it gets a longer timeout than
+    // the 5s default sized for short copy — this call previously had no
+    // timeout at all.
+    const bodyResult = await callAnthropicForText(anthropicKey, { prompt, maxTokens: 600, timeoutMs: 15000 })
 
-    if (!claudeResp.ok) {
-      const errText = await claudeResp.text().catch(() => '')
-      await alertAdmins(supabase, `Claude API call failed (status ${claudeResp.status}): ${errText.slice(0, 500)}`)
+    if (!bodyResult.ok) {
+      await alertAdmins(supabase, `Claude API call failed (${bodyResult.reason})`)
       return jsonResponse({ success: false, sent: 0, skipped_reason: 'Claude API call failed' })
     }
 
-    const claudeJson = await claudeResp.json()
-    const rawText: string = extractResponseText(claudeJson?.content)
     let parsed: { subject?: string; body?: string } = {}
     try {
-      const match = rawText.match(/\{[\s\S]*\}/)
-      parsed = JSON.parse(match ? match[0] : rawText)
+      const match = bodyResult.text.match(/\{[\s\S]*\}/)
+      parsed = JSON.parse(match ? match[0] : bodyResult.text)
     } catch {
       // leave parsed empty — handled by the validation check below
     }

@@ -122,13 +122,20 @@ export function gameAnnouncementEmail(opts: {
   }
 }
 
-export function newGameLaunchEmail(firstName: string | null): { subject: string; html: string } {
+export function newGameLaunchEmail(
+  firstName: string | null,
+  encouragement?: string,
+): { subject: string; html: string } {
   const hi = firstName && firstName.trim() ? firstName.trim() : 'there'
+  const encouragementBlock = encouragement?.trim()
+    ? `<p style="margin-top:16px;padding:14px 16px;background:#f8fafc;border-radius:10px;border-left:4px solid #4FB3E8">${encouragement.trim()}</p>`
+    : ''
   return {
     subject: 'A new game just started!',
     html: layout(`
       <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">Hey ${hi},</h2>
       <p>I am letting you know we just launched a new game so go check it out.</p>
+      ${encouragementBlock}
       <p style="text-align:center;margin:24px 0">
         <a href="${SITE_URL}/game" style="display:inline-block;background:#DC2626;color:#fff;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none;border:2px solid #FCD34D">Play Now</a>
       </p>

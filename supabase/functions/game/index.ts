@@ -2,6 +2,7 @@ import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { getAuthUser, requireAuth, requireAdmin } from '../_shared/auth.ts'
 import { getSupabase, getSubPath, matchPath } from '../_shared/db.ts'
 import { sendEmail, passwordResetEmail, adminLockoutEmail, adminPasswordResetEmail, referralInviteEmail, bingoWinEmail, prizeClaimConfirmationEmail, prizeVoucherEmail, gameAnnouncementEmail, newGameLaunchEmail } from '../_shared/email.ts'
+import { callAnthropicForText } from '../_shared/anthropic.ts'
 import {
   getDrawSettings, awardDeedEntry, awardBingoBonus,
   reverseDeedEntry, reverseBingoBonus, manualAdjust, runWeeklyDraw,
@@ -309,6 +310,39 @@ Write 2-3 warm, genuine, playful sentences (plain text, no markdown, no quotes) 
 
 Respond with ONLY the note text, nothing else.`
 
+// ── AI encouragement blurb for the new-game-launch email ───────────────────
+// Edit this prompt freely — it's isolated from the call/validation logic
+// below. Generated ONCE per card-generation cycle (not once per recipient)
+// by generateEncouragementBlurb, and the same text is reused across every
+// player's email in that batch — see sendGameLaunchEmails, the only caller.
+const ENCOURAGEMENT_PROMPT = `Write a short, warm encouragement message (50-75 words) for players of HavaGr8Day, a kindness-themed game where players complete real-world good deeds to fill a bingo card. This message will appear in this week's new-card email, sent to all active players. The tone should be genuine and specific to the spirit of the game, never generic praise or corporate-sounding. Do not use exclamation points more than once. Do not mention money, prizes, or competition — this is about the value of doing good, not winning. Return ONLY the message text, no preamble, no quotation marks.`
+
+// Used whenever the AI call fails, times out, or returns something outside
+// the accepted word-count range — see generateEncouragementBlurb below.
+const FALLBACK_ENCOURAGEMENT_LINE = 'Every square you fill this week started as a real kindness someone else got to feel. Thank you for showing up for your community, one good deed at a time — that steady, unglamorous effort is exactly what makes Havagr8day worth playing, week after week.'
+
+/** Generates the shared encouragement blurb for this cycle's new-game-launch
+ *  email. Always resolves — never throws — so a slow/failed/malformed/
+ *  out-of-range response falls back to FALLBACK_ENCOURAGEMENT_LINE rather
+ *  than blocking the send. Word-count validation (40-90) is specific to this
+ *  call site and lives here; the network call, 5s timeout, and thinking-
+ *  disabled behavior are shared — see callAnthropicForText. */
+async function generateEncouragementBlurb(
+  anthropicKey: string,
+): Promise<{ text: string; source: 'ai' | 'fallback'; fallback_reason?: string }> {
+  const result = await callAnthropicForText(anthropicKey, { prompt: ENCOURAGEMENT_PROMPT, maxTokens: 150 })
+  if (!result.ok) {
+    console.error('[game-launch-email] encouragement call failed:', result.reason)
+    return { text: FALLBACK_ENCOURAGEMENT_LINE, source: 'fallback', fallback_reason: result.reason }
+  }
+  const wordCount = result.text.split(/\s+/).length
+  if (wordCount < 40 || wordCount > 90) {
+    console.error('[game-launch-email] encouragement output failed validation: word_count_' + wordCount)
+    return { text: FALLBACK_ENCOURAGEMENT_LINE, source: 'fallback', fallback_reason: `word_count_${wordCount}` }
+  }
+  return { text: result.text, source: 'ai' }
+}
+
 /** Sends the "new game launch" email to every verified player, once per game
  *  cycle — see /generate-card, which is the only caller and only invokes this
  *  once it has atomically won the per-week_year claim in
@@ -337,13 +371,22 @@ async function sendGameLaunchEmails(supabase: ReturnType<typeof getSupabase>, we
     const referenceDate = p.last_valid_deed_date ?? p.created_at
     return !referenceDate || referenceDate >= fourWeeksAgo
   })
+  if (activeRecipients.length === 0) return
+
+  // Generated ONCE for this whole batch, not per recipient — see
+  // generateEncouragementBlurb. Every email below reuses the same text.
+  const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+  const encouragementResult = anthropicKey
+    ? await generateEncouragementBlurb(anthropicKey)
+    : { text: FALLBACK_ENCOURAGEMENT_LINE, source: 'fallback' as const, fallback_reason: 'anthropic_key_not_configured' }
+  if (!anthropicKey) console.error('[game-launch-email] ANTHROPIC_API_KEY not configured, using fallback encouragement line')
 
   let sent = 0
   let failed = 0
   for (const player of activeRecipients) {
     const firstName = player.first_name ?? player.name ?? player.username ?? null
     try {
-      const tpl = newGameLaunchEmail(firstName)
+      const tpl = newGameLaunchEmail(firstName, encouragementResult.text)
       const result = await sendEmail({ to: player.email, subject: tpl.subject, html: tpl.html })
       if (result.sent) sent++
       else failed++
@@ -352,7 +395,7 @@ async function sendGameLaunchEmails(supabase: ReturnType<typeof getSupabase>, we
       console.error('[game-launch-email] send failed for', player.email, err)
     }
   }
-  console.log(`[game-launch-email] week ${weekYear}: sent=${sent} failed=${failed} skipped_inactive=${players.length - activeRecipients.length}`)
+  console.log(`[game-launch-email] week ${weekYear}: sent=${sent} failed=${failed} skipped_inactive=${players.length - activeRecipients.length} encouragement_source=${encouragementResult.source}${encouragementResult.fallback_reason ? ` (${encouragementResult.fallback_reason})` : ''}`)
 }
 
 const WIN_LABELS: Record<string, string> = {
@@ -3644,42 +3687,26 @@ Deno.serve(async (req: Request) => {
       // If the admin left "Additional Message" blank, offer to have Claude
       // write one from the prize/game type/theme — purely a nice-to-have
       // flourish, so any failure (no key, bad response) just falls back to
-      // no extra message rather than blocking the send.
+      // no extra message rather than blocking the send. Network call, 5s
+      // timeout, and thinking-disabled behavior come from the shared
+      // callAnthropicForText helper.
       let effectiveExtraMessage = extra_message
       if (!effectiveExtraMessage?.trim()) {
         const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
         if (anthropicKey) {
-          try {
-            const { data: promptCfg } = await supabase
-              .from('game_configs').select('config_value').eq('config_key', 'game_announcement_prompt_template').maybeSingle()
-            const template = promptCfg?.config_value?.trim() || DEFAULT_ANNOUNCE_PROMPT_TEMPLATE
-            const prompt = template
-              .replaceAll('{{PRIZE}}', prize)
-              .replaceAll('{{GAME_TYPE}}', game_type)
-              .replaceAll('{{THEME}}', theme || 'none set this week')
+          const { data: promptCfg } = await supabase
+            .from('game_configs').select('config_value').eq('config_key', 'game_announcement_prompt_template').maybeSingle()
+          const template = promptCfg?.config_value?.trim() || DEFAULT_ANNOUNCE_PROMPT_TEMPLATE
+          const prompt = template
+            .replaceAll('{{PRIZE}}', prize)
+            .replaceAll('{{GAME_TYPE}}', game_type)
+            .replaceAll('{{THEME}}', theme || 'none set this week')
 
-            const claudeResp = await fetch('https://api.anthropic.com/v1/messages', {
-              method: 'POST',
-              headers: {
-                'content-type': 'application/json',
-                'x-api-key': anthropicKey,
-                'anthropic-version': '2023-06-01',
-              },
-              body: JSON.stringify({
-                model: 'claude-sonnet-5',
-                max_tokens: 300,
-                messages: [{ role: 'user', content: prompt }],
-              }),
-            })
-            if (claudeResp.ok) {
-              const claudeJson = await claudeResp.json()
-              const text: string = claudeJson?.content?.[0]?.text ?? ''
-              if (text.trim()) effectiveExtraMessage = text.trim()
-            } else {
-              console.error('[announce-game] Claude API call failed', claudeResp.status, await claudeResp.text().catch(() => ''))
-            }
-          } catch (err) {
-            console.error('[announce-game] AI extra-message generation failed', err)
+          const result = await callAnthropicForText(anthropicKey, { prompt, maxTokens: 300 })
+          if (result.ok) {
+            effectiveExtraMessage = result.text
+          } else {
+            console.error('[announce-game] AI extra-message generation failed:', result.reason)
           }
         }
       }
@@ -3706,6 +3733,35 @@ Deno.serve(async (req: Request) => {
       }
 
       return jsonResponse({ success: true, sent, failed, ai_generated_extra_message: effectiveExtraMessage !== extra_message })
+    }
+
+    // ── GET /admin/test-encouragement-blurb ────────────────────────────────────
+    // Dry run for the new-game-launch encouragement blurb (see
+    // ENCOURAGEMENT_PROMPT / generateEncouragementBlurb above). Generates it
+    // 5-10 times (default 8, override with ?count=) so Curt can review tone,
+    // word count, and variety before it's live. Never touches recipients,
+    // never sends anything, never claims game_launch_notifications.
+    if (method === 'GET' && path === '/admin/test-encouragement-blurb') {
+      requireAdmin(authUser)
+      const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+      if (!anthropicKey) {
+        return jsonResponse({ dry_run: true, error: 'ANTHROPIC_API_KEY not configured' })
+      }
+      const countParam = parseInt(url.searchParams.get('count') ?? '8')
+      const runs = Number.isFinite(countParam) ? Math.min(Math.max(countParam, 5), 10) : 8
+
+      const results = []
+      for (let i = 0; i < runs; i++) {
+        const { text, source, fallback_reason } = await generateEncouragementBlurb(anthropicKey)
+        results.push({
+          run: i + 1,
+          word_count: text.trim() ? text.trim().split(/\s+/).length : 0,
+          text,
+          source,
+          fallback_reason: fallback_reason ?? null,
+        })
+      }
+      return jsonResponse({ dry_run: true, results })
     }
 
     // ── POST /admin/void-cell ─────────────────────────────────────────────────

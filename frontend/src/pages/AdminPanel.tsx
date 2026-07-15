@@ -129,6 +129,7 @@ const AdminPanel: React.FC = () => {
 
   // Deeds state
   const [deeds, setDeeds] = useState<DeedItem[]>([]);
+  const [deedSearchQuery, setDeedSearchQuery] = useState('');
   const [spotlightDeed, setSpotlightDeed] = useState<{ id: number; deed_text: string; category: string } | null>(null);
   const [spotlightActive, setSpotlightActive] = useState(false);
   const [spotlightSelection, setSpotlightSelection] = useState('');
@@ -1388,6 +1389,18 @@ const AdminPanel: React.FC = () => {
   }
 
   const uniqueCategories = [...new Set(deeds.map((d) => d.category).filter(Boolean))].sort();
+
+  // Live client-side filter over the already-loaded deeds list — matches by
+  // deed code (numeric id, substring so partial typing still narrows down)
+  // or by name (deed_text / deed_text_long, case-insensitive substring).
+  const deedSearchQueryTrimmed = deedSearchQuery.trim().toLowerCase();
+  const filteredDeeds = deedSearchQueryTrimmed
+    ? deeds.filter((d) =>
+        String(d.id).includes(deedSearchQueryTrimmed) ||
+        d.deed_text.toLowerCase().includes(deedSearchQueryTrimmed) ||
+        (d.deed_text_long ?? '').toLowerCase().includes(deedSearchQueryTrimmed)
+      )
+    : deeds;
 
   if (!authenticated) {
     return (
@@ -2889,7 +2902,7 @@ const AdminPanel: React.FC = () => {
             <CardTitle className="flex items-center justify-between">
               <span className="flex items-center gap-2">
                 <Heart className="w-5 h-5 text-rose-500" />
-                Gr8Day Deeds ({deeds.length})
+                Gr8Day Deeds ({filteredDeeds.length}{deedSearchQueryTrimmed ? ` of ${deeds.length}` : ''})
               </span>
             </CardTitle>
           </CardHeader>
@@ -2996,6 +3009,17 @@ const AdminPanel: React.FC = () => {
               </div>
             </div>
 
+            {/* Search deeds by code (id) or name */}
+            <div className="mb-3 relative max-w-sm">
+              <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <Input
+                placeholder="Search by deed code or name…"
+                value={deedSearchQuery}
+                onChange={(e) => setDeedSearchQuery(e.target.value)}
+                className="pl-8"
+              />
+            </div>
+
             {/* Bulk status update */}
             {selectedDeedIds.size > 0 && (
               <div className="flex flex-wrap items-center gap-2 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
@@ -3028,7 +3052,12 @@ const AdminPanel: React.FC = () => {
             {/* Gr8Day Deeds list */}
             <div className="border rounded-lg overflow-hidden">
               <div className="max-h-[500px] overflow-y-auto divide-y">
-                {deeds.map((deed) => (
+                {filteredDeeds.length === 0 && deedSearchQueryTrimmed && (
+                  <p className="px-3 py-6 text-sm text-slate-400 text-center">
+                    No deeds match "{deedSearchQuery.trim()}"
+                  </p>
+                )}
+                {filteredDeeds.map((deed) => (
                   <div
                     key={deed.id}
                     className={`px-3 py-2.5 text-sm ${

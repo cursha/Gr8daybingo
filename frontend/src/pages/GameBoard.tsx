@@ -1409,7 +1409,7 @@ const GameBoard: React.FC = () => {
             <button
               onClick={handleStartNewGame}
               disabled={actionLoading}
-              className="text-[11px] font-bold text-slate-900 underline underline-offset-2 hover:text-slate-700 flex-shrink-0 disabled:opacity-50"
+              className="text-[11px] font-bold text-slate-900 underline underline-offsetshrink-0 disabled:opacity-50 p-2 -m-2"
             >
               Start Over
             </button>

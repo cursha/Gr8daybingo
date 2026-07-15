@@ -57,7 +57,8 @@ const DareModal: React.FC<DareModalProps> = ({ result, onClose, onSubmitReferral
 
         <button
           onClick={onClose}
-          className="absolute top-3 right-3 z-20 text-white/40 hover:text-white/80 transition-colors"
+          aria-label="Close"
+          className="absolute top-1 right-1 z-20 w-11 h-11 flex items-center justify-center text-white/40 hover:text-white/80 transition-colors"
         >
           <X className="w-4 h-4" />
         </button>

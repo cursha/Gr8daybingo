@@ -298,14 +298,17 @@ const BingoCell: React.FC<BingoCellProps> = ({
       {isCentreSquare && (
         <div className="absolute inset-0 flex items-center justify-center">
           <img
-            src={dareUsed ? '/dare-centre.png' : '/dare-centre.png'}
+            src="/dare-centre.png"
             alt="I Dare Ya! Click & Commit"
-            className={`w-full h-full object-cover transition-all duration-300 ${dareUsed ? 'grayscale opacity-40' : 'hover:scale-105'}`}
+            className={`w-full h-full object-cover transition-all duration-300 ${dareUsed ? 'grayscale opacity-30' : 'hover:scale-105'}`}
           />
           {dareUsed && (
-            <span className="absolute bottom-1 text-[7px] sm:text-[9px] font-black text-white/70 uppercase tracking-widest bg-black/50 px-1 rounded">
-              Used
-            </span>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 bg-black/50">
+              <Lock className="w-4 h-4 sm:w-5 sm:h-5 text-white/90" />
+              <span className="text-[8px] sm:text-[10px] font-black text-white/90 uppercase tracking-widest">
+                Used
+              </span>
+            </div>
           )}
         </div>
       )}

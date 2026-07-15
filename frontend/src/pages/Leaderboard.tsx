@@ -381,7 +381,7 @@ const Leaderboard: React.FC = () => {
             <div className="overflow-hidden -mx-4 px-4">
               <div
                 className="flex gap-2.5 w-max"
-                style={{ animation: 'ticker-scroll 40s linear infinite' }}
+                style={{ animation: 'ticker-scroll 120s linear infinite' }}
                 onMouseEnter={(e) => (e.currentTarget.style.animationPlayState = 'paused')}
                 onMouseLeave={(e) => (e.currentTarget.style.animationPlayState = 'running')}
               >

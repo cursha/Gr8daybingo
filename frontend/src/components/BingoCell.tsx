@@ -219,38 +219,29 @@ const BingoCell: React.FC<BingoCellProps> = ({
               <p className="text-sm text-amber-300 font-bold">{progress} / {qty} done</p>
             )}
             <div className="flex flex-wrap gap-2 items-center justify-center mt-1 w-full">
-              <div
-                role="button"
-                tabIndex={0}
+              <button
+                type="button"
                 className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-emerald-500 active:bg-emerald-400 rounded-xl text-white font-bold text-base cursor-pointer select-none"
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); handleConfirm(); }}
-                onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleConfirm(); }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleConfirm(); }}
+                onClick={(e) => { e.stopPropagation(); handleConfirm(); }}
               >
                 ✓ Yes
-              </div>
+              </button>
               {canUndoStep && (
-                <div
-                  role="button"
-                  tabIndex={0}
+                <button
+                  type="button"
                   className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-3 bg-amber-500 active:bg-amber-400 rounded-xl text-white font-bold text-sm cursor-pointer select-none"
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); handleUndoStep(); }}
-                  onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleUndoStep(); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleUndoStep(); }}
+                  onClick={(e) => { e.stopPropagation(); handleUndoStep(); }}
                 >
                   −1 Undo
-                </div>
+                </button>
               )}
-              <div
-                role="button"
-                tabIndex={0}
+              <button
+                type="button"
                 className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-rose-600 active:bg-rose-500 rounded-xl text-white font-bold text-base cursor-pointer select-none"
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingConfirm(false); }}
-                onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingConfirm(false); }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setPendingConfirm(false); }}
+                onClick={(e) => { e.stopPropagation(); setPendingConfirm(false); }}
               >
                 ✕ No
-              </div>
+              </button>
             </div>
           </div>
         </div>
@@ -277,26 +268,20 @@ const BingoCell: React.FC<BingoCellProps> = ({
               This will use your wallet balance.
             </p>
             <div className="flex gap-2 items-center justify-center mt-1 w-full">
-              <div
-                role="button"
-                tabIndex={0}
+              <button
+                type="button"
                 className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-emerald-500 active:bg-emerald-400 rounded-xl text-white font-bold text-base cursor-pointer select-none"
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); handlePurchaseConfirm(); }}
-                onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handlePurchaseConfirm(); }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handlePurchaseConfirm(); }}
+                onClick={(e) => { e.stopPropagation(); handlePurchaseConfirm(); }}
               >
                 ✓ Buy
-              </div>
-              <div
-                role="button"
-                tabIndex={0}
+              </button>
+              <button
+                type="button"
                 className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-rose-600 active:bg-rose-500 rounded-xl text-white font-bold text-base cursor-pointer select-none"
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingPurchase(false); }}
-                onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingPurchase(false); }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setPendingPurchase(false); }}
+                onClick={(e) => { e.stopPropagation(); setPendingPurchase(false); }}
               >
                 ✕ No
-              </div>
+              </button>
             </div>
           </div>
         </div>

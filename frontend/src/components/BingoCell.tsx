@@ -203,7 +203,7 @@ const BingoCell: React.FC<BingoCellProps> = ({
           onTouchStart={(e) => e.stopPropagation()}
         >
           <div
-            className="bg-indigo-950 rounded-2xl shadow-2xl p-5 flex flex-col items-center gap-3 w-full max-w-[280px]"
+            className="bg-indigo-950 rounded-2xl shadow-2xl p-5 flex flex-col items-center gap-3 w-full max-w-[280px] max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
@@ -211,7 +211,10 @@ const BingoCell: React.FC<BingoCellProps> = ({
             <p className="text-base font-black text-white text-center leading-tight">
               {isCompleted ? 'Unmark this square?' : qty > 1 ? 'Did it?' : 'Mark this square?'}
             </p>
-            <p className="text-xs text-indigo-200 text-center leading-snug line-clamp-2">{cell.deed_text}</p>
+            <p className="text-sm text-indigo-100 text-center leading-snug font-semibold">{cell.deed_text}</p>
+            {cell.deed_text_long && cell.deed_text_long.trim() && (
+              <p className="text-xs text-indigo-300 text-center leading-relaxed">{cell.deed_text_long}</p>
+            )}
             {!isCompleted && qty > 1 && (
               <p className="text-sm text-amber-300 font-bold">{progress} / {qty} done</p>
             )}

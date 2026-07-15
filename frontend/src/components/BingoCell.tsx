@@ -366,18 +366,18 @@ const BingoCell: React.FC<BingoCellProps> = ({
           {/* Regular deed completed */}
           {!cell.is_purchasable && !cell.is_referral_free && (
             <>
-              <span className="text-[7px] sm:text-[9px] md:text-[10px] text-center leading-tight font-bold text-white/90 line-clamp-2 px-0.5 drop-shadow-sm">
+              <span className="text-[8px] sm:text-[10px] md:text-[11px] text-center leading-tight font-bold text-white/90 line-clamp-2 px-0.5 drop-shadow-sm">
                 {cell.deed_text}
               </span>
               {qty > 1 && (
                 qty <= 6 ? (
                   <div className="flex gap-0.5 mt-0.5">
                     {Array.from({ length: qty }).map((_, i) => (
-                      <span key={i} className="text-[8px] sm:text-[10px] text-white/80">●</span>
+                      <span key={i} className="text-[9px] sm:text-[11px] text-white/80">●</span>
                     ))}
                   </div>
                 ) : (
-                  <span className="text-[7px] sm:text-[9px] text-white/80 mt-0.5">Done {qty}×</span>
+                  <span className="text-[8px] sm:text-[10px] text-white/80 mt-0.5">Done {qty}×</span>
                 )
               )}
             </>
@@ -416,11 +416,11 @@ const BingoCell: React.FC<BingoCellProps> = ({
       {!isFree && !isCompleted && !needsPurchase && !needsReferral && (
         <div className="flex flex-col items-center justify-center px-1.5 sm:px-2">
           {cell.category && (
-            <span className="text-[6px] sm:text-[7px] font-black tracking-widest text-indigo-400 uppercase mb-0.5">
+            <span className="text-[7px] sm:text-[8px] font-black tracking-widest text-indigo-400 uppercase mb-0.5">
               {cell.category}
             </span>
           )}
-          <span className={`text-[8px] sm:text-[10px] md:text-[11px] text-center leading-snug font-semibold text-slate-700 ${qty > 1 ? 'line-clamp-3' : 'line-clamp-4'}`}>
+          <span className={`text-[9px] sm:text-[11px] md:text-[12px] text-center leading-snug font-semibold text-slate-700 ${qty > 1 ? 'line-clamp-3' : 'line-clamp-4'}`}>
             {cell.deed_text}
           </span>
           {qty > 1 && (
@@ -428,13 +428,13 @@ const BingoCell: React.FC<BingoCellProps> = ({
               {qty <= 6 && (
                 <div className="flex gap-0.5">
                   {Array.from({ length: qty }).map((_, i) => (
-                    <span key={i} className={`text-[8px] sm:text-[10px] ${i < progress ? 'text-emerald-500' : 'text-slate-300'}`}>
+                    <span key={i} className={`text-[9px] sm:text-[11px] ${i < progress ? 'text-emerald-500' : 'text-slate-300'}`}>
                       {i < progress ? '●' : '○'}
                     </span>
                   ))}
                 </div>
               )}
-              <span className="text-[8px] sm:text-[10px] font-bold text-indigo-600">
+              <span className="text-[9px] sm:text-[11px] font-bold text-indigo-600">
                 {progress} / {qty}
               </span>
             </div>

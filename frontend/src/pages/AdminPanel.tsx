@@ -2912,7 +2912,7 @@ const AdminPanel: React.FC = () => {
                   className="w-32 sm:w-40 border border-input rounded-md bg-background px-2 text-sm"
                 >
                   <option value="">Category</option>
-                  {deedCategories.map((c) => (
+                  {deedCategories.filter((c) => c.is_active).map((c) => (
                     <option key={c.name} value={c.name}>{c.name}</option>
                   ))}
                 </select>
@@ -3054,7 +3054,7 @@ const AdminPanel: React.FC = () => {
                             className="w-28 h-8 text-sm border border-input rounded-md bg-background px-2"
                           >
                             <option value="">Category</option>
-                            {deedCategories.map((c) => (
+                            {deedCategories.filter((c) => c.is_active).map((c) => (
                               <option key={c.name} value={c.name}>{c.name}</option>
                             ))}
                           </select>

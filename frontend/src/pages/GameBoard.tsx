@@ -274,7 +274,7 @@ const BlackoutTile: React.FC<{
 
 const GameBoard: React.FC = () => {
   const navigate = useNavigate();
-  const { user, loading: authLoading, logout } = useAuth();
+  const { user, loading: authLoading, logout, isAdmin } = useAuth();
   const [loading, setLoading] = useState(true);
   const [card, setCard] = useState<CardData | null>(null);
   const [showModePicker, setShowModePicker] = useState(false);
@@ -1097,17 +1097,14 @@ const GameBoard: React.FC = () => {
             )}
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="bg-amber-500/20 border border-amber-500/30 text-amber-300 px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1.5">
-              <Wallet className="w-3.5 h-3.5" />
-              {wallet?.balance?.toFixed(2) || '0.00'} Bucks
-            </div>
             <Button
               size="sm"
               onClick={() => navigate('/wallet')}
-              className="bg-amber-500 hover:bg-amber-600 text-black font-bold text-xs"
+              title="Wallet — tap to add funds"
+              className="bg-amber-500 hover:bg-amber-600 text-black font-bold text-xs rounded-full px-3 py-1.5"
             >
-              <DollarSign className="w-3.5 h-3.5 mr-0.5" />
-              Add Funds
+              <Wallet className="w-3.5 h-3.5 mr-1" />
+              {wallet?.balance?.toFixed(2) || '0.00'} Bucks
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1185,16 +1182,18 @@ const GameBoard: React.FC = () => {
               <Printer className="w-3.5 h-3.5 mr-0.5" />
               <span className="hidden sm:inline">Print Card</span>
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => navigate('/admin')}
-              className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
-              title="Admin Panel"
-            >
-              <Shield className="w-3.5 h-3.5 mr-0.5" />
-              <span className="hidden sm:inline">Admin</span>
-            </Button>
+            {isAdmin && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => navigate('/admin')}
+                className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
+                title="Admin Panel"
+              >
+                <Shield className="w-3.5 h-3.5 mr-0.5" />
+                <span className="hidden sm:inline">Admin</span>
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"

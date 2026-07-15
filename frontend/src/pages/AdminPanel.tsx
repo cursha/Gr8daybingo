@@ -3200,6 +3200,9 @@ const AdminPanel: React.FC = () => {
                             </p>
                           )}
                           <div className="flex flex-wrap items-center gap-1 mt-1">
+                            <span className="text-[10px] font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">
+                              #{deed.id}
+                            </span>
                             <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
                               deed.status === 'Approved' ? 'bg-emerald-50 text-emerald-700'
                               : deed.status === 'Review' ? 'bg-amber-50 text-amber-700'

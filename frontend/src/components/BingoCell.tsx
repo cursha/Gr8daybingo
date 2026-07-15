@@ -362,9 +362,12 @@ const BingoCell: React.FC<BingoCellProps> = ({
               </span>
               {qty > 1 && (
                 qty <= 6 ? (
-                  <div className="flex gap-0.5 mt-0.5">
+                  <div className="flex items-center gap-0.5 mt-0.5 text-[9px] sm:text-[11px] font-bold text-white/90">
                     {Array.from({ length: qty }).map((_, i) => (
-                      <span key={i} className="text-[9px] sm:text-[11px] text-white/80">●</span>
+                      <React.Fragment key={i}>
+                        {i > 0 && <span className="text-white/50">·</span>}
+                        <span>{i + 1}</span>
+                      </React.Fragment>
                     ))}
                   </div>
                 ) : (
@@ -415,20 +418,20 @@ const BingoCell: React.FC<BingoCellProps> = ({
             {cell.deed_text}
           </span>
           {qty > 1 && (
-            <div className="flex flex-col items-center gap-0.5 mt-0.5">
-              {qty <= 6 && (
-                <div className="flex gap-0.5">
-                  {Array.from({ length: qty }).map((_, i) => (
-                    <span key={i} className={`text-[9px] sm:text-[11px] ${i < progress ? 'text-emerald-500' : 'text-slate-300'}`}>
-                      {i < progress ? '●' : '○'}
-                    </span>
-                  ))}
-                </div>
-              )}
-              <span className="text-[9px] sm:text-[11px] font-bold text-indigo-600">
+            qty <= 6 ? (
+              <div className="flex items-center gap-0.5 mt-0.5 text-[9px] sm:text-[11px] font-bold">
+                {Array.from({ length: qty }).map((_, i) => (
+                  <React.Fragment key={i}>
+                    {i > 0 && <span className="text-slate-300">·</span>}
+                    <span className={i < progress ? 'text-emerald-500' : 'text-slate-300'}>{i + 1}</span>
+                  </React.Fragment>
+                ))}
+              </div>
+            ) : (
+              <span className="text-[9px] sm:text-[11px] font-bold text-indigo-600 mt-0.5">
                 {progress} / {qty}
               </span>
-            </div>
+            )
           )}
         </div>
       )}

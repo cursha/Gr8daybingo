@@ -16,15 +16,22 @@ const CelebrationOverlay: React.FC<CelebrationOverlayProps> = ({ show, onClose, 
 
   useEffect(() => {
     if (show) {
-      const colors = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#8B5CF6', '#06B6D4'];
-      const particles = Array.from({ length: 80 }, (_, i) => ({
-        id: i,
-        x: Math.random() * 100,
-        delay: Math.random() * 2,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        size: Math.random() * 8 + 4,
-      }));
-      setConfetti(particles);
+      // Respect the OS-level motion-sensitivity setting — 80 falling,
+      // rotating particles is exactly the kind of animation that setting
+      // exists to suppress, and it also skips the perf cost on low-end phones
+      // for users who've opted into it.
+      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (!prefersReducedMotion) {
+        const colors = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#8B5CF6', '#06B6D4'];
+        const particles = Array.from({ length: 80 }, (_, i) => ({
+          id: i,
+          x: Math.random() * 100,
+          delay: Math.random() * 2,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          size: Math.random() * 8 + 4,
+        }));
+        setConfetti(particles);
+      }
 
       (async () => {
         try {

@@ -1130,7 +1130,7 @@ export interface TradeOffer {
   to_deed_text: string;
   from_deed_id: number | null;
   to_deed_id: number | null;
-  status: 'pending' | 'accepted' | 'rejected' | 'cancelled' | 'expired';
+  status: 'pending' | 'accepted' | 'rejected' | 'cancelled' | 'expired' | 'voided';
   created_at: string;
   from_user?: { first_name: string | null; last_name: string | null; player_number: number | null };
   to_user?: { first_name: string | null; last_name: string | null; player_number: number | null };
@@ -1142,6 +1142,27 @@ export async function getMyTrades(): Promise<{ trades: TradeOffer[] }> {
 
 export async function createTrade(payload: { to_user_id: string; from_cell_index: number; to_cell_index: number }): Promise<{ success: boolean; trade: TradeOffer }> {
   return apiClient.post<{ success: boolean; trade: TradeOffer }>('/game/my-team/trades', payload);
+}
+
+export interface AdminTradeRow extends TradeOffer {
+  voided_by: string | null;
+  void_reason: string | null;
+  voided_at: string | null;
+  voided_by_user?: { first_name: string | null; last_name: string | null; player_number: number | null } | null;
+}
+
+export async function adminGetTrades(opts?: { status?: string; weekYear?: string; limit?: number }): Promise<AdminTradeRow[]> {
+  const params = new URLSearchParams();
+  if (opts?.status) params.set('status', opts.status);
+  if (opts?.weekYear) params.set('week_year', opts.weekYear);
+  if (opts?.limit) params.set('limit', String(opts.limit));
+  const qs = params.toString();
+  const data = await apiClient.get<{ trades: AdminTradeRow[] }>(`/game/admin/trades${qs ? `?${qs}` : ''}`);
+  return data.trades;
+}
+
+export async function adminVoidTrade(tradeId: number, reason: string): Promise<{ success: boolean }> {
+  return apiClient.post<{ success: boolean }>(`/game/admin/trades/${tradeId}/void`, { reason });
 }
 
 export async function acceptTrade(id: number): Promise<{ success: boolean }> {

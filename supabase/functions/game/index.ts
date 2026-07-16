@@ -5105,6 +5105,128 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: true })
     }
 
+    // ── GET /admin/trades ───────────────────────────────────────────────────
+    if (method === 'GET' && path === '/admin/trades') {
+      requireAdmin(authUser)
+      const limitParam = parseInt(url.searchParams.get('limit') ?? '50')
+      const limit = Math.min(Math.max(1, limitParam), 200)
+      const statusFilter = url.searchParams.get('status')
+      const weekYearFilter = url.searchParams.get('week_year')
+
+      let query = supabase
+        .from('square_trades')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(limit)
+      if (statusFilter) query = query.eq('status', statusFilter)
+      if (weekYearFilter) query = query.eq('week_year', weekYearFilter)
+      const { data: trades, error: tradesErr } = await query
+      if (tradesErr) throw tradesErr
+
+      const userIds = new Set<string>()
+      for (const t of trades ?? []) {
+        userIds.add(t.from_user_id)
+        userIds.add(t.to_user_id)
+        if (t.voided_by) userIds.add(t.voided_by)
+      }
+      const { data: userRows } = await supabase
+        .from('users')
+        .select('id, first_name, last_name, player_number')
+        .in('id', [...userIds])
+      const usersById: Record<string, { first_name: string | null; last_name: string | null; player_number: number | null }> = {}
+      for (const u of userRows ?? []) usersById[u.id] = { first_name: u.first_name, last_name: u.last_name, player_number: u.player_number }
+
+      const enriched = (trades ?? []).map((t) => ({
+        ...t,
+        from_user: usersById[t.from_user_id] ?? null,
+        to_user: usersById[t.to_user_id] ?? null,
+        voided_by_user: t.voided_by ? (usersById[t.voided_by] ?? null) : null,
+      }))
+
+      return jsonResponse({ trades: enriched })
+    }
+
+    // ── POST /admin/trades/:id/void ─────────────────────────────────────────
+    // Same audit spirit as admin/void-cell: an admin can reverse a trade that
+    // shouldn't have happened, with who/why recorded. A still-pending offer
+    // just needs its status flipped. An already-accepted trade is reversed by
+    // re-running the exact same pairwise field swap the accept handler did —
+    // it's its own inverse, since the swap only ever exchanges deed_text/
+    // deed_id/deed_text_long/quantity between the two indices and leaves
+    // everything else (including which card/index) untouched.
+    const tradeVoidMatch = path.match(/^\/admin\/trades\/(\d+)\/void$/)
+    if (method === 'POST' && tradeVoidMatch) {
+      requireAdmin(authUser)
+      const tradeId = parseInt(tradeVoidMatch[1])
+      const body = await req.json().catch(() => ({}))
+      const voidReason = body.reason ? String(body.reason).trim().slice(0, 500) : null
+
+      const { data: trade } = await supabase
+        .from('square_trades').select('*').eq('id', tradeId).maybeSingle()
+      if (!trade) return errorResponse('Trade not found', 404)
+      if (!['pending', 'accepted'].includes(trade.status)) {
+        return errorResponse(`Cannot void a trade that is already ${trade.status}`, 400)
+      }
+
+      if (trade.status === 'accepted') {
+        const { data: fromCard } = await supabase
+          .from('player_cards').select('*').eq('id', trade.from_card_id).maybeSingle()
+        const { data: toCard } = await supabase
+          .from('player_cards').select('*').eq('id', trade.to_card_id).maybeSingle()
+        if (!fromCard || !toCard) return errorResponse('One or both cards no longer exist', 404)
+
+        const fromCompleted = parseJsonArr(fromCard.completed_cells)
+        const toCompleted = parseJsonArr(toCard.completed_cells)
+        if (fromCompleted.includes(trade.from_cell_index) || toCompleted.includes(trade.to_cell_index)) {
+          return errorResponse('One of the traded squares has since been completed — void the completion first (admin/void-cell), then void this trade', 400)
+        }
+
+        const fromCells: Cell[] = JSON.parse(fromCard.card_data)
+        const toCells: Cell[] = JSON.parse(toCard.card_data)
+        const fromCell = fromCells[trade.from_cell_index]
+        const toCell = toCells[trade.to_cell_index]
+
+        // Sanity check: these cells should still hold exactly what this trade
+        // put there. If not, something else touched them since — bail rather
+        // than guess at a reversal.
+        if (fromCell?.deed_text !== trade.to_deed_text || toCell?.deed_text !== trade.from_deed_text) {
+          return errorResponse('Card data has changed since this trade — cannot safely auto-reverse', 409)
+        }
+
+        fromCells[trade.from_cell_index] = {
+          ...fromCell,
+          deed_text: toCell.deed_text,
+          deed_id: toCell.deed_id,
+          deed_text_long: toCell.deed_text_long ?? null,
+          quantity: toCell.quantity ?? 1,
+        }
+        toCells[trade.to_cell_index] = {
+          ...toCell,
+          deed_text: fromCell.deed_text,
+          deed_id: fromCell.deed_id,
+          deed_text_long: fromCell.deed_text_long ?? null,
+          quantity: fromCell.quantity ?? 1,
+        }
+
+        await supabase.from('player_cards')
+          .update({ card_data: JSON.stringify(fromCells), updated_at: new Date().toISOString() })
+          .eq('id', fromCard.id)
+        await supabase.from('player_cards')
+          .update({ card_data: JSON.stringify(toCells), updated_at: new Date().toISOString() })
+          .eq('id', toCard.id)
+      }
+
+      await supabase.from('square_trades').update({
+        status: 'voided',
+        voided_by: authUser!.sub,
+        void_reason: voidReason,
+        voided_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq('id', tradeId)
+
+      return jsonResponse({ success: true })
+    }
+
     // ── GET /my-profile ───────────────────────────────────────────────────────
     if (method === 'GET' && path === '/my-profile') {
       const user = requireAuth(authUser)

@@ -1611,7 +1611,7 @@ const GameBoard: React.FC = () => {
             Invite a Friend
           </h3>
           <p className="text-xs text-indigo-300/60 mb-3">
-            Invite a friend by email. When they create an account, your "Refer a Player" square unlocks automatically.
+            Invite a friend by email. When they sign up and verify their email, you both get a Gr8Day Bucks bonus in your wallet.
           </p>
           <div className="flex gap-2">
             <Input

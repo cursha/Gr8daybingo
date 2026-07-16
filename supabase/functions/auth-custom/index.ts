@@ -346,6 +346,28 @@ Deno.serve(async (req: Request) => {
               })
             }
           }
+
+          // The referred player gets the same bonus too — once, regardless
+          // of how many people happened to refer this email address.
+          if (referralBonus > 0) {
+            let { data: newUserWallet } = await supabase
+              .from('player_wallets').select('*').eq('user_id', user.id).maybeSingle()
+            if (!newUserWallet) {
+              const { data: newWallet } = await supabase
+                .from('player_wallets').insert({ user_id: user.id, balance: 0 }).select().single()
+              newUserWallet = newWallet
+            }
+            const newBalance = parseFloat(newUserWallet.balance ?? 0) + referralBonus
+            await supabase.from('player_wallets')
+              .update({ balance: newBalance, updated_at: new Date().toISOString() })
+              .eq('user_id', user.id)
+            await supabase.from('wallet_transactions').insert({
+              user_id: user.id,
+              amount: referralBonus,
+              transaction_type: 'referral_bonus',
+              item_description: `Referral bonus — you joined via a friend's invite (+${referralBonus.toFixed(2)} Gr8Day Bucks)`,
+            })
+          }
         }
       } catch (refErr) {
         console.error('referral validation error:', refErr)

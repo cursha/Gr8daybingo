@@ -59,6 +59,8 @@ verify_jwt = false
 verify_jwt = false
 [functions.registration]
 verify_jwt = false
+[functions.send-founder-notes]
+verify_jwt = false
 [functions.users]
 verify_jwt = false
 [functions.weekly-member-update]

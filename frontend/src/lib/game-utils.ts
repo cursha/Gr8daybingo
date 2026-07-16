@@ -1243,6 +1243,24 @@ export async function adminExportDeedLogCsv(filters: DeedLogFilters): Promise<st
   return apiClient.get(`/game/admin/deed-log/export?${deedLogQueryString(filters)}`);
 }
 
+// ── Admin: Founder Notes log ─────────────────────────────────────────────
+
+export interface FounderNoteRow {
+  id: number;
+  player_name: string;
+  deed_text_snapshot: string;
+  generated_message: string | null;
+  scheduled_send_at: string;
+  sent_at: string | null;
+  status: 'pending' | 'sent' | 'failed';
+}
+
+export async function adminGetFounderNotes(
+  page: number,
+): Promise<{ rows: FounderNoteRow[]; total: number; page: number; page_size: number }> {
+  return apiClient.get(`/game/admin/founder-notes?page=${page}`);
+}
+
 export async function adminReverseDeed(completedDeedId: number, reason?: string): Promise<{ success: boolean; deed_entry_reversed: boolean; bingo_bonus_reversed: boolean }> {
   return apiClient.post('/game/admin/reverse-deed', { completed_deed_id: completedDeedId, reason });
 }

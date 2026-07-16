@@ -594,7 +594,7 @@ async function recordCompletedDeed(
 ): Promise<number | null> {
   try {
     const { data: u } = await supabase
-      .from('users').select('city, province_state, country_id').eq('id', opts.playerId).maybeSingle()
+      .from('users').select('first_name, city, province_state, country_id').eq('id', opts.playerId).maybeSingle()
     let countryName: string | null = null
     if (u?.country_id) {
       const { data: c } = await supabase.from('countries').select('name').eq('id', u.country_id).maybeSingle()
@@ -623,11 +623,80 @@ async function recordCompletedDeed(
       country_id: u?.country_id ?? null,
       country_name: countryName,
     }).select('id').single()
-    return inserted?.id ?? null
+    const completedDeedId = inserted?.id ?? null
+
+    // Founder Note queueing is best-effort and must never affect the return
+    // value above — completed_deeds already has its row; a failure here
+    // shouldn't make the caller think the whole completion failed. Own
+    // try/catch, separate from the one around the insert.
+    if (completedDeedId != null) {
+      try {
+        await maybeQueueFounderNote(supabase, {
+          completedDeedId,
+          playerId: opts.playerId,
+          deedId: opts.deedId ?? null,
+          quickDeedId: opts.quickDeedId ?? null,
+        })
+      } catch (err) {
+        console.error('[founder-note] queueing failed:', err)
+      }
+    }
+
+    return completedDeedId
   } catch (_e) {
     // swallow — impact recording is never allowed to break gameplay
     return null
   }
+}
+
+/** Rolls founder_note_pct and, if selected and the player hasn't already
+ *  got one queued/sent today, inserts a founder_note_queue row with a
+ *  random 12-24h send delay. Cheap path first (config read, dice roll)
+ *  before the more expensive daily-cap check + deed-text lookup, since the
+ *  roll fails ~95% of the time at the default 5%. */
+async function maybeQueueFounderNote(
+  supabase: ReturnType<typeof getSupabase>,
+  opts: { completedDeedId: number; playerId: string; deedId: number | null; quickDeedId: number | null },
+): Promise<void> {
+  const { data: cfg } = await supabase
+    .from('game_configs').select('config_value').eq('config_key', 'founder_note_pct').maybeSingle()
+  const pct = Math.max(0, Math.min(100, parseInt(cfg?.config_value ?? '5', 10) || 0))
+  if (pct <= 0 || Math.random() * 100 >= pct) return
+
+  // 1/day cap is by calendar date (UTC), not "within the last 24h" — a note
+  // already scheduled OR sent for today's date blocks another one today,
+  // regardless of when it was originally queued.
+  const todayStart = new Date()
+  todayStart.setUTCHours(0, 0, 0, 0)
+  const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000)
+  const todayStartIso = todayStart.toISOString()
+  const tomorrowStartIso = tomorrowStart.toISOString()
+  const { data: existing } = await supabase
+    .from('founder_note_queue')
+    .select('id')
+    .eq('user_id', opts.playerId)
+    .or(
+      `and(scheduled_send_at.gte.${todayStartIso},scheduled_send_at.lt.${tomorrowStartIso}),` +
+      `and(sent_at.gte.${todayStartIso},sent_at.lt.${tomorrowStartIso})`,
+    )
+    .limit(1)
+  if (existing && existing.length > 0) return // 1/day cap already hit
+
+  const deedText = opts.deedId != null
+    ? (await supabase.from('good_deeds').select('deed_text').eq('id', opts.deedId).maybeSingle()).data?.deed_text
+    : opts.quickDeedId != null
+    ? (await supabase.from('quick_deeds').select('label').eq('id', opts.quickDeedId).maybeSingle()).data?.label
+    : null
+  if (!deedText) return // nothing sensible to write a note about
+
+  const delayMs = (12 + Math.random() * 12) * 60 * 60 * 1000 // random(12h, 24h)
+  await supabase.from('founder_note_queue').insert({
+    completed_deed_id: opts.completedDeedId,
+    user_id: opts.playerId,
+    deed_text_snapshot: deedText,
+    scheduled_send_at: new Date(Date.now() + delayMs).toISOString(),
+    status: 'pending',
+  })
 }
 
 // ── Admin Deed Log — GET /admin/deed-log and /admin/deed-log/export ────────
@@ -4548,6 +4617,39 @@ Deno.serve(async (req: Request) => {
           'Content-Disposition': `attachment; filename="deed-log-${filters.startIso.slice(0, 10)}-to-${filters.endIso.slice(0, 10)}.csv"`,
         },
       })
+    }
+
+    // ── GET /admin/founder-notes ──────────────────────────────────────────────
+    // Simple log view of founder_note_queue (see maybeQueueFounderNote above
+    // and the hourly send-founder-notes function) — status, scheduled/sent
+    // times, and the generated text, newest-scheduled first. Paginated
+    // 50/page, same shape as the Deed Log tab.
+    if (method === 'GET' && path === '/admin/founder-notes') {
+      requireAdmin(authUser)
+      const pageParam = parseInt(url.searchParams.get('page') ?? '0')
+      const page = Number.isFinite(pageParam) && pageParam >= 0 ? pageParam : 0
+      const pageSize = 50
+
+      const { data, count, error } = await supabase
+        .from('founder_note_queue')
+        .select('id, deed_text_snapshot, generated_message, scheduled_send_at, sent_at, status, users:user_id(first_name, last_name, username)', { count: 'exact' })
+        .order('scheduled_send_at', { ascending: false })
+        .range(page * pageSize, page * pageSize + pageSize - 1)
+      if (error) throw error
+
+      const rows = (data ?? []).map((r: any) => {
+        const u = r.users
+        return {
+          id: r.id,
+          player_name: u ? ([u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Unknown') : 'Unknown',
+          deed_text_snapshot: r.deed_text_snapshot,
+          generated_message: r.generated_message,
+          scheduled_send_at: r.scheduled_send_at,
+          sent_at: r.sent_at,
+          status: r.status,
+        }
+      })
+      return jsonResponse({ rows, total: count ?? rows.length, page, page_size: pageSize })
     }
 
     // ── POST /admin/reverse-deed ──────────────────────────────────────────────

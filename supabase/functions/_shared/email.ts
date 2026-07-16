@@ -148,6 +148,28 @@ export function newGameLaunchEmail(
   }
 }
 
+/** A personal note "from Curt", triggered by a deed completion — see
+ *  maybeQueueFounderNote/send-founder-notes in game/index.ts. Deliberately
+ *  minimal (no CTA button, no marketing framing) since it's meant to read
+ *  as a quick personal message, not another game-launch email. Greeting and
+ *  sign-off are fixed here rather than left to the AI-generated body, so
+ *  the note always opens and closes correctly regardless of what the model
+ *  produces for the middle. */
+export function founderNoteEmail(firstName: string | null, message: string): { subject: string; html: string } {
+  const hi = firstName && firstName.trim() ? firstName.trim() : 'there'
+  return {
+    subject: 'A quick note from Curt',
+    html: layout(`
+      <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">Hey ${hi},</h2>
+      <p>${message.trim()}</p>
+      <p style="margin-top:20px">
+        <strong>Curt</strong><br/>
+        <span style="color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:0.05em">Founder, Havagr8day</span>
+      </p>
+    `),
+  }
+}
+
 export function verifyEmailEmail(verifyUrl: string): { subject: string; html: string } {
   return {
     subject: 'Verify your Havagr8day Bingo email address',

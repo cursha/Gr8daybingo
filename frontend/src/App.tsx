@@ -30,6 +30,7 @@ import TradeSquares from './pages/TradeSquares';
 import TeamPage from './pages/TeamPage';
 import Profile from './pages/Profile';
 import PlayerProfile from './pages/PlayerProfile';
+import HowToPlay from './pages/HowToPlay';
 import Welcome from './pages/Welcome';
 import Demo from './pages/Demo';
 import NotFound from './pages/NotFound';
@@ -83,6 +84,7 @@ const AppRoutes = () => {
       <Route path="/prize-history" element={<PrizeHistory />} />
       <Route path="/winners" element={<PastWinners />} />
       <Route path="/trade" element={<TradeSquares />} />
+      <Route path="/how-to-play" element={<HowToPlay />} />
       <Route path="/team" element={<TeamPage />} />
       <Route path="/profile" element={<Profile />} />
       <Route path="/players/:username" element={<PlayerProfile />} />

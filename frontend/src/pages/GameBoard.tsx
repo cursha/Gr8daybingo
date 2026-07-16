@@ -65,7 +65,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Medal, LogOut, Printer, ChevronDown, Shuffle, Share2, X, UserCircle, HelpCircle } from 'lucide-react';
+import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Medal, LogOut, Printer, ChevronDown, Shuffle, Share2, X, UserCircle } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { downloadBingoCardPdf, downloadTeamCardsPdf, TeamMemberCard } from '@/lib/bingo-pdf';
 import { shareOrDownloadImpactCard } from '@/lib/impact-card';
@@ -1073,6 +1073,13 @@ const GameBoard: React.FC = () => {
             <Button variant="ghost" size="icon" onClick={() => navigate('/')} className="text-white/70 hover:text-white hover:bg-white/10">
               <ArrowLeft className="w-5 h-5" />
             </Button>
+            <button
+              onClick={() => navigate('/how-to-play')}
+              title="How to Play"
+              className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-900 font-black text-sm shadow-[0_0_0_3px_rgba(251,191,36,0.25)] transition-all hover:scale-105 flex-shrink-0"
+            >
+              ?
+            </button>
             <div className="flex items-center gap-2">
               <Heart className="w-5 h-5 text-pink-400 fill-pink-400" />
               <span className="text-base font-bold text-white hidden sm:inline whitespace-nowrap">Gr8Day Bingo</span>
@@ -1120,9 +1127,6 @@ const GameBoard: React.FC = () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="bg-slate-900 border-white/10 text-white">
-                <DropdownMenuItem onClick={() => navigate('/how-to-play')} className="cursor-pointer focus:bg-white/10 focus:text-white">
-                  <HelpCircle className="w-3.5 h-3.5 mr-2" /> How to Play
-                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate('/leaderboard')} className="cursor-pointer focus:bg-white/10 focus:text-white">
                   <Medal className="w-3.5 h-3.5 mr-2" /> Leaderboard
                 </DropdownMenuItem>

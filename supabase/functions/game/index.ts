@@ -3469,7 +3469,7 @@ Deno.serve(async (req: Request) => {
       requireAdmin(authUser)
       const { data } = await supabase
         .from('users')
-        .select('id, email, username, name, first_name, last_name, role, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified, is_trusted, is_test')
+        .select('id, email, username, name, first_name, last_name, role, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified, is_trusted, is_test, created_at')
         .order('player_number', { ascending: true })
       return jsonResponse({
         members: (data ?? []).map((u) => ({
@@ -3491,6 +3491,7 @@ Deno.serve(async (req: Request) => {
           email_verified: !!u.email_verified,
           is_trusted: !!u.is_trusted,
           is_test: !!u.is_test,
+          created_at: u.created_at ?? null,
         })),
       })
     }

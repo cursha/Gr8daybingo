@@ -1025,6 +1025,7 @@ export interface MemberItem {
   email_verified: boolean;
   is_trusted: boolean;
   is_test: boolean;
+  created_at: string | null;
 }
 
 export async function getAdminMembers(): Promise<{ members: MemberItem[] }> {

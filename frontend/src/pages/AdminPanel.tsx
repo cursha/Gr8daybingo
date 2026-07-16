@@ -130,6 +130,13 @@ const currentWeekStartDateStr = (): string => {
 };
 const todayDateStr = (): string => new Date().toISOString().slice(0, 10);
 
+const NEW_MEMBER_WINDOW_HOURS = 35;
+const isNewMember = (createdAt: string | null): boolean => {
+  if (!createdAt) return false;
+  const ageMs = Date.now() - new Date(createdAt).getTime();
+  return ageMs >= 0 && ageMs < NEW_MEMBER_WINDOW_HOURS * 60 * 60 * 1000;
+};
+
 const AdminPanel: React.FC = () => {
   const navigate = useNavigate();
   const [authenticated, setAuthenticated] = useState(
@@ -1965,6 +1972,9 @@ const AdminPanel: React.FC = () => {
                               {m.player_number ? `GR8-${m.player_number}` : '—'}
                             </td>
                             <td className="px-3 py-2">
+                              {isNewMember(m.created_at) && (
+                                <span className="text-rose-500 font-bold mr-1" title={`Joined within the last ${NEW_MEMBER_WINDOW_HOURS} hours`}>*</span>
+                              )}
                               <span className="font-medium text-slate-800">{m.name || '—'}</span>
                               {m.role === 'admin' && (
                                 <span className="ml-1.5 text-[10px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded">admin</span>

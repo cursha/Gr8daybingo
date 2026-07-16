@@ -34,6 +34,14 @@ function formatExpiry(createdAt: string): string {
   return `${hours}h ${mins}m remaining`;
 }
 
+// A still-hidden Blackout square's deed_text is nulled out even for its own
+// owner (that's the fog-of-war) — trading it away is a blind pick.
+function deedLabel(cell: { is_free_space: boolean; is_hidden?: boolean; deed_text: string }): string {
+  if (cell.is_free_space) return 'Free Space';
+  if (cell.is_hidden) return 'Mystery square (not yet revealed)';
+  return cell.deed_text;
+}
+
 // A simplified mini-card view showing all 25 cells, with selectable/greyed-out logic
 interface MiniCardProps {
   card: CardData;
@@ -72,7 +80,48 @@ const MiniCard: React.FC<MiniCardProps> = ({ card, selectableCellIndexes, select
                     : 'bg-white/5 text-white/30 cursor-not-allowed',
             ].join(' ')}
           >
-            {cell.is_free_space ? '★' : cell.deed_text}
+            {cell.is_free_space ? '★' : cell.is_hidden ? '?' : cell.deed_text}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+// Flat list of a teammate's tradeable squares — deliberately no grid, no row/
+// column shown, so proposing a trade doesn't hand back a map of their card.
+interface TeammateCellListProps {
+  card: CardData;
+  selectableCellIndexes: Set<number>;
+  selectedIndex: number | null;
+  onSelect: (index: number) => void;
+}
+
+const TeammateCellList: React.FC<TeammateCellListProps> = ({ card, selectableCellIndexes, selectedIndex, onSelect }) => {
+  const options = card.cells
+    .filter((c) => selectableCellIndexes.has(c.index))
+    .sort((a, b) => a.deed_text.localeCompare(b.deed_text));
+
+  if (options.length === 0) {
+    return <p className="text-white/40 text-sm text-center py-6">No tradeable squares on their card right now.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {options.map((cell) => {
+        const isSelected = selectedIndex === cell.index;
+        return (
+          <button
+            key={cell.index}
+            onClick={() => onSelect(cell.index)}
+            className={[
+              'w-full text-left rounded-xl px-4 py-3 border transition-all text-sm',
+              isSelected
+                ? 'bg-indigo-500/20 border-indigo-500/50 text-white'
+                : 'bg-white/5 border-white/10 text-white/80 hover:bg-white/10',
+            ].join(' ')}
+          >
+            {cell.deed_text}
           </button>
         );
       })}
@@ -236,7 +285,9 @@ const TradeSquares: React.FC = () => {
     (t) => t.status !== 'pending'
   );
 
-  // Selectable cells for my card
+  // Selectable cells for my card. Blackout: hidden squares stay selectable
+  // (blind — I don't know what's under them either), only a blocked
+  // (passed-on) square is excluded, same as completed/purchased/referral.
   const mySelectableCells = myCard
     ? new Set(
         myCard.cells
@@ -245,6 +296,7 @@ const TradeSquares: React.FC = () => {
             if (myCard.purchased_cells.includes(c.index)) return false;
             if (myCard.referral_cells.includes(c.index)) return false;
             if (myCard.completed_cells.includes(c.index)) return false;
+            if (myCard.game_mode === 'blackout' && myCard.blackout?.blocked_cells.includes(c.index)) return false;
             return true;
           })
           .map((c) => c.index)
@@ -262,6 +314,7 @@ const TradeSquares: React.FC = () => {
             if (theirCard.purchased_cells.includes(c.index)) return false;
             if (theirCard.referral_cells.includes(c.index)) return false;
             if (theirCard.completed_cells.includes(c.index)) return false;
+            if (theirCard.game_mode === 'blackout' && theirCard.blackout?.blocked_cells.includes(c.index)) return false;
             return true;
           })
           .map((c) => c.index)
@@ -321,11 +374,11 @@ const TradeSquares: React.FC = () => {
   // ── Render helpers ────────────────────────────────────────────────────────
 
   const myCellText = myCard && selectedMyCell !== null
-    ? myCard.cells.find((c) => c.index === selectedMyCell)?.deed_text ?? ''
+    ? deedLabel(myCard.cells.find((c) => c.index === selectedMyCell)!)
     : '';
 
   const theirCellText = theirCard && selectedTheirCell !== null
-    ? theirCard.cells.find((c) => c.index === selectedTheirCell)?.deed_text ?? ''
+    ? deedLabel(theirCard.cells.find((c) => c.index === selectedTheirCell)!)
     : '';
 
   const teammates = teamData?.members.filter((m) => m.user_id !== currentUserId) ?? [];
@@ -502,7 +555,10 @@ const TradeSquares: React.FC = () => {
                   <div className="bg-indigo-500/20 text-indigo-300 text-xs font-bold px-2.5 py-1 rounded-full">Step 1 of 4</div>
                   <h2 className="text-white font-semibold">Choose your square to trade away</h2>
                 </div>
-                <p className="text-white/40 text-xs mb-4">Tap an uncompleted, non-purchased, non-referral square.</p>
+                <p className="text-white/40 text-xs mb-4">
+                  Tap an uncompleted, non-purchased, non-referral square.
+                  {myCard.game_mode === 'blackout' && ' A "?" is a square you haven\'t revealed yet — trading it away is a blind pick.'}
+                </p>
                 <MiniCard
                   card={myCard}
                   selectableCellIndexes={mySelectableCells}
@@ -595,8 +651,8 @@ const TradeSquares: React.FC = () => {
                     Choose a square from {displayName(teammateData ? { first_name: teammateData.first_name, last_name: teammateData.last_name, player_number: teammateData.player_number } : undefined)}'s card
                   </h2>
                 </div>
-                <p className="text-white/40 text-xs mb-4">Greyed-out squares are completed, purchased, referral, or free — and can't be traded.</p>
-                <MiniCard
+                <p className="text-white/40 text-xs mb-4">Completed, purchased, referral, free, and blocked squares aren't listed — they can't be traded.</p>
+                <TeammateCellList
                   card={theirCard}
                   selectableCellIndexes={theirSelectableCells}
                   selectedIndex={selectedTheirCell}

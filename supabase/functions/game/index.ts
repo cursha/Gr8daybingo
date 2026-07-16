@@ -4301,23 +4301,41 @@ Deno.serve(async (req: Request) => {
       const memberUserIds = (team.team_members ?? []).map((m: any) => m.user_id)
       const { data: cards } = await supabase
         .from('player_cards')
-        .select('id, user_id, week_year, card_data, win_condition, completed_cells, purchased_cells, referral_cells, is_bingo')
+        .select('id, user_id, week_year, card_data, win_condition, completed_cells, purchased_cells, referral_cells, is_bingo, game_mode')
         .eq('week_year', weekYear)
         .in('user_id', memberUserIds)
+
+      // Blocked (passed-on) Blackout squares stay off-limits for trading same
+      // as completed/purchased/referral squares — fetch in one batch.
+      const blackoutCardIds = (cards ?? []).filter((c) => c.game_mode === 'blackout').map((c) => c.id)
+      const blockedByCard: Record<number, number[]> = {}
+      if (blackoutCardIds.length > 0) {
+        const { data: states } = await supabase
+          .from('blackout_state').select('card_id, blocked_cells').in('card_id', blackoutCardIds)
+        for (const s of (states ?? [])) blockedByCard[s.card_id] = s.blocked_cells ?? []
+      }
 
       const cardsByUser: Record<string, any> = {}
       for (const c of (cards ?? [])) {
         const completed = parseJsonArr(c.completed_cells)
         const referral = parseJsonArr(c.referral_cells)
+        const gameMode = c.game_mode ?? 'classic'
         cardsByUser[c.user_id] = {
           card_id: c.id,
           week_year: c.week_year,
+          // Note: hidden Blackout squares are NOT redacted here — teammates
+          // (and the trade picker) can already see their real deed content.
+          // Position stays secret to the owner via hidden_cells; identity doesn't.
           cells: sanitizeCells(JSON.parse(c.card_data), completed),
           win_condition: c.win_condition,
           completed_cells: completed,
           purchased_cells: parseJsonArr(c.purchased_cells),
           referral_cells: referral,
           is_bingo: c.is_bingo,
+          game_mode: gameMode,
+          blackout: gameMode === 'blackout'
+            ? { hidden_cells: [], blocked_cells: blockedByCard[c.id] ?? [], active_group: null, is_paused: false }
+            : null,
         }
       }
 
@@ -4429,8 +4447,25 @@ Deno.serve(async (req: Request) => {
       const { data: toCard } = await supabase
         .from('player_cards').select('*').eq('user_id', to_user_id).eq('week_year', weekYear).maybeSingle()
       if (!toCard) return errorResponse('That player does not have a card this week', 400)
-      if (fromCard.game_mode === 'blackout' || toCard.game_mode === 'blackout') {
-        return errorResponse('Not available in Blackout mode', 400)
+
+      // Blackout: trading is allowed, including still-hidden squares (that's
+      // the point — otherwise only the couple of currently-open squares would
+      // ever be tradeable). Only a blocked (passed-on) square is off-limits,
+      // same treatment as a completed square. Position stays fogged for the
+      // owner regardless — trading only swaps card_data, never hidden_cells.
+      if (fromCard.game_mode === 'blackout') {
+        const { data: fromState } = await supabase
+          .from('blackout_state').select('blocked_cells').eq('card_id', fromCard.id).maybeSingle()
+        if ((fromState?.blocked_cells ?? []).includes(from_cell_index)) {
+          return errorResponse('Cannot trade a blocked square', 400)
+        }
+      }
+      if (toCard.game_mode === 'blackout') {
+        const { data: toState } = await supabase
+          .from('blackout_state').select('blocked_cells').eq('card_id', toCard.id).maybeSingle()
+        if ((toState?.blocked_cells ?? []).includes(to_cell_index)) {
+          return errorResponse('Cannot trade a blocked square', 400)
+        }
       }
 
       const fromCells: Cell[] = JSON.parse(fromCard.card_data)
@@ -4516,6 +4551,20 @@ Deno.serve(async (req: Request) => {
       }
       if (toCompleted.includes(trade.to_cell_index)) {
         return errorResponse('Your square has already been completed', 400)
+      }
+      if (fromCard.game_mode === 'blackout') {
+        const { data: fromState } = await supabase
+          .from('blackout_state').select('blocked_cells').eq('card_id', fromCard.id).maybeSingle()
+        if ((fromState?.blocked_cells ?? []).includes(trade.from_cell_index)) {
+          return errorResponse('The offerer\'s square has since been passed on', 400)
+        }
+      }
+      if (toCard.game_mode === 'blackout') {
+        const { data: toState } = await supabase
+          .from('blackout_state').select('blocked_cells').eq('card_id', toCard.id).maybeSingle()
+        if ((toState?.blocked_cells ?? []).includes(trade.to_cell_index)) {
+          return errorResponse('Your square has since been passed on', 400)
+        }
       }
 
       // Execute swap in JS

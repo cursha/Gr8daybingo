@@ -203,7 +203,7 @@ const BingoCell: React.FC<BingoCellProps> = ({
           onTouchStart={(e) => e.stopPropagation()}
         >
           <div
-            className="bg-indigo-950 rounded-2xl shadow-2xl p-5 flex flex-col items-center gap-3 w-full max-w-[280px]"
+            className="bg-indigo-950 rounded-2xl shadow-2xl p-5 flex flex-col items-center gap-3 w-full max-w-[280px] max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
@@ -211,43 +211,37 @@ const BingoCell: React.FC<BingoCellProps> = ({
             <p className="text-base font-black text-white text-center leading-tight">
               {isCompleted ? 'Unmark this square?' : qty > 1 ? 'Did it?' : 'Mark this square?'}
             </p>
-            <p className="text-xs text-indigo-200 text-center leading-snug line-clamp-2">{cell.deed_text}</p>
+            <p className="text-sm text-indigo-100 text-center leading-snug font-semibold">{cell.deed_text}</p>
+            {cell.deed_text_long && cell.deed_text_long.trim() && (
+              <p className="text-xs text-indigo-300 text-center leading-relaxed">{cell.deed_text_long}</p>
+            )}
             {!isCompleted && qty > 1 && (
               <p className="text-sm text-amber-300 font-bold">{progress} / {qty} done</p>
             )}
             <div className="flex flex-wrap gap-2 items-center justify-center mt-1 w-full">
-              <div
-                role="button"
-                tabIndex={0}
+              <button
+                type="button"
                 className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-emerald-500 active:bg-emerald-400 rounded-xl text-white font-bold text-base cursor-pointer select-none"
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); handleConfirm(); }}
-                onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleConfirm(); }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleConfirm(); }}
+                onClick={(e) => { e.stopPropagation(); handleConfirm(); }}
               >
                 ✓ Yes
-              </div>
+              </button>
               {canUndoStep && (
-                <div
-                  role="button"
-                  tabIndex={0}
+                <button
+                  type="button"
                   className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-3 bg-amber-500 active:bg-amber-400 rounded-xl text-white font-bold text-sm cursor-pointer select-none"
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); handleUndoStep(); }}
-                  onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleUndoStep(); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleUndoStep(); }}
+                  onClick={(e) => { e.stopPropagation(); handleUndoStep(); }}
                 >
                   −1 Undo
-                </div>
+                </button>
               )}
-              <div
-                role="button"
-                tabIndex={0}
+              <button
+                type="button"
                 className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-rose-600 active:bg-rose-500 rounded-xl text-white font-bold text-base cursor-pointer select-none"
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingConfirm(false); }}
-                onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingConfirm(false); }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setPendingConfirm(false); }}
+                onClick={(e) => { e.stopPropagation(); setPendingConfirm(false); }}
               >
                 ✕ No
-              </div>
+              </button>
             </div>
           </div>
         </div>
@@ -274,26 +268,20 @@ const BingoCell: React.FC<BingoCellProps> = ({
               This will use your wallet balance.
             </p>
             <div className="flex gap-2 items-center justify-center mt-1 w-full">
-              <div
-                role="button"
-                tabIndex={0}
+              <button
+                type="button"
                 className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-emerald-500 active:bg-emerald-400 rounded-xl text-white font-bold text-base cursor-pointer select-none"
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); handlePurchaseConfirm(); }}
-                onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handlePurchaseConfirm(); }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handlePurchaseConfirm(); }}
+                onClick={(e) => { e.stopPropagation(); handlePurchaseConfirm(); }}
               >
                 ✓ Buy
-              </div>
-              <div
-                role="button"
-                tabIndex={0}
+              </button>
+              <button
+                type="button"
                 className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-rose-600 active:bg-rose-500 rounded-xl text-white font-bold text-base cursor-pointer select-none"
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingPurchase(false); }}
-                onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingPurchase(false); }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setPendingPurchase(false); }}
+                onClick={(e) => { e.stopPropagation(); setPendingPurchase(false); }}
               >
                 ✕ No
-              </div>
+              </button>
             </div>
           </div>
         </div>
@@ -310,14 +298,17 @@ const BingoCell: React.FC<BingoCellProps> = ({
       {isCentreSquare && (
         <div className="absolute inset-0 flex items-center justify-center">
           <img
-            src={dareUsed ? '/dare-centre.png' : '/dare-centre.png'}
+            src="/dare-centre.png"
             alt="I Dare Ya! Click & Commit"
-            className={`w-full h-full object-cover transition-all duration-300 ${dareUsed ? 'grayscale opacity-40' : 'hover:scale-105'}`}
+            className={`w-full h-full object-cover transition-all duration-300 ${dareUsed ? 'grayscale opacity-30' : 'hover:scale-105'}`}
           />
           {dareUsed && (
-            <span className="absolute bottom-1 text-[7px] sm:text-[9px] font-black text-white/70 uppercase tracking-widest bg-black/50 px-1 rounded">
-              Used
-            </span>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 bg-black/50">
+              <Lock className="w-4 h-4 sm:w-5 sm:h-5 text-white/90" />
+              <span className="text-[8px] sm:text-[10px] font-black text-white/90 uppercase tracking-widest">
+                Used
+              </span>
+            </div>
           )}
         </div>
       )}
@@ -366,18 +357,21 @@ const BingoCell: React.FC<BingoCellProps> = ({
           {/* Regular deed completed */}
           {!cell.is_purchasable && !cell.is_referral_free && (
             <>
-              <span className="text-[7px] sm:text-[9px] md:text-[10px] text-center leading-tight font-bold text-white/90 line-clamp-2 px-0.5 drop-shadow-sm">
+              <span className="text-[8px] sm:text-[10px] md:text-[11px] text-center leading-tight font-bold text-white/90 line-clamp-2 px-0.5 drop-shadow-sm">
                 {cell.deed_text}
               </span>
               {qty > 1 && (
                 qty <= 6 ? (
-                  <div className="flex gap-0.5 mt-0.5">
+                  <div className="flex items-center gap-0.5 mt-0.5 text-[9px] sm:text-[11px] font-bold text-white/90">
                     {Array.from({ length: qty }).map((_, i) => (
-                      <span key={i} className="text-[8px] sm:text-[10px] text-white/80">●</span>
+                      <React.Fragment key={i}>
+                        {i > 0 && <span className="text-white/50">·</span>}
+                        <span>{i + 1}</span>
+                      </React.Fragment>
                     ))}
                   </div>
                 ) : (
-                  <span className="text-[7px] sm:text-[9px] text-white/80 mt-0.5">Done {qty}×</span>
+                  <span className="text-[8px] sm:text-[10px] text-white/80 mt-0.5">Done {qty}×</span>
                 )
               )}
             </>
@@ -416,28 +410,28 @@ const BingoCell: React.FC<BingoCellProps> = ({
       {!isFree && !isCompleted && !needsPurchase && !needsReferral && (
         <div className="flex flex-col items-center justify-center px-1.5 sm:px-2">
           {cell.category && (
-            <span className="text-[6px] sm:text-[7px] font-black tracking-widest text-indigo-400 uppercase mb-0.5">
+            <span className="text-[7px] sm:text-[8px] font-black tracking-widest text-indigo-400 uppercase mb-0.5">
               {cell.category}
             </span>
           )}
-          <span className={`text-[8px] sm:text-[10px] md:text-[11px] text-center leading-snug font-semibold text-slate-700 ${qty > 1 ? 'line-clamp-3' : 'line-clamp-4'}`}>
+          <span className={`text-[9px] sm:text-[11px] md:text-[12px] text-center leading-snug font-semibold text-slate-700 ${qty > 1 ? 'line-clamp-3' : 'line-clamp-4'}`}>
             {cell.deed_text}
           </span>
           {qty > 1 && (
-            <div className="flex flex-col items-center gap-0.5 mt-0.5">
-              {qty <= 6 && (
-                <div className="flex gap-0.5">
-                  {Array.from({ length: qty }).map((_, i) => (
-                    <span key={i} className={`text-[8px] sm:text-[10px] ${i < progress ? 'text-emerald-500' : 'text-slate-300'}`}>
-                      {i < progress ? '●' : '○'}
-                    </span>
-                  ))}
-                </div>
-              )}
-              <span className="text-[8px] sm:text-[10px] font-bold text-indigo-600">
+            qty <= 6 ? (
+              <div className="flex items-center gap-0.5 mt-0.5 text-[9px] sm:text-[11px] font-bold">
+                {Array.from({ length: qty }).map((_, i) => (
+                  <React.Fragment key={i}>
+                    {i > 0 && <span className="text-slate-300">·</span>}
+                    <span className={i < progress ? 'text-emerald-500' : 'text-slate-300'}>{i + 1}</span>
+                  </React.Fragment>
+                ))}
+              </div>
+            ) : (
+              <span className="text-[9px] sm:text-[11px] font-bold text-indigo-600 mt-0.5">
                 {progress} / {qty}
               </span>
-            </div>
+            )
           )}
         </div>
       )}

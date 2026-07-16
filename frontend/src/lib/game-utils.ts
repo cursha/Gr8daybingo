@@ -975,6 +975,21 @@ export async function getAdminDrawResults(): Promise<{ winners: DrawWinner[] }> 
   return apiClient.get('/game/admin/draw-results');
 }
 
+// ---------- Weekly Update Log (admin) ----------
+export interface WeeklyUpdateLogEntry {
+  id: number;
+  player_id: string;
+  sent_at: string;
+  week_of: string;
+  message_snapshot: string;
+  name: string | null;
+  email: string | null;
+}
+
+export async function getAdminWeeklyUpdates(): Promise<{ logs: WeeklyUpdateLogEntry[] }> {
+  return apiClient.get('/game/admin/weekly-updates');
+}
+
 export interface DrawLeaderboardPlayer {
   user_id: string;
   player_name: string;
@@ -1010,6 +1025,7 @@ export interface MemberItem {
   email_verified: boolean;
   is_trusted: boolean;
   is_test: boolean;
+  created_at: string | null;
 }
 
 export async function getAdminMembers(): Promise<{ members: MemberItem[] }> {
@@ -1180,6 +1196,70 @@ export interface AdminCompletedDeed {
 
 export async function adminGetCompletedDeeds(playerId: string): Promise<{ deeds: AdminCompletedDeed[] }> {
   return apiClient.get(`/game/admin/completed-deeds?player_id=${encodeURIComponent(playerId)}`);
+}
+
+// ── Admin: Deed Log ──────────────────────────────────────────────────────
+
+export interface DeedLogRow {
+  id: number;
+  completed_at: string;
+  player_name: string;
+  deed_text: string;
+  category: string | null;
+  team_name: string | null;
+  square_type: 'Regular' | 'Quick Tap' | 'Blackout';
+  reversed: boolean;
+}
+
+export interface DeedLogFilters {
+  start?: string;
+  end?: string;
+  player?: string;
+  category?: string;
+  teamId?: number;
+}
+
+function deedLogQueryString(filters: DeedLogFilters, page?: number): string {
+  const params = new URLSearchParams();
+  if (filters.start) params.set('start', filters.start);
+  if (filters.end) params.set('end', filters.end);
+  if (filters.player) params.set('player', filters.player);
+  if (filters.category) params.set('category', filters.category);
+  if (filters.teamId != null) params.set('team_id', String(filters.teamId));
+  if (page != null) params.set('page', String(page));
+  return params.toString();
+}
+
+export async function adminGetDeedLog(
+  filters: DeedLogFilters,
+  page: number,
+): Promise<{ rows: DeedLogRow[]; total: number; page: number; page_size: number }> {
+  return apiClient.get(`/game/admin/deed-log?${deedLogQueryString(filters, page)}`);
+}
+
+/** Fetches the CSV export as text (via the authenticated apiClient, since
+ *  the endpoint requires an admin Bearer token — a plain <a href> can't
+ *  attach that) and returns it for the caller to trigger a Blob download. */
+export async function adminExportDeedLogCsv(filters: DeedLogFilters): Promise<string> {
+  return apiClient.get(`/game/admin/deed-log/export?${deedLogQueryString(filters)}`);
+}
+
+// ── Admin: Founder Notes log ─────────────────────────────────────────────
+
+export interface FounderNoteRow {
+  id: number;
+  player_name: string;
+  deed_text_snapshot: string;
+  generated_message: string | null;
+  scheduled_send_at: string;
+  sent_at: string | null;
+  status: 'pending' | 'sent' | 'failed';
+}
+
+export async function adminGetFounderNotes(
+  page: number,
+): Promise<{ rows: FounderNoteRow[]; total: number; page: number; page_size: number }> {
+  return apiClient.get(`/game/admin/founder-notes?page=${page}`);
 }
 
 export async function adminReverseDeed(completedDeedId: number, reason?: string): Promise<{ success: boolean; deed_entry_reversed: boolean; bingo_bonus_reversed: boolean }> {

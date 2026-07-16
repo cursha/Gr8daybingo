@@ -122,13 +122,20 @@ export function gameAnnouncementEmail(opts: {
   }
 }
 
-export function newGameLaunchEmail(firstName: string | null): { subject: string; html: string } {
+export function newGameLaunchEmail(
+  firstName: string | null,
+  encouragement?: string,
+): { subject: string; html: string } {
   const hi = firstName && firstName.trim() ? firstName.trim() : 'there'
+  const encouragementBlock = encouragement?.trim()
+    ? `<p style="margin-top:16px;padding:14px 16px;background:#f8fafc;border-radius:10px;border-left:4px solid #4FB3E8">${encouragement.trim()}</p>`
+    : ''
   return {
     subject: 'A new game just started!',
     html: layout(`
       <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">Hey ${hi},</h2>
       <p>I am letting you know we just launched a new game so go check it out.</p>
+      ${encouragementBlock}
       <p style="text-align:center;margin:24px 0">
         <a href="${SITE_URL}/game" style="display:inline-block;background:#DC2626;color:#fff;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none;border:2px solid #FCD34D">Play Now</a>
       </p>
@@ -136,6 +143,28 @@ export function newGameLaunchEmail(firstName: string | null): { subject: string;
       <p style="margin-top:20px">
         <strong>Curt Skene</strong><br/>
         <span style="color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:0.05em">Founder</span>
+      </p>
+    `),
+  }
+}
+
+/** A personal note "from Curt", triggered by a deed completion — see
+ *  maybeQueueFounderNote/send-founder-notes in game/index.ts. Deliberately
+ *  minimal (no CTA button, no marketing framing) since it's meant to read
+ *  as a quick personal message, not another game-launch email. Greeting and
+ *  sign-off are fixed here rather than left to the AI-generated body, so
+ *  the note always opens and closes correctly regardless of what the model
+ *  produces for the middle. */
+export function founderNoteEmail(firstName: string | null, message: string): { subject: string; html: string } {
+  const hi = firstName && firstName.trim() ? firstName.trim() : 'there'
+  return {
+    subject: 'A quick note from Curt',
+    html: layout(`
+      <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">Hey ${hi},</h2>
+      <p>${message.trim()}</p>
+      <p style="margin-top:20px">
+        <strong>Curt</strong><br/>
+        <span style="color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:0.05em">Founder, Havagr8day</span>
       </p>
     `),
   }

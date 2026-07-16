@@ -43,6 +43,8 @@ import {
   updateAdminDeedCategory,
   DrawWinner,
   getAdminDrawResults,
+  WeeklyUpdateLogEntry,
+  getAdminWeeklyUpdates,
   DrawLeaderboardPlayer,
   getAdminDrawLeaderboard,
   adminGetSpotlightQuickTap,
@@ -81,6 +83,11 @@ import {
   PromptResponse,
   adminGetPromptResponses,
   adminApprovePromptResponse,
+  DeedLogRow,
+  adminGetDeedLog,
+  adminExportDeedLogCsv,
+  FounderNoteRow,
+  adminGetFounderNotes,
 } from '@/lib/game-utils';
 import BingoCell from '@/components/BingoCell';
 import { Button } from '@/components/ui/button';
@@ -90,7 +97,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, Heart, Lock, Settings, Plus, Trash2, Save, Edit2, X, Target, Inbox, Check, XCircle, Lightbulb, Gift, Upload, Download, FileSpreadsheet, Printer, Trophy, Mail, Users, Ticket, Search, Flame, Sparkles, Eye, MessageCircleQuestion } from 'lucide-react';
+import { ArrowLeft, Heart, Lock, Settings, Plus, Trash2, Save, Edit2, X, Target, Inbox, Check, XCircle, Lightbulb, Gift, Upload, Download, FileSpreadsheet, Printer, Trophy, Mail, Users, Ticket, Search, Flame, Sparkles, Eye, MessageCircleQuestion, ClipboardList, PenLine } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { TargetingGroupsInput } from '@/components/TargetingGroupsInput';
 
@@ -113,6 +120,23 @@ const isoToLocalInput = (iso?: string): string => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
+// Monday-based UTC week start, matching getWeekStart/getCurrentWeekYear on
+// the backend (game/index.ts) — used to default the Deed Log's date range.
+const currentWeekStartDateStr = (): string => {
+  const now = new Date();
+  const day = now.getUTCDay() || 7; // Mon=1..Sun=7
+  const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (day - 1)));
+  return monday.toISOString().slice(0, 10);
+};
+const todayDateStr = (): string => new Date().toISOString().slice(0, 10);
+
+const NEW_MEMBER_WINDOW_HOURS = 35;
+const isNewMember = (createdAt: string | null): boolean => {
+  if (!createdAt) return false;
+  const ageMs = Date.now() - new Date(createdAt).getTime();
+  return ageMs >= 0 && ageMs < NEW_MEMBER_WINDOW_HOURS * 60 * 60 * 1000;
+};
+
 const AdminPanel: React.FC = () => {
   const navigate = useNavigate();
   const [authenticated, setAuthenticated] = useState(
@@ -127,6 +151,7 @@ const AdminPanel: React.FC = () => {
 
   // Deeds state
   const [deeds, setDeeds] = useState<DeedItem[]>([]);
+  const [deedSearchQuery, setDeedSearchQuery] = useState('');
   const [spotlightDeed, setSpotlightDeed] = useState<{ id: number; deed_text: string; category: string } | null>(null);
   const [spotlightActive, setSpotlightActive] = useState(false);
   const [spotlightSelection, setSpotlightSelection] = useState('');
@@ -165,6 +190,9 @@ const AdminPanel: React.FC = () => {
 
   // Draw results state
   const [drawWinners, setDrawWinners] = useState<DrawWinner[]>([]);
+
+  // Weekly update email log state
+  const [weeklyUpdateLogs, setWeeklyUpdateLogs] = useState<WeeklyUpdateLogEntry[]>([]);
 
   // Draw entry leaderboard state
   const [drawLeaderboard, setDrawLeaderboard] = useState<DrawLeaderboardPlayer[]>([]);
@@ -263,6 +291,26 @@ const AdminPanel: React.FC = () => {
   const [editingTeamId, setEditingTeamId] = useState<number | null>(null);
   const [editTeamName, setEditTeamName] = useState('');
   const [editTeamCaptain, setEditTeamCaptain] = useState('');
+
+  // Deed Log state
+  const DEED_LOG_PAGE_SIZE = 50;
+  const [deedLogRows, setDeedLogRows] = useState<DeedLogRow[]>([]);
+  const [deedLogTotal, setDeedLogTotal] = useState(0);
+  const [deedLogPage, setDeedLogPage] = useState(0);
+  const [deedLogLoading, setDeedLogLoading] = useState(false);
+  const [deedLogExporting, setDeedLogExporting] = useState(false);
+  const [deedLogStart, setDeedLogStart] = useState(currentWeekStartDateStr());
+  const [deedLogEnd, setDeedLogEnd] = useState(todayDateStr());
+  const [deedLogPlayer, setDeedLogPlayer] = useState('');
+  const [deedLogCategory, setDeedLogCategory] = useState('');
+  const [deedLogTeamId, setDeedLogTeamId] = useState('');
+
+  // Founder Notes state
+  const FOUNDER_NOTES_PAGE_SIZE = 50;
+  const [founderNoteRows, setFounderNoteRows] = useState<FounderNoteRow[]>([]);
+  const [founderNoteTotal, setFounderNoteTotal] = useState(0);
+  const [founderNotePage, setFounderNotePage] = useState(0);
+  const [founderNoteLoading, setFounderNoteLoading] = useState(false);
 
   const handleLogin = async () => {
     setAuthLoading(true);
@@ -386,6 +434,15 @@ const AdminPanel: React.FC = () => {
     try {
       const res = await getAdminDrawResults();
       setDrawWinners(res.winners || []);
+    } catch {
+      // silent
+    }
+  };
+
+  const loadWeeklyUpdates = async () => {
+    try {
+      const res = await getAdminWeeklyUpdates();
+      setWeeklyUpdateLogs(res.logs || []);
     } catch {
       // silent
     }
@@ -569,6 +626,69 @@ const AdminPanel: React.FC = () => {
       setTeams(t);
     } catch {
       // silent
+    }
+  };
+
+  const loadDeedLog = async (page = 0) => {
+    setDeedLogLoading(true);
+    try {
+      const res = await adminGetDeedLog(
+        {
+          start: deedLogStart || undefined,
+          end: deedLogEnd || undefined,
+          player: deedLogPlayer.trim() || undefined,
+          category: deedLogCategory || undefined,
+          teamId: deedLogTeamId ? Number(deedLogTeamId) : undefined,
+        },
+        page,
+      );
+      setDeedLogRows(res.rows);
+      setDeedLogTotal(res.total);
+      setDeedLogPage(res.page);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to load deed log');
+    } finally {
+      setDeedLogLoading(false);
+    }
+  };
+
+  const handleExportDeedLog = async () => {
+    setDeedLogExporting(true);
+    try {
+      const csv = await adminExportDeedLogCsv({
+        start: deedLogStart || undefined,
+        end: deedLogEnd || undefined,
+        player: deedLogPlayer.trim() || undefined,
+        category: deedLogCategory || undefined,
+        teamId: deedLogTeamId ? Number(deedLogTeamId) : undefined,
+      });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `deed-log-${deedLogStart}-to-${deedLogEnd}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to export deed log');
+    } finally {
+      setDeedLogExporting(false);
+    }
+  };
+
+  const loadFounderNotes = async (page = 0) => {
+    setFounderNoteLoading(true);
+    try {
+      const res = await adminGetFounderNotes(page);
+      setFounderNoteRows(res.rows);
+      setFounderNoteTotal(res.total);
+      setFounderNotePage(res.page);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to load founder notes');
+    } finally {
+      setFounderNoteLoading(false);
     }
   };
 
@@ -757,10 +877,13 @@ const AdminPanel: React.FC = () => {
       loadPendingDeeds('pending');
       loadPrizeClaims();
       loadDrawResults();
+      loadWeeklyUpdates();
       loadDrawLeaderboard();
       loadMembers();
       loadTeams();
       loadSpotlightQuickTap();
+      loadDeedLog();
+      loadFounderNotes();
       getCountries().then(setCountries).catch(() => {});
     }
   }, [authenticated]);
@@ -1374,6 +1497,18 @@ const AdminPanel: React.FC = () => {
 
   const uniqueCategories = [...new Set(deeds.map((d) => d.category).filter(Boolean))].sort();
 
+  // Live client-side filter over the already-loaded deeds list — matches by
+  // deed code (numeric id, substring so partial typing still narrows down)
+  // or by name (deed_text / deed_text_long, case-insensitive substring).
+  const deedSearchQueryTrimmed = deedSearchQuery.trim().toLowerCase();
+  const filteredDeeds = deedSearchQueryTrimmed
+    ? deeds.filter((d) =>
+        String(d.id).includes(deedSearchQueryTrimmed) ||
+        d.deed_text.toLowerCase().includes(deedSearchQueryTrimmed) ||
+        (d.deed_text_long ?? '').toLowerCase().includes(deedSearchQueryTrimmed)
+      )
+    : deeds;
+
   if (!authenticated) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -1433,6 +1568,7 @@ const AdminPanel: React.FC = () => {
 
   const weeklyUpdatePercentage = editConfigs['weekly_update_percentage'] || '';
   const weeklyUpdatePrompt = editConfigs['weekly_update_prompt'] || '';
+  const founderNotePct = editConfigs['founder_note_pct'] ?? '';
 
   const blackoutWeightsSum = (['0', '1', '2', '3'] as const).reduce((s, k) => s + (parseFloat(blackoutWeights[k]) || 0), 0);
 
@@ -1480,12 +1616,15 @@ const AdminPanel: React.FC = () => {
               { id: 'section-card-viewer', label: 'Card Viewer', icon: <Search className="w-3.5 h-3.5" /> },
               { id: 'section-players', label: 'Players', icon: <Users className="w-3.5 h-3.5 text-sky-500" /> },
               { id: 'section-teams', label: 'Teams', icon: <Users className="w-3.5 h-3.5 text-indigo-500" /> },
+              { id: 'section-deed-log', label: 'Deed Log', icon: <ClipboardList className="w-3.5 h-3.5 text-emerald-500" /> },
+              { id: 'section-founder-notes', label: 'Founder Notes', icon: <PenLine className="w-3.5 h-3.5 text-rose-500" /> },
               { id: 'section-game-settings', label: 'Game Settings', icon: <Settings className="w-3.5 h-3.5" /> },
               { id: 'section-streaks', label: 'Streaks', icon: <Flame className="w-3.5 h-3.5" /> },
               { id: 'section-deeds', label: 'Deeds', icon: <Target className="w-3.5 h-3.5" /> },
               { id: 'section-draw', label: 'Draw', icon: <Ticket className="w-3.5 h-3.5" /> },
               { id: 'section-prize-claims', label: 'Prize Claims', icon: <Gift className="w-3.5 h-3.5" /> },
               { id: 'section-announce', label: 'Announce', icon: <Mail className="w-3.5 h-3.5" /> },
+              { id: 'section-weekly-updates', label: 'Weekly Updates', icon: <Mail className="w-3.5 h-3.5 text-teal-500" /> },
               { id: 'section-reset', label: 'Reset', icon: <Settings className="w-3.5 h-3.5" /> },
             ].map(({ id, label, icon }) => (
               <button
@@ -1833,6 +1972,9 @@ const AdminPanel: React.FC = () => {
                               {m.player_number ? `GR8-${m.player_number}` : '—'}
                             </td>
                             <td className="px-3 py-2">
+                              {isNewMember(m.created_at) && (
+                                <span className="text-rose-500 font-bold mr-1" title={`Joined within the last ${NEW_MEMBER_WINDOW_HOURS} hours`}>*</span>
+                              )}
                               <span className="font-medium text-slate-800">{m.name || '—'}</span>
                               {m.role === 'admin' && (
                                 <span className="ml-1.5 text-[10px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded">admin</span>
@@ -2010,6 +2152,261 @@ const AdminPanel: React.FC = () => {
                 ))}
               </div>
             )}
+          </CardContent>
+        </Card>
+        </section>
+
+        {/* Deed Log */}
+        <section id="section-deed-log">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ClipboardList className="w-5 h-5 text-emerald-500" />
+              Deed Log
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap items-end gap-3 mb-4 p-3 bg-slate-50/60 border border-slate-200 rounded-lg">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">From</label>
+                <Input
+                  type="date"
+                  value={deedLogStart}
+                  onChange={(e) => setDeedLogStart(e.target.value)}
+                  className="w-40"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">To</label>
+                <Input
+                  type="date"
+                  value={deedLogEnd}
+                  onChange={(e) => setDeedLogEnd(e.target.value)}
+                  className="w-40"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">Player</label>
+                <Input
+                  placeholder="Name…"
+                  value={deedLogPlayer}
+                  onChange={(e) => setDeedLogPlayer(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && loadDeedLog(0)}
+                  className="w-36"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">Category</label>
+                <select
+                  value={deedLogCategory}
+                  onChange={(e) => setDeedLogCategory(e.target.value)}
+                  className="h-9 border border-input rounded-md bg-background px-2 text-sm"
+                >
+                  <option value="">All</option>
+                  {deedCategories.map((c) => (
+                    <option key={c.name} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">Team</label>
+                <select
+                  value={deedLogTeamId}
+                  onChange={(e) => setDeedLogTeamId(e.target.value)}
+                  className="h-9 border border-input rounded-md bg-background px-2 text-sm"
+                >
+                  <option value="">All</option>
+                  {teams.map((t) => (
+                    <option key={t.id} value={t.id}>{t.team_name}</option>
+                  ))}
+                </select>
+              </div>
+              <Button size="sm" onClick={() => loadDeedLog(0)} disabled={deedLogLoading} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                {deedLogLoading ? 'Loading…' : 'Apply Filters'}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleExportDeedLog}
+                disabled={deedLogExporting}
+                className="ml-auto"
+              >
+                <Download className="w-4 h-4 mr-1" />
+                {deedLogExporting ? 'Exporting…' : 'Export CSV'}
+              </Button>
+            </div>
+
+            <div className="border rounded-lg overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                      <th className="px-3 py-2">Player</th>
+                      <th className="px-3 py-2">Deed</th>
+                      <th className="px-3 py-2">Category</th>
+                      <th className="px-3 py-2">Completed</th>
+                      <th className="px-3 py-2">Team</th>
+                      <th className="px-3 py-2">Square Type</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {deedLogRows.map((row) => (
+                      <tr key={row.id} className={row.reversed ? 'opacity-50 bg-rose-50/40' : ''}>
+                        <td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap">{row.player_name}</td>
+                        <td className="px-3 py-2 text-slate-700 max-w-xs truncate" title={row.deed_text}>
+                          {row.deed_text}
+                          {row.reversed && <span className="ml-2 text-[10px] font-semibold text-rose-600 uppercase">Reversed</span>}
+                        </td>
+                        <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{row.category ?? '—'}</td>
+                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{new Date(row.completed_at).toLocaleString()}</td>
+                        <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{row.team_name ?? '—'}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                            row.square_type === 'Quick Tap' ? 'bg-sky-50 text-sky-700'
+                            : row.square_type === 'Blackout' ? 'bg-slate-800 text-white'
+                            : 'bg-indigo-50 text-indigo-700'
+                          }`}>
+                            {row.square_type}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {deedLogRows.length === 0 && !deedLogLoading && (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-400">
+                          No deeds match these filters.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between mt-3 text-xs text-slate-500">
+              <span>
+                {deedLogTotal === 0 ? '0 results' : `${deedLogPage * DEED_LOG_PAGE_SIZE + 1}–${Math.min(deedLogTotal, (deedLogPage + 1) * DEED_LOG_PAGE_SIZE)} of ${deedLogTotal}`}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={deedLogLoading || deedLogPage === 0}
+                  onClick={() => loadDeedLog(deedLogPage - 1)}
+                >
+                  Previous
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={deedLogLoading || (deedLogPage + 1) * DEED_LOG_PAGE_SIZE >= deedLogTotal}
+                  onClick={() => loadDeedLog(deedLogPage + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        </section>
+
+        {/* Founder Notes */}
+        <section id="section-founder-notes">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <PenLine className="w-5 h-5 text-rose-500" />
+              Founder Notes
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-xs text-slate-500">
+              A short, casual note "from Curt" — written by Claude, reacting to the specific deed —
+              triggered by a random slice of deed completions and sent 12-24h later (once per player
+              per day, max). Requires an <code>ANTHROPIC_API_KEY</code> secret and{' '}
+              <code>RESEND_API_KEY</code> to actually send.
+            </p>
+            <div className="max-w-xs">
+              <label className="text-sm font-medium text-slate-700 mb-1 block">% Chance per Deed Completion (0 = off)</label>
+              <Input
+                type="number"
+                min="0"
+                max="100"
+                value={founderNotePct}
+                onChange={(e) => setEditConfigs((prev) => ({ ...prev, founder_note_pct: e.target.value }))}
+              />
+            </div>
+            <Button onClick={handleSaveConfig} className="bg-rose-600 hover:bg-rose-700 text-white">
+              <Save className="w-4 h-4 mr-1" /> Save Founder Note Settings
+            </Button>
+
+            <div className="border rounded-lg overflow-hidden mt-2">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                      <th className="px-3 py-2">Player</th>
+                      <th className="px-3 py-2">Deed</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Scheduled</th>
+                      <th className="px-3 py-2">Sent</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {founderNoteRows.map((row) => (
+                      <tr key={row.id}>
+                        <td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap">{row.player_name}</td>
+                        <td className="px-3 py-2 text-slate-700 max-w-xs truncate" title={row.generated_message ?? row.deed_text_snapshot}>
+                          {row.deed_text_snapshot}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                            row.status === 'sent' ? 'bg-emerald-50 text-emerald-700'
+                            : row.status === 'failed' ? 'bg-rose-50 text-rose-700'
+                            : 'bg-amber-50 text-amber-700'
+                          }`}>
+                            {row.status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{new Date(row.scheduled_send_at).toLocaleString()}</td>
+                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{row.sent_at ? new Date(row.sent_at).toLocaleString() : '—'}</td>
+                      </tr>
+                    ))}
+                    {founderNoteRows.length === 0 && !founderNoteLoading && (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-400">
+                          No founder notes queued yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-slate-500">
+              <span>
+                {founderNoteTotal === 0 ? '0 results' : `${founderNotePage * FOUNDER_NOTES_PAGE_SIZE + 1}–${Math.min(founderNoteTotal, (founderNotePage + 1) * FOUNDER_NOTES_PAGE_SIZE)} of ${founderNoteTotal}`}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={founderNoteLoading || founderNotePage === 0}
+                  onClick={() => loadFounderNotes(founderNotePage - 1)}
+                >
+                  Previous
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={founderNoteLoading || (founderNotePage + 1) * FOUNDER_NOTES_PAGE_SIZE >= founderNoteTotal}
+                  onClick={() => loadFounderNotes(founderNotePage + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
         </section>
@@ -2873,7 +3270,7 @@ const AdminPanel: React.FC = () => {
             <CardTitle className="flex items-center justify-between">
               <span className="flex items-center gap-2">
                 <Heart className="w-5 h-5 text-rose-500" />
-                Gr8Day Deeds ({deeds.length})
+                Gr8Day Deeds ({filteredDeeds.length}{deedSearchQueryTrimmed ? ` of ${deeds.length}` : ''})
               </span>
             </CardTitle>
           </CardHeader>
@@ -2896,7 +3293,7 @@ const AdminPanel: React.FC = () => {
                   className="w-32 sm:w-40 border border-input rounded-md bg-background px-2 text-sm"
                 >
                   <option value="">Category</option>
-                  {deedCategories.map((c) => (
+                  {deedCategories.filter((c) => c.is_active).map((c) => (
                     <option key={c.name} value={c.name}>{c.name}</option>
                   ))}
                 </select>
@@ -2980,6 +3377,17 @@ const AdminPanel: React.FC = () => {
               </div>
             </div>
 
+            {/* Search deeds by code (id) or name */}
+            <div className="mb-3 relative max-w-sm">
+              <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <Input
+                placeholder="Search by deed code or name…"
+                value={deedSearchQuery}
+                onChange={(e) => setDeedSearchQuery(e.target.value)}
+                className="pl-8"
+              />
+            </div>
+
             {/* Bulk status update */}
             {selectedDeedIds.size > 0 && (
               <div className="flex flex-wrap items-center gap-2 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
@@ -3012,7 +3420,12 @@ const AdminPanel: React.FC = () => {
             {/* Gr8Day Deeds list */}
             <div className="border rounded-lg overflow-hidden">
               <div className="max-h-[500px] overflow-y-auto divide-y">
-                {deeds.map((deed) => (
+                {filteredDeeds.length === 0 && deedSearchQueryTrimmed && (
+                  <p className="px-3 py-6 text-sm text-slate-400 text-center">
+                    No deeds match "{deedSearchQuery.trim()}"
+                  </p>
+                )}
+                {filteredDeeds.map((deed) => (
                   <div
                     key={deed.id}
                     className={`px-3 py-2.5 text-sm ${
@@ -3038,7 +3451,7 @@ const AdminPanel: React.FC = () => {
                             className="w-28 h-8 text-sm border border-input rounded-md bg-background px-2"
                           >
                             <option value="">Category</option>
-                            {deedCategories.map((c) => (
+                            {deedCategories.filter((c) => c.is_active).map((c) => (
                               <option key={c.name} value={c.name}>{c.name}</option>
                             ))}
                           </select>
@@ -3155,6 +3568,9 @@ const AdminPanel: React.FC = () => {
                             </p>
                           )}
                           <div className="flex flex-wrap items-center gap-1 mt-1">
+                            <span className="text-[10px] font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">
+                              #{deed.id}
+                            </span>
                             <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
                               deed.status === 'Approved' ? 'bg-emerald-50 text-emerald-700'
                               : deed.status === 'Review' ? 'bg-amber-50 text-amber-700'
@@ -3790,6 +4206,53 @@ const AdminPanel: React.FC = () => {
                 </div>
               )}
             </div>
+          </CardContent>
+        </Card>
+        </section>
+
+        {/* Weekly Update Emails */}
+        <section id="section-weekly-updates">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5 text-teal-500" />
+              Weekly Update Emails
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-slate-500 mb-3">
+              History of the AI-generated weekly member update emails actually delivered, most recent first.
+            </p>
+            {weeklyUpdateLogs.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2">
+                <Mail className="w-8 h-8 text-slate-300" />
+                No weekly update emails sent yet.
+              </div>
+            ) : (
+              <div className="border rounded-lg overflow-hidden">
+                <div className="max-h-[360px] overflow-y-auto divide-y">
+                  {weeklyUpdateLogs.map((l) => {
+                    const subjectLine = l.message_snapshot.split('\n')[0].replace(/^Subject:\s*/, '');
+                    return (
+                      <div key={l.id} className="px-3 py-3 text-sm">
+                        <div className="space-y-0.5">
+                          <p className="font-semibold text-slate-800">{l.name ?? 'Unknown'}</p>
+                          {l.email && (
+                            <p className="text-slate-500 text-xs">
+                              <a href={`mailto:${l.email}`} className="text-indigo-600 hover:underline">{l.email}</a>
+                            </p>
+                          )}
+                          <p className="text-xs text-slate-600 italic">"{subjectLine}"</p>
+                          <p className="text-xs text-slate-400">
+                            Week of {l.week_of} · sent {new Date(l.sent_at).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
         </section>

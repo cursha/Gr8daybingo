@@ -1,7 +1,8 @@
-import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
+import { handleCors, jsonResponse, errorResponse, corsHeaders } from '../_shared/cors.ts'
 import { getAuthUser, requireAuth, requireAdmin } from '../_shared/auth.ts'
 import { getSupabase, getSubPath, matchPath } from '../_shared/db.ts'
 import { sendEmail, passwordResetEmail, adminLockoutEmail, adminPasswordResetEmail, referralInviteEmail, bingoWinEmail, prizeClaimConfirmationEmail, prizeVoucherEmail, gameAnnouncementEmail, newGameLaunchEmail } from '../_shared/email.ts'
+import { callAnthropicForText } from '../_shared/anthropic.ts'
 import {
   getDrawSettings, awardDeedEntry, awardBingoBonus,
   reverseDeedEntry, reverseBingoBonus, manualAdjust, runWeeklyDraw,
@@ -309,6 +310,77 @@ Write 2-3 warm, genuine, playful sentences (plain text, no markdown, no quotes) 
 
 Respond with ONLY the note text, nothing else.`
 
+// ── AI encouragement blurb for the new-game-launch email ───────────────────
+// Edit these prompts freely — they're isolated from the call/validation
+// logic below. Two variants, each generated ONCE per card-generation cycle
+// (not once per recipient) by generateEncouragementBlurbs — not personalized
+// text, just a shared template per variant selected per recipient by whether
+// they logged any deeds last week. See sendGameLaunchEmails, the only
+// caller, for the last-week window (Monday-Sunday, the week just ended) and
+// per-player counting.
+//
+// ACTIVE: for players who logged at least one deed last week. Must weave in
+// the literal placeholder token {{DEED_COUNT}} naturally (e.g. "you logged
+// {{DEED_COUNT}} good deeds last week") — substituted with their real count
+// afterward, so it must read correctly for any positive integer.
+const ENCOURAGEMENT_PROMPT_ACTIVE = `Write a short, warm encouragement message (50-75 words) for players of HavaGr8Day, a kindness-themed game where players complete real-world good deeds to fill a bingo card. This message will appear in the email announcing a brand new card for the week. The recipient logged at least one good deed last week — acknowledge that specifically by including the exact literal placeholder token {{DEED_COUNT}} naturally in the message (e.g. "you logged {{DEED_COUNT}} good deeds last week" — vary the phrasing each time you're called; the token will be replaced with their real number, which could be any positive integer, so phrase it so it reads correctly regardless of the number). Then look forward to the fresh card ahead. The tone should be genuine and specific to the spirit of the game, never generic praise or corporate-sounding. Do not use exclamation points more than once. Do not mention money, prizes, or competition — this is about the value of doing good, not winning. Return ONLY the message text, no preamble, no quotation marks.`
+
+// ZERO: for players who logged no deeds last week (including brand-new
+// players who have never logged one). Must NOT thank them for anything or
+// imply any activity of theirs — instead names the community's total via
+// the literal placeholder token {{COMMUNITY_COUNT}} as a gentle nudge that
+// others are active, then looks forward to the fresh card ahead.
+const ENCOURAGEMENT_PROMPT_ZERO = `Write a short, warm encouragement message (50-75 words) for players of HavaGr8Day, a kindness-themed game where players complete real-world good deeds to fill a bingo card. This message will appear in the email announcing a brand new card for the week. The recipient logged zero good deeds last week (some have never logged one at all) — do NOT thank them for anything or imply they did anything, and do not mention a deed count for them personally. Instead, gently let them know others are active: include the exact literal placeholder token {{COMMUNITY_COUNT}} naturally in the message as the number of good deeds the whole Havagr8day community logged last week (e.g. "the community logged {{COMMUNITY_COUNT}} good deeds last week" — vary the phrasing each time you're called; the token will be replaced with the real number, which could be any positive integer, so phrase it so it reads correctly regardless of the number), framed as an invitation to join in, never as guilt or pressure. Then look forward to the fresh card ahead. The tone should be genuine and specific to the spirit of the game, never generic praise or corporate-sounding. Do not use exclamation points more than once. Do not mention money, prizes, or competition — this is about the value of doing good, not winning. Return ONLY the message text, no preamble, no quotation marks.`
+
+// Used whenever the AI call fails, times out, or returns something outside
+// the accepted word-count range — see generateEncouragementBlurbs below.
+// These are plain templates (not AI output), so the {{TOKEN}} substitution
+// is always accurate even when the AI call itself failed.
+const FALLBACK_ENCOURAGEMENT_ACTIVE = "You logged {{DEED_COUNT}} good deeds last week — thank you for showing up for your community like that. This week's card is fresh: twenty-five new squares, waiting for twenty-five more real moments of kindness only you can create."
+const FALLBACK_ENCOURAGEMENT_ZERO = "The Havagr8day community logged {{COMMUNITY_COUNT}} good deeds last week. This week's card is fresh — twenty-five blank squares, waiting for twenty-five real moments of kindness only you can create. There's no wrong way to start: hold a door, check on a neighbour, say the thing you've been meaning to say."
+
+type EncouragementTemplate = { template: string; source: 'ai' | 'fallback'; fallback_reason?: string }
+
+/** Generates both encouragement templates for this cycle's new-game-launch
+ *  email — ACTIVE (for players with deeds last week) and ZERO (for players
+ *  without). Always resolves — never throws — so a slow/failed/malformed/
+ *  out-of-range response falls back to the matching static template rather
+ *  than blocking the send. Each template still contains its {{TOKEN}}
+ *  unsubstituted — the caller fills in the real per-player/community number.
+ *  Word-count validation (40-90) is specific to this call site and lives
+ *  here; the network call, 5s timeout, and thinking-disabled behavior are
+ *  shared — see callAnthropicForText. Two Anthropic calls per cycle total,
+ *  not per recipient. */
+async function generateEncouragementBlurbs(
+  anthropicKey: string,
+): Promise<{ active: EncouragementTemplate; zero: EncouragementTemplate }> {
+  async function generate(
+    prompt: string,
+    fallback: string,
+    label: 'active' | 'zero',
+  ): Promise<EncouragementTemplate> {
+    const result = await callAnthropicForText(anthropicKey, { prompt, maxTokens: 150 })
+    if (!result.ok) {
+      console.error(`[game-launch-email] encouragement (${label}) call failed:`, result.reason)
+      return { template: fallback, source: 'fallback', fallback_reason: result.reason }
+    }
+    // Word-count check runs on the raw AI text, token included — the token
+    // is a couple of words at most, well inside the tolerance either way.
+    const wordCount = result.text.split(/\s+/).length
+    if (wordCount < 40 || wordCount > 90) {
+      console.error(`[game-launch-email] encouragement (${label}) output failed validation: word_count_${wordCount}`)
+      return { template: fallback, source: 'fallback', fallback_reason: `word_count_${wordCount}` }
+    }
+    return { template: result.text, source: 'ai' }
+  }
+
+  const [active, zero] = await Promise.all([
+    generate(ENCOURAGEMENT_PROMPT_ACTIVE, FALLBACK_ENCOURAGEMENT_ACTIVE, 'active'),
+    generate(ENCOURAGEMENT_PROMPT_ZERO, FALLBACK_ENCOURAGEMENT_ZERO, 'zero'),
+  ])
+  return { active, zero }
+}
+
 /** Sends the "new game launch" email to every verified player, once per game
  *  cycle — see /generate-card, which is the only caller and only invokes this
  *  once it has atomically won the per-week_year claim in
@@ -317,7 +389,7 @@ Respond with ONLY the note text, nothing else.`
 async function sendGameLaunchEmails(supabase: ReturnType<typeof getSupabase>, weekYear: string): Promise<void> {
   const { data: players, error: playersErr } = await supabase
     .from('users')
-    .select('email, first_name, name, username, last_valid_deed_date, created_at')
+    .select('id, email, first_name, name, username, last_valid_deed_date, created_at')
     .eq('email_verified', true)
     .eq('role', 'user')
 
@@ -337,13 +409,53 @@ async function sendGameLaunchEmails(supabase: ReturnType<typeof getSupabase>, we
     const referenceDate = p.last_valid_deed_date ?? p.created_at
     return !referenceDate || referenceDate >= fourWeeksAgo
   })
+  if (activeRecipients.length === 0) return
+
+  // "Last week" = the Monday-Sunday cycle that just ended, i.e. the 7 days
+  // immediately before the new week (weekYear) that just started — not a
+  // rolling now-7-days window, to match this app's existing week_year
+  // convention (see getWeekStart).
+  const currentWeekStart = getWeekStart(weekYear)
+  const lastWeekStart = new Date(currentWeekStart.getTime() - 7 * 86_400_000)
+  const lastWeekStartIso = lastWeekStart.toISOString()
+  const currentWeekStartIso = currentWeekStart.toISOString()
+
+  const { data: lastWeekDeeds } = await supabase
+    .from('completed_deeds')
+    .select('player_id')
+    .eq('is_hidden_from_impact_board', false)
+    .gte('completed_at', lastWeekStartIso)
+    .lt('completed_at', currentWeekStartIso)
+
+  const communityDeedsLastWeek = lastWeekDeeds?.length ?? 0
+  const perPlayerDeedsLastWeek = new Map<string, number>()
+  for (const d of lastWeekDeeds ?? []) {
+    perPlayerDeedsLastWeek.set(d.player_id, (perPlayerDeedsLastWeek.get(d.player_id) ?? 0) + 1)
+  }
+
+  // Generated ONCE for this whole batch, not per recipient — two Anthropic
+  // calls total (active + zero variants), reused across every email below.
+  const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+  const templates = anthropicKey
+    ? await generateEncouragementBlurbs(anthropicKey)
+    : {
+        active: { template: FALLBACK_ENCOURAGEMENT_ACTIVE, source: 'fallback' as const, fallback_reason: 'anthropic_key_not_configured' },
+        zero: { template: FALLBACK_ENCOURAGEMENT_ZERO, source: 'fallback' as const, fallback_reason: 'anthropic_key_not_configured' },
+      }
+  if (!anthropicKey) console.error('[game-launch-email] ANTHROPIC_API_KEY not configured, using fallback encouragement lines')
 
   let sent = 0
   let failed = 0
+  let activeVariantUsed = 0
   for (const player of activeRecipients) {
     const firstName = player.first_name ?? player.name ?? player.username ?? null
+    const deedsLastWeek = perPlayerDeedsLastWeek.get(player.id) ?? 0
+    const encouragement = deedsLastWeek > 0
+      ? templates.active.template.replaceAll('{{DEED_COUNT}}', String(deedsLastWeek))
+      : templates.zero.template.replaceAll('{{COMMUNITY_COUNT}}', String(communityDeedsLastWeek))
+    if (deedsLastWeek > 0) activeVariantUsed++
     try {
-      const tpl = newGameLaunchEmail(firstName)
+      const tpl = newGameLaunchEmail(firstName, encouragement)
       const result = await sendEmail({ to: player.email, subject: tpl.subject, html: tpl.html })
       if (result.sent) sent++
       else failed++
@@ -352,7 +464,7 @@ async function sendGameLaunchEmails(supabase: ReturnType<typeof getSupabase>, we
       console.error('[game-launch-email] send failed for', player.email, err)
     }
   }
-  console.log(`[game-launch-email] week ${weekYear}: sent=${sent} failed=${failed} skipped_inactive=${players.length - activeRecipients.length}`)
+  console.log(`[game-launch-email] week ${weekYear}: sent=${sent} failed=${failed} skipped_inactive=${players.length - activeRecipients.length} active_variant=${activeVariantUsed} zero_variant=${activeRecipients.length - activeVariantUsed} community_deeds_last_week=${communityDeedsLastWeek} active_source=${templates.active.source}${templates.active.fallback_reason ? ` (${templates.active.fallback_reason})` : ''} zero_source=${templates.zero.source}${templates.zero.fallback_reason ? ` (${templates.zero.fallback_reason})` : ''}`)
 }
 
 const WIN_LABELS: Record<string, string> = {
@@ -482,7 +594,7 @@ async function recordCompletedDeed(
 ): Promise<number | null> {
   try {
     const { data: u } = await supabase
-      .from('users').select('city, province_state, country_id').eq('id', opts.playerId).maybeSingle()
+      .from('users').select('first_name, city, province_state, country_id').eq('id', opts.playerId).maybeSingle()
     let countryName: string | null = null
     if (u?.country_id) {
       const { data: c } = await supabase.from('countries').select('name').eq('id', u.country_id).maybeSingle()
@@ -511,11 +623,247 @@ async function recordCompletedDeed(
       country_id: u?.country_id ?? null,
       country_name: countryName,
     }).select('id').single()
-    return inserted?.id ?? null
+    const completedDeedId = inserted?.id ?? null
+
+    // Founder Note queueing is best-effort and must never affect the return
+    // value above — completed_deeds already has its row; a failure here
+    // shouldn't make the caller think the whole completion failed. Own
+    // try/catch, separate from the one around the insert.
+    if (completedDeedId != null) {
+      try {
+        await maybeQueueFounderNote(supabase, {
+          completedDeedId,
+          playerId: opts.playerId,
+          deedId: opts.deedId ?? null,
+          quickDeedId: opts.quickDeedId ?? null,
+        })
+      } catch (err) {
+        console.error('[founder-note] queueing failed:', err)
+      }
+    }
+
+    return completedDeedId
   } catch (_e) {
     // swallow — impact recording is never allowed to break gameplay
     return null
   }
+}
+
+/** Rolls founder_note_pct and, if selected and the player hasn't already
+ *  got one queued/sent today, inserts a founder_note_queue row with a
+ *  random 12-24h send delay. Cheap path first (config read, dice roll)
+ *  before the more expensive daily-cap check + deed-text lookup, since the
+ *  roll fails ~95% of the time at the default 5%. */
+async function maybeQueueFounderNote(
+  supabase: ReturnType<typeof getSupabase>,
+  opts: { completedDeedId: number; playerId: string; deedId: number | null; quickDeedId: number | null },
+): Promise<void> {
+  const { data: cfg } = await supabase
+    .from('game_configs').select('config_value').eq('config_key', 'founder_note_pct').maybeSingle()
+  const pct = Math.max(0, Math.min(100, parseInt(cfg?.config_value ?? '5', 10) || 0))
+  if (pct <= 0 || Math.random() * 100 >= pct) return
+
+  // 1/day cap is by calendar date (UTC), not "within the last 24h" — a note
+  // already scheduled OR sent for today's date blocks another one today,
+  // regardless of when it was originally queued.
+  const todayStart = new Date()
+  todayStart.setUTCHours(0, 0, 0, 0)
+  const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000)
+  const todayStartIso = todayStart.toISOString()
+  const tomorrowStartIso = tomorrowStart.toISOString()
+  const { data: existing } = await supabase
+    .from('founder_note_queue')
+    .select('id')
+    .eq('user_id', opts.playerId)
+    .or(
+      `and(scheduled_send_at.gte.${todayStartIso},scheduled_send_at.lt.${tomorrowStartIso}),` +
+      `and(sent_at.gte.${todayStartIso},sent_at.lt.${tomorrowStartIso})`,
+    )
+    .limit(1)
+  if (existing && existing.length > 0) return // 1/day cap already hit
+
+  const deedText = opts.deedId != null
+    ? (await supabase.from('good_deeds').select('deed_text').eq('id', opts.deedId).maybeSingle()).data?.deed_text
+    : opts.quickDeedId != null
+    ? (await supabase.from('quick_deeds').select('label').eq('id', opts.quickDeedId).maybeSingle()).data?.label
+    : null
+  if (!deedText) return // nothing sensible to write a note about
+
+  const delayMs = (12 + Math.random() * 12) * 60 * 60 * 1000 // random(12h, 24h)
+  await supabase.from('founder_note_queue').insert({
+    completed_deed_id: opts.completedDeedId,
+    user_id: opts.playerId,
+    deed_text_snapshot: deedText,
+    scheduled_send_at: new Date(Date.now() + delayMs).toISOString(),
+    status: 'pending',
+  })
+}
+
+// ── Admin Deed Log — GET /admin/deed-log and /admin/deed-log/export ────────
+// Shared filter/shape logic for both endpoints (the export just skips
+// pagination and returns every matching row) so the two can never drift.
+
+interface DeedLogFilters {
+  startIso: string
+  endIso: string
+  playerQuery: string | null
+  category: string | null
+  teamId: number | null
+}
+
+interface DeedLogRow {
+  id: number
+  completed_at: string
+  player_name: string
+  deed_text: string
+  category: string | null
+  team_name: string | null
+  square_type: 'Regular' | 'Quick Tap' | 'Blackout'
+  reversed: boolean
+}
+
+function parseDeedLogFilters(url: URL): DeedLogFilters {
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const weekStartStr = getWeekStart(getCurrentWeekYear()).toISOString().slice(0, 10)
+  const start = url.searchParams.get('start') || weekStartStr
+  const end = url.searchParams.get('end') || todayStr
+  const teamIdParam = url.searchParams.get('team_id')
+  return {
+    startIso: `${start}T00:00:00.000Z`,
+    endIso: `${end}T23:59:59.999Z`,
+    playerQuery: url.searchParams.get('player')?.trim() || null,
+    category: url.searchParams.get('category')?.trim() || null,
+    teamId: teamIdParam ? parseInt(teamIdParam) : null,
+  }
+}
+
+/** Builds the base completed_deeds query for these filters — everything
+ *  except pagination, which callers apply (or don't, for the export). A
+ *  free-text player filter resolves to a set of player_ids first, since
+ *  PostgREST can't filter rows by a joined table's ilike match directly.
+ *  Returns `{ query }` rather than the bare builder — the builder is itself
+ *  thenable, so an async function returning it directly gets silently
+ *  auto-awaited/flattened by JS instead of handing back the builder. */
+async function buildDeedLogQuery(supabase: ReturnType<typeof getSupabase>, filters: DeedLogFilters) {
+  let query = supabase
+    .from('completed_deeds')
+    .select(
+      'id, completed_at, category, source_type, deed_id, quick_deed_id, card_id, player_id, team_id_at_completion, is_hidden_from_impact_board, users:player_id(first_name, last_name, username), teams:team_id_at_completion(team_name)',
+      { count: 'exact' },
+    )
+    .gte('completed_at', filters.startIso)
+    .lte('completed_at', filters.endIso)
+    .order('completed_at', { ascending: false })
+
+  if (filters.category) query = query.eq('category', filters.category)
+  if (filters.teamId != null) query = query.eq('team_id_at_completion', filters.teamId)
+
+  if (filters.playerQuery) {
+    const q = filters.playerQuery.replace(/[%,]/g, '')
+    const { data: matches } = await supabase
+      .from('users')
+      .select('id')
+      .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,username.ilike.%${q}%`)
+    const ids = (matches ?? []).map((m) => m.id)
+    // No matches → force an empty result rather than dropping the filter.
+    query = query.in('player_id', ids.length > 0 ? ids : ['__no_match__'])
+  }
+
+  return { query }
+}
+
+/** Resolves deed text, the blackout/regular split (player_cards.game_mode),
+ *  and display fields for a page of raw completed_deeds rows. Batched, not
+ *  per-row — cost is independent of how many rows share the same deed.
+ *
+ *  Deed text resolves by which ID column is populated (deed_id ->
+ *  good_deeds, quick_deed_id -> quick_deeds), NOT by source_type: a
+ *  'quick_action' row can carry either — POST /quick-taps/:deedId/tap lets
+ *  a player quick-tap one of their personally-chosen good_deeds-eligible
+ *  deeds (deed_id set, quick_deed_id null), while POST /quick-deeds/:id/tap
+ *  is the separate admin-configured quick_deeds button set (quick_deed_id
+ *  set). Square type ('Quick Tap' vs 'Regular'/'Blackout') still keys off
+ *  source_type — both quick-tap flows are genuinely "Quick Tap" from the
+ *  player's perspective regardless of which table backs the deed. */
+async function shapeDeedLogRows(supabase: ReturnType<typeof getSupabase>, raw: any[]): Promise<DeedLogRow[]> {
+  if (raw.length === 0) return []
+
+  const goodDeedIds = [...new Set(raw.filter((r) => r.deed_id != null).map((r) => r.deed_id))]
+  const quickDeedIds = [...new Set(raw.filter((r) => r.quick_deed_id != null).map((r) => r.quick_deed_id))]
+  const cardIds = [...new Set(raw.filter((r) => r.card_id != null).map((r) => r.card_id))]
+
+  const [goodDeedsRes, quickDeedsRes, cardsRes] = await Promise.all([
+    goodDeedIds.length > 0 ? supabase.from('good_deeds').select('id, deed_text').in('id', goodDeedIds) : Promise.resolve({ data: [] as { id: number; deed_text: string }[] }),
+    quickDeedIds.length > 0 ? supabase.from('quick_deeds').select('id, label').in('id', quickDeedIds) : Promise.resolve({ data: [] as { id: number; label: string }[] }),
+    cardIds.length > 0 ? supabase.from('player_cards').select('id, game_mode').in('id', cardIds) : Promise.resolve({ data: [] as { id: number; game_mode: string }[] }),
+  ])
+  const deedTextById = new Map((goodDeedsRes.data ?? []).map((d) => [d.id, d.deed_text]))
+  const quickLabelById = new Map((quickDeedsRes.data ?? []).map((d) => [d.id, d.label]))
+  const gameModeByCard = new Map((cardsRes.data ?? []).map((c) => [c.id, c.game_mode]))
+
+  return raw.map((r) => {
+    const deedText = r.deed_id != null
+      ? deedTextById.get(r.deed_id) ?? '(deleted deed)'
+      : r.quick_deed_id != null
+      ? quickLabelById.get(r.quick_deed_id) ?? '(deleted quick deed)'
+      : '(unknown deed)'
+    const squareType: DeedLogRow['square_type'] = r.source_type === 'quick_action'
+      ? 'Quick Tap'
+      : (gameModeByCard.get(r.card_id) === 'blackout' ? 'Blackout' : 'Regular')
+    const u = r.users
+    const playerName = u ? ([u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Unknown') : 'Unknown'
+    return {
+      id: r.id,
+      completed_at: r.completed_at,
+      player_name: playerName,
+      deed_text: deedText,
+      category: r.category,
+      team_name: r.teams?.team_name ?? null,
+      square_type: squareType,
+      reversed: !!r.is_hidden_from_impact_board,
+    }
+  })
+}
+
+/** Loops the filtered query in batches of 1000 (PostgREST's per-request cap)
+ *  until exhausted — the export has no pagination cap, so a single .range()
+ *  call would silently truncate a large result set. */
+async function fetchAllDeedLogRows(supabase: ReturnType<typeof getSupabase>, filters: DeedLogFilters): Promise<DeedLogRow[]> {
+  const BATCH = 1000
+  const all: any[] = []
+  for (let offset = 0; ; offset += BATCH) {
+    const { query } = await buildDeedLogQuery(supabase, filters)
+    const { data, error } = await query.range(offset, offset + BATCH - 1)
+    if (error) throw error
+    all.push(...(data ?? []))
+    if (!data || data.length < BATCH) break
+  }
+  return shapeDeedLogRows(supabase, all)
+}
+
+function csvField(value: string | number | boolean | null | undefined): string {
+  const s = String(value ?? '')
+  if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+    return '"' + s.replace(/"/g, '""') + '"'
+  }
+  return s
+}
+
+function deedLogRowsToCsv(rows: DeedLogRow[]): string {
+  const header = ['Player', 'Deed', 'Category', 'Completed At', 'Team', 'Square Type', 'Reversed']
+  const lines = [header.join(',')]
+  for (const r of rows) {
+    lines.push([
+      csvField(r.player_name),
+      csvField(r.deed_text),
+      csvField(r.category),
+      csvField(r.completed_at),
+      csvField(r.team_name),
+      csvField(r.square_type),
+      csvField(r.reversed ? 'Yes' : 'No'),
+    ].join(','))
+  }
+  return lines.join('\r\n')
 }
 
 // Trust gating (Curt): untrusted players are capped at a table-driven number
@@ -3121,7 +3469,7 @@ Deno.serve(async (req: Request) => {
       requireAdmin(authUser)
       const { data } = await supabase
         .from('users')
-        .select('id, email, username, name, first_name, last_name, role, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified, is_trusted, is_test')
+        .select('id, email, username, name, first_name, last_name, role, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified, is_trusted, is_test, created_at')
         .order('player_number', { ascending: true })
       return jsonResponse({
         members: (data ?? []).map((u) => ({
@@ -3143,6 +3491,7 @@ Deno.serve(async (req: Request) => {
           email_verified: !!u.email_verified,
           is_trusted: !!u.is_trusted,
           is_test: !!u.is_test,
+          created_at: u.created_at ?? null,
         })),
       })
     }
@@ -3644,42 +3993,26 @@ Deno.serve(async (req: Request) => {
       // If the admin left "Additional Message" blank, offer to have Claude
       // write one from the prize/game type/theme — purely a nice-to-have
       // flourish, so any failure (no key, bad response) just falls back to
-      // no extra message rather than blocking the send.
+      // no extra message rather than blocking the send. Network call, 5s
+      // timeout, and thinking-disabled behavior come from the shared
+      // callAnthropicForText helper.
       let effectiveExtraMessage = extra_message
       if (!effectiveExtraMessage?.trim()) {
         const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
         if (anthropicKey) {
-          try {
-            const { data: promptCfg } = await supabase
-              .from('game_configs').select('config_value').eq('config_key', 'game_announcement_prompt_template').maybeSingle()
-            const template = promptCfg?.config_value?.trim() || DEFAULT_ANNOUNCE_PROMPT_TEMPLATE
-            const prompt = template
-              .replaceAll('{{PRIZE}}', prize)
-              .replaceAll('{{GAME_TYPE}}', game_type)
-              .replaceAll('{{THEME}}', theme || 'none set this week')
+          const { data: promptCfg } = await supabase
+            .from('game_configs').select('config_value').eq('config_key', 'game_announcement_prompt_template').maybeSingle()
+          const template = promptCfg?.config_value?.trim() || DEFAULT_ANNOUNCE_PROMPT_TEMPLATE
+          const prompt = template
+            .replaceAll('{{PRIZE}}', prize)
+            .replaceAll('{{GAME_TYPE}}', game_type)
+            .replaceAll('{{THEME}}', theme || 'none set this week')
 
-            const claudeResp = await fetch('https://api.anthropic.com/v1/messages', {
-              method: 'POST',
-              headers: {
-                'content-type': 'application/json',
-                'x-api-key': anthropicKey,
-                'anthropic-version': '2023-06-01',
-              },
-              body: JSON.stringify({
-                model: 'claude-sonnet-5',
-                max_tokens: 300,
-                messages: [{ role: 'user', content: prompt }],
-              }),
-            })
-            if (claudeResp.ok) {
-              const claudeJson = await claudeResp.json()
-              const text: string = claudeJson?.content?.[0]?.text ?? ''
-              if (text.trim()) effectiveExtraMessage = text.trim()
-            } else {
-              console.error('[announce-game] Claude API call failed', claudeResp.status, await claudeResp.text().catch(() => ''))
-            }
-          } catch (err) {
-            console.error('[announce-game] AI extra-message generation failed', err)
+          const result = await callAnthropicForText(anthropicKey, { prompt, maxTokens: 300 })
+          if (result.ok) {
+            effectiveExtraMessage = result.text
+          } else {
+            console.error('[announce-game] AI extra-message generation failed:', result.reason)
           }
         }
       }
@@ -3706,6 +4039,56 @@ Deno.serve(async (req: Request) => {
       }
 
       return jsonResponse({ success: true, sent, failed, ai_generated_extra_message: effectiveExtraMessage !== extra_message })
+    }
+
+    // ── GET /admin/test-encouragement-blurb ────────────────────────────────────
+    // Dry run for the new-game-launch encouragement blurbs (see
+    // ENCOURAGEMENT_PROMPT_ACTIVE / ENCOURAGEMENT_PROMPT_ZERO /
+    // generateEncouragementBlurbs above). Generates each variant 5-10 times
+    // (default 8, override with ?count=) so Curt can review tone, word
+    // count, and variety before it's live. {{DEED_COUNT}} is substituted
+    // with a representative placeholder (3) since a dry run has no specific
+    // player; {{COMMUNITY_COUNT}} uses this week's real last-week community
+    // total. Never touches recipients, never sends anything, never claims
+    // game_launch_notifications.
+    if (method === 'GET' && path === '/admin/test-encouragement-blurb') {
+      requireAdmin(authUser)
+      const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+      if (!anthropicKey) {
+        return jsonResponse({ dry_run: true, error: 'ANTHROPIC_API_KEY not configured' })
+      }
+      const countParam = parseInt(url.searchParams.get('count') ?? '8')
+      const runs = Number.isFinite(countParam) ? Math.min(Math.max(countParam, 5), 10) : 8
+
+      const currentWeekStart = getWeekStart(getCurrentWeekYear())
+      const lastWeekStart = new Date(currentWeekStart.getTime() - 7 * 86_400_000)
+      const { count: communityDeedsLastWeek } = await supabase
+        .from('completed_deeds')
+        .select('id', { count: 'exact', head: true })
+        .eq('is_hidden_from_impact_board', false)
+        .gte('completed_at', lastWeekStart.toISOString())
+        .lt('completed_at', currentWeekStart.toISOString())
+      const EXAMPLE_DEED_COUNT = 3
+
+      const results = []
+      for (let i = 0; i < runs; i++) {
+        const { active, zero } = await generateEncouragementBlurbs(anthropicKey)
+        for (const [variant, tpl, token, value] of [
+          ['active', active, '{{DEED_COUNT}}', EXAMPLE_DEED_COUNT] as const,
+          ['zero', zero, '{{COMMUNITY_COUNT}}', communityDeedsLastWeek ?? 0] as const,
+        ]) {
+          const text = tpl.template.replaceAll(token, String(value))
+          results.push({
+            run: i + 1,
+            variant,
+            word_count: text.trim() ? text.trim().split(/\s+/).length : 0,
+            text,
+            source: tpl.source,
+            fallback_reason: tpl.fallback_reason ?? null,
+          })
+        }
+      }
+      return jsonResponse({ dry_run: true, example_deed_count: EXAMPLE_DEED_COUNT, community_deeds_last_week: communityDeedsLastWeek ?? 0, results })
     }
 
     // ── POST /admin/void-cell ─────────────────────────────────────────────────
@@ -4088,6 +4471,29 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    // ── GET /admin/weekly-updates ─────────────────────────────────────────────
+    // History of weekly member update emails actually sent, most recent first —
+    // written by weekly-member-update's send loop, one row per delivered email.
+    if (method === 'GET' && path === '/admin/weekly-updates') {
+      requireAdmin(authUser)
+      const { data: logs } = await supabase
+        .from('weekly_update_log')
+        .select('id, player_id, sent_at, week_of, message_snapshot, users!inner(first_name, name, username, email)')
+        .order('sent_at', { ascending: false })
+        .limit(50)
+      return jsonResponse({
+        logs: (logs ?? []).map((l: any) => ({
+          id: l.id,
+          player_id: l.player_id,
+          sent_at: l.sent_at,
+          week_of: l.week_of,
+          message_snapshot: l.message_snapshot,
+          name: l.users?.first_name ?? l.users?.name ?? l.users?.username ?? null,
+          email: l.users?.email ?? null,
+        })),
+      })
+    }
+
     // ── GET /admin/draw-leaderboard ───────────────────────────────────────────
     // Per-player draw-entry data for the admin leaderboard (individual only).
     if (method === 'GET' && path === '/admin/draw-leaderboard') {
@@ -4174,6 +4580,77 @@ Deno.serve(async (req: Request) => {
           reversed: !!d.is_hidden_from_impact_board,
         })),
       })
+    }
+
+    // ── GET /admin/deed-log ──────────────────────────────────────────────────
+    // Cross-player audit log: every completed deed across the whole game,
+    // filterable by date range (default: current week so far), player name,
+    // category, and team. Paginated 50/page, newest first — see
+    // /admin/deed-log/export for the uncapped CSV version of this same query.
+    if (method === 'GET' && path === '/admin/deed-log') {
+      requireAdmin(authUser)
+      const filters = parseDeedLogFilters(url)
+      const pageParam = parseInt(url.searchParams.get('page') ?? '0')
+      const page = Number.isFinite(pageParam) && pageParam >= 0 ? pageParam : 0
+      const pageSize = 50
+
+      const { query } = await buildDeedLogQuery(supabase, filters)
+      const { data, count, error } = await query.range(page * pageSize, page * pageSize + pageSize - 1)
+      if (error) throw error
+
+      const rows = await shapeDeedLogRows(supabase, data ?? [])
+      return jsonResponse({ rows, total: count ?? rows.length, page, page_size: pageSize })
+    }
+
+    // ── GET /admin/deed-log/export ───────────────────────────────────────────
+    // Same filters as /admin/deed-log, no pagination cap — streams the full
+    // matching result set as a CSV download.
+    if (method === 'GET' && path === '/admin/deed-log/export') {
+      requireAdmin(authUser)
+      const filters = parseDeedLogFilters(url)
+      const rows = await fetchAllDeedLogRows(supabase, filters)
+      const csv = deedLogRowsToCsv(rows)
+      return new Response(csv, {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="deed-log-${filters.startIso.slice(0, 10)}-to-${filters.endIso.slice(0, 10)}.csv"`,
+        },
+      })
+    }
+
+    // ── GET /admin/founder-notes ──────────────────────────────────────────────
+    // Simple log view of founder_note_queue (see maybeQueueFounderNote above
+    // and the hourly send-founder-notes function) — status, scheduled/sent
+    // times, and the generated text, newest-scheduled first. Paginated
+    // 50/page, same shape as the Deed Log tab.
+    if (method === 'GET' && path === '/admin/founder-notes') {
+      requireAdmin(authUser)
+      const pageParam = parseInt(url.searchParams.get('page') ?? '0')
+      const page = Number.isFinite(pageParam) && pageParam >= 0 ? pageParam : 0
+      const pageSize = 50
+
+      const { data, count, error } = await supabase
+        .from('founder_note_queue')
+        .select('id, deed_text_snapshot, generated_message, scheduled_send_at, sent_at, status, users:user_id(first_name, last_name, username)', { count: 'exact' })
+        .order('scheduled_send_at', { ascending: false })
+        .range(page * pageSize, page * pageSize + pageSize - 1)
+      if (error) throw error
+
+      const rows = (data ?? []).map((r: any) => {
+        const u = r.users
+        return {
+          id: r.id,
+          player_name: u ? ([u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Unknown') : 'Unknown',
+          deed_text_snapshot: r.deed_text_snapshot,
+          generated_message: r.generated_message,
+          scheduled_send_at: r.scheduled_send_at,
+          sent_at: r.sent_at,
+          status: r.status,
+        }
+      })
+      return jsonResponse({ rows, total: count ?? rows.length, page, page_size: pageSize })
     }
 
     // ── POST /admin/reverse-deed ──────────────────────────────────────────────

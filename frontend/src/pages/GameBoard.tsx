@@ -139,26 +139,20 @@ const BlackoutTile: React.FC<{
             >
               <p className="text-base font-black text-white text-center leading-tight">Reveal this square?</p>
               <div className="flex flex-wrap gap-2 items-center justify-center mt-1 w-full">
-                <div
-                  role="button"
-                  tabIndex={0}
+                <button
+                  type="button"
                   className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-emerald-500 active:bg-emerald-400 rounded-xl text-white font-bold text-base cursor-pointer select-none"
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingReveal(false); onReveal(); }}
-                  onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingReveal(false); onReveal(); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setPendingReveal(false); onReveal(); } }}
+                  onClick={(e) => { e.stopPropagation(); setPendingReveal(false); onReveal(); }}
                 >
                   ✓ Yes
-                </div>
-                <div
-                  role="button"
-                  tabIndex={0}
+                </button>
+                <button
+                  type="button"
                   className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-rose-600 active:bg-rose-500 rounded-xl text-white font-bold text-base cursor-pointer select-none"
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingReveal(false); }}
-                  onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingReveal(false); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setPendingReveal(false); }}
+                  onClick={(e) => { e.stopPropagation(); setPendingReveal(false); }}
                 >
                   ✕ No
-                </div>
+                </button>
               </div>
             </div>
           </div>
@@ -222,26 +216,20 @@ const BlackoutTile: React.FC<{
               <p className="text-base font-black text-white text-center leading-tight">Mark this square?</p>
               <p className="text-xs text-indigo-200 text-center leading-snug line-clamp-2">{cell.deed_text}</p>
               <div className="flex flex-wrap gap-2 items-center justify-center mt-1 w-full">
-                <div
-                  role="button"
-                  tabIndex={0}
+                <button
+                  type="button"
                   className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-emerald-500 active:bg-emerald-400 rounded-xl text-white font-bold text-base cursor-pointer select-none"
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingComplete(false); onComplete(); }}
-                  onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingComplete(false); onComplete(); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setPendingComplete(false); onComplete(); } }}
+                  onClick={(e) => { e.stopPropagation(); setPendingComplete(false); onComplete(); }}
                 >
                   ✓ Yes
-                </div>
-                <div
-                  role="button"
-                  tabIndex={0}
+                </button>
+                <button
+                  type="button"
                   className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-rose-600 active:bg-rose-500 rounded-xl text-white font-bold text-base cursor-pointer select-none"
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingComplete(false); }}
-                  onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingComplete(false); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setPendingComplete(false); }}
+                  onClick={(e) => { e.stopPropagation(); setPendingComplete(false); }}
                 >
                   ✕ No
-                </div>
+                </button>
               </div>
             </div>
           </div>
@@ -257,26 +245,20 @@ const BlackoutTile: React.FC<{
             >
               <p className="text-base font-black text-white text-center leading-tight">Pass on this square?</p>
               <div className="flex flex-wrap gap-2 items-center justify-center mt-1 w-full">
-                <div
-                  role="button"
-                  tabIndex={0}
+                <button
+                  type="button"
                   className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-emerald-500 active:bg-emerald-400 rounded-xl text-white font-bold text-base cursor-pointer select-none"
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingPass(false); onPass(); }}
-                  onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingPass(false); onPass(); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setPendingPass(false); onPass(); } }}
+                  onClick={(e) => { e.stopPropagation(); setPendingPass(false); onPass(); }}
                 >
                   ✓ Yes
-                </div>
-                <div
-                  role="button"
-                  tabIndex={0}
+                </button>
+                <button
+                  type="button"
                   className="flex-1 min-w-[70px] flex items-center justify-center h-11 px-4 bg-rose-600 active:bg-rose-500 rounded-xl text-white font-bold text-base cursor-pointer select-none"
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setPendingPass(false); }}
-                  onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); setPendingPass(false); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setPendingPass(false); }}
+                  onClick={(e) => { e.stopPropagation(); setPendingPass(false); }}
                 >
                   ✕ No
-                </div>
+                </button>
               </div>
             </div>
           </div>
@@ -292,7 +274,7 @@ const BlackoutTile: React.FC<{
 
 const GameBoard: React.FC = () => {
   const navigate = useNavigate();
-  const { user, loading: authLoading, logout } = useAuth();
+  const { user, loading: authLoading, logout, isAdmin } = useAuth();
   const [loading, setLoading] = useState(true);
   const [card, setCard] = useState<CardData | null>(null);
   const [showModePicker, setShowModePicker] = useState(false);
@@ -1115,17 +1097,14 @@ const GameBoard: React.FC = () => {
             )}
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="bg-amber-500/20 border border-amber-500/30 text-amber-300 px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1.5">
-              <Wallet className="w-3.5 h-3.5" />
-              {wallet?.balance?.toFixed(2) || '0.00'} Bucks
-            </div>
             <Button
               size="sm"
               onClick={() => navigate('/wallet')}
-              className="bg-amber-500 hover:bg-amber-600 text-black font-bold text-xs"
+              title="Wallet — tap to add funds"
+              className="bg-amber-500 hover:bg-amber-600 text-black font-bold text-xs rounded-full px-3 py-1.5"
             >
-              <DollarSign className="w-3.5 h-3.5 mr-0.5" />
-              Add Funds
+              <Wallet className="w-3.5 h-3.5 mr-1" />
+              {wallet?.balance?.toFixed(2) || '0.00'} Bucks
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1203,16 +1182,18 @@ const GameBoard: React.FC = () => {
               <Printer className="w-3.5 h-3.5 mr-0.5" />
               <span className="hidden sm:inline">Print Card</span>
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => navigate('/admin')}
-              className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
-              title="Admin Panel"
-            >
-              <Shield className="w-3.5 h-3.5 mr-0.5" />
-              <span className="hidden sm:inline">Admin</span>
-            </Button>
+            {isAdmin && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => navigate('/admin')}
+                className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
+                title="Admin Panel"
+              >
+                <Shield className="w-3.5 h-3.5 mr-0.5" />
+                <span className="hidden sm:inline">Admin</span>
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -1409,7 +1390,7 @@ const GameBoard: React.FC = () => {
             <button
               onClick={handleStartNewGame}
               disabled={actionLoading}
-              className="text-[11px] font-bold text-slate-900 underline underline-offset-2 hover:text-slate-700 flex-shrink-0 disabled:opacity-50"
+              className="text-[11px] font-bold text-slate-900 underline underline-offset-2 hover:text-slate-700 flex-shrink-0 disabled:opacity-50 p-2 -m-2"
             >
               Start Over
             </button>

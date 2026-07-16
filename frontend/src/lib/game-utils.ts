@@ -1197,6 +1197,52 @@ export async function adminGetCompletedDeeds(playerId: string): Promise<{ deeds:
   return apiClient.get(`/game/admin/completed-deeds?player_id=${encodeURIComponent(playerId)}`);
 }
 
+// ── Admin: Deed Log ──────────────────────────────────────────────────────
+
+export interface DeedLogRow {
+  id: number;
+  completed_at: string;
+  player_name: string;
+  deed_text: string;
+  category: string | null;
+  team_name: string | null;
+  square_type: 'Regular' | 'Quick Tap' | 'Blackout';
+  reversed: boolean;
+}
+
+export interface DeedLogFilters {
+  start?: string;
+  end?: string;
+  player?: string;
+  category?: string;
+  teamId?: number;
+}
+
+function deedLogQueryString(filters: DeedLogFilters, page?: number): string {
+  const params = new URLSearchParams();
+  if (filters.start) params.set('start', filters.start);
+  if (filters.end) params.set('end', filters.end);
+  if (filters.player) params.set('player', filters.player);
+  if (filters.category) params.set('category', filters.category);
+  if (filters.teamId != null) params.set('team_id', String(filters.teamId));
+  if (page != null) params.set('page', String(page));
+  return params.toString();
+}
+
+export async function adminGetDeedLog(
+  filters: DeedLogFilters,
+  page: number,
+): Promise<{ rows: DeedLogRow[]; total: number; page: number; page_size: number }> {
+  return apiClient.get(`/game/admin/deed-log?${deedLogQueryString(filters, page)}`);
+}
+
+/** Fetches the CSV export as text (via the authenticated apiClient, since
+ *  the endpoint requires an admin Bearer token — a plain <a href> can't
+ *  attach that) and returns it for the caller to trigger a Blob download. */
+export async function adminExportDeedLogCsv(filters: DeedLogFilters): Promise<string> {
+  return apiClient.get(`/game/admin/deed-log/export?${deedLogQueryString(filters)}`);
+}
+
 export async function adminReverseDeed(completedDeedId: number, reason?: string): Promise<{ success: boolean; deed_entry_reversed: boolean; bingo_bonus_reversed: boolean }> {
   return apiClient.post('/game/admin/reverse-deed', { completed_deed_id: completedDeedId, reason });
 }

@@ -282,21 +282,18 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Select active members, least-recently-contacted first ──────────────
-    // "Active" mirrors the 4-week inactivity policy already enforced for the
-    // weekly game-launch email (sendGameLaunchEmails in game/index.ts) — out
-    // of respect for a player's inbox once they've stopped playing.
+    // Out of respect for a player's inbox once they've stopped playing —
+    // "active" is the same is_active flag the generate-card endpoint
+    // maintains (inactive_days_threshold config, default 30 days).
     const { data: allUsers, error: usersErr } = await supabase
       .from('users')
-      .select('id, email, first_name, name, username, last_valid_deed_date, created_at, last_sent_at')
+      .select('id, email, first_name, name, username, last_sent_at')
       .eq('email_verified', true)
       .eq('role', 'user')
+      .eq('is_active', true)
     if (usersErr) throw usersErr
 
-    const fourWeeksAgo = new Date(Date.now() - 28 * 86_400_000).toISOString()
-    const active = (allUsers ?? []).filter((u) => {
-      const ref = u.last_valid_deed_date ?? u.created_at
-      return !ref || ref >= fourWeeksAgo
-    })
+    const active = [...(allUsers ?? [])]
     active.sort((a, b) => {
       if (!a.last_sent_at && !b.last_sent_at) return 0
       if (!a.last_sent_at) return -1

@@ -61,9 +61,17 @@ Deno.serve(async (req: Request) => {
     for (const row of rows) {
       try {
         const { data: player } = await supabase
-          .from('users').select('email, first_name, name, username').eq('id', row.user_id).maybeSingle()
+          .from('users').select('email, first_name, name, username, is_active').eq('id', row.user_id).maybeSingle()
         if (!player?.email) {
           await markFailed(supabase, row.id, 'player_email_missing')
+          failed++
+          continue
+        }
+        // Queued when the deed was completed, but the send is delayed
+        // (scheduled_send_at) — re-check activity at send time so a player
+        // who's since gone inactive doesn't get an email out of the blue.
+        if (!player.is_active) {
+          await markFailed(supabase, row.id, 'player_inactive')
           failed++
           continue
         }

@@ -206,6 +206,7 @@ const AdminPanel: React.FC = () => {
   const [members, setMembers] = useState<MemberItem[]>([]);
   const [memberCountryFilter, setMemberCountryFilter] = useState('all');
   const [memberStateFilter, setMemberStateFilter] = useState('all');
+  const [memberActiveFilter, setMemberActiveFilter] = useState('all');
 
   // Player management state
   const [countries, setCountries] = useState<CountryOption[]>([]);
@@ -1036,7 +1037,7 @@ const AdminPanel: React.FC = () => {
     setWeeklyResetLoading(true);
     try {
       const res = await adminTriggerWeeklyReset();
-      toast.success(`New week emails sent: ${res.sent} delivered, ${res.failed} failed.`);
+      toast.success(res.draw.already_ran ? 'Weekly draw already ran for this week.' : `Weekly draw run for ${res.week}${res.draw.winner_name ? ` — winner: ${res.draw.winner_name}` : ' — no winner selected'}.`);
     } catch (err: any) {
       toast.error(err?.message || 'Failed to send weekly emails.');
     } finally {
@@ -1471,6 +1472,9 @@ const AdminPanel: React.FC = () => {
     if (memberStateFilter !== 'all') {
       result = result.filter((m) => (m.province_state ?? '').toLowerCase() === memberStateFilter.toLowerCase());
     }
+    if (memberActiveFilter !== 'all') {
+      result = result.filter((m) => m.is_active === (memberActiveFilter === 'active'));
+    }
     return result;
   };
 
@@ -1489,6 +1493,7 @@ const AdminPanel: React.FC = () => {
     const filterParts: string[] = [];
     if (memberCountryFilter !== 'all') filterParts.push(memberCountryFilter);
     if (memberStateFilter !== 'all') filterParts.push(memberStateFilter);
+    if (memberActiveFilter !== 'all') filterParts.push(memberActiveFilter === 'active' ? 'Active only' : 'Inactive only');
     const filterDesc = filterParts.length > 0 ? filterParts.join(' · ') : 'All players';
     const rows = list.map((m) => `
       <tr>
@@ -1939,6 +1944,16 @@ const AdminPanel: React.FC = () => {
                     </SelectContent>
                   </Select>
                 )}
+                <Select value={memberActiveFilter} onValueChange={setMemberActiveFilter}>
+                  <SelectTrigger className="w-32 h-8 text-sm">
+                    <SelectValue placeholder="All players" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All players</SelectItem>
+                    <SelectItem value="active">Active only</SelectItem>
+                    <SelectItem value="inactive">Inactive only</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Button variant="outline" size="sm" onClick={handlePrintMembers} disabled={members.length === 0}>
                   <Printer className="w-4 h-4 mr-1" /> Print / PDF
                 </Button>
@@ -4452,19 +4467,19 @@ const AdminPanel: React.FC = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Mail className="w-5 h-5 text-sky-500" />
-              Weekly New Card Email
+              Weekly Draw Run
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-slate-500">
-              Sends a "your new card is ready" email to all verified players. This runs automatically every Monday at 8am UTC. Use the button below to send it manually at any time.
+              Runs the weekly prize draw and emails the winner. This runs automatically every Monday at 8am UTC (safe to re-run — it's a no-op if the draw already ran this week). The "new card is ready" email is sent separately and automatically, the first time any player loads a card for the new week.
             </p>
             <Button
               onClick={handleWeeklyReset}
               disabled={weeklyResetLoading}
               className="bg-sky-600 hover:bg-sky-700 text-white font-bold"
             >
-              {weeklyResetLoading ? 'Sending…' : 'Send Now to All Players'}
+              {weeklyResetLoading ? 'Running…' : 'Run Draw Now'}
             </Button>
           </CardContent>
         </Card>

@@ -568,7 +568,7 @@ export async function getMyTeam(): Promise<{ team: MyTeamData | null }> {
   return apiClient.get<{ team: MyTeamData | null }>('/game/my-team');
 }
 
-export async function adminTriggerWeeklyReset(): Promise<{ sent: number; failed: number; week: string }> {
+export async function adminTriggerWeeklyReset(): Promise<{ week: string; draw: { winner_name: string | null; already_ran: boolean } }> {
   return apiClient.post('/weekly-reset', {});
 }
 

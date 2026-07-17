@@ -5,33 +5,6 @@ import { runWeeklyDraw } from '../_shared/draw.ts'
 
 const SITE_URL = 'https://havagr8day.com'
 
-function newWeekEmail(name: string | null, weekLabel: string): { subject: string; html: string } {
-  const hi = name && name.trim() ? name.trim() : 'there'
-  return {
-    subject: `🎯 Your new Havagr8day Bingo card is ready — ${weekLabel}`,
-    html: `
-    <div style="background:#f1f5f9;padding:24px 0;font-family:Arial,Helvetica,sans-serif">
-      <div style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08)">
-        <div style="background:#4FB3E8;padding:20px 24px;text-align:center">
-          <span style="font-size:22px;font-weight:900;color:#ffffff;letter-spacing:0.5px">Havagr8day Bingo</span>
-        </div>
-        <div style="padding:28px 24px;color:#1e293b;font-size:15px;line-height:1.6">
-          <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">New week, new card, ${hi}!</h2>
-          <p>A fresh bingo card is waiting for you. Complete acts of kindness to mark your squares and go for Bingo!</p>
-          <p style="text-align:center;margin:24px 0">
-            <a href="${SITE_URL}/game" style="display:inline-block;background:#DC2626;color:#fff;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none;border:2px solid #FCD34D">Play This Week</a>
-          </p>
-          <p style="color:#64748b;font-size:13px">Have a gr8 day — and make someone else's gr8 too.</p>
-        </div>
-        <div style="padding:16px 24px;border-top:1px solid #e2e8f0;color:#94a3b8;font-size:12px;text-align:center">
-          Spreading kindness one good deed at a time.<br/>
-          <a href="${SITE_URL}" style="color:#6366F1;text-decoration:none">havagr8day.com</a>
-        </div>
-      </div>
-    </div>`,
-  }
-}
-
 function drawWinnerEmail(name: string | null, weekLabel: string): { subject: string; html: string } {
   const hi = name && name.trim() ? name.trim() : 'there'
   return {
@@ -139,33 +112,15 @@ Deno.serve(async (req: Request) => {
       await sendEmail({ to: draw.winner_email, subject: tpl.subject, html: tpl.html })
     }
 
-    // ── Send new-week emails to all players ───────────────────────────────────
-    const { data: players, error } = await supabase
-      .from('users')
-      .select('email, first_name, name, username')
-      .eq('email_verified', true)
-      .eq('role', 'user')
-
-    if (error) throw error
-
+    // The bulk "new card is ready" email lived here until it was replaced by
+    // sendGameLaunchEmails (game/index.ts) — the per-player-triggered,
+    // AI-personalized version guarded by game_launch_notifications. Keeping
+    // both sent every active player two emails at week rollover; this
+    // endpoint's job now is just the weekly draw + winner notification above.
     const weekLabel = getCurrentWeekLabel()
-    let sent = 0
-    let failed = 0
-
-    if (players && players.length > 0) {
-      for (const player of players) {
-        const displayName = player.first_name ?? player.name ?? player.username ?? null
-        const tpl = newWeekEmail(displayName, weekLabel)
-        const result = await sendEmail({ to: player.email, subject: tpl.subject, html: tpl.html })
-        if (result.sent) sent++
-        else failed++
-      }
-    }
 
     return jsonResponse({
       success: true,
-      sent,
-      failed,
       week: weekLabel,
       draw: {
         week_year: draw.week_year,

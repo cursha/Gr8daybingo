@@ -542,27 +542,16 @@ async function generateEncouragementBlurbs(
 async function sendGameLaunchEmails(supabase: ReturnType<typeof getSupabase>, weekYear: string): Promise<void> {
   const { data: players, error: playersErr } = await supabase
     .from('users')
-    .select('id, email, first_name, name, username, last_valid_deed_date, created_at')
+    .select('id, email, first_name, name, username')
     .eq('email_verified', true)
     .eq('role', 'user')
+    .eq('is_active', true)
 
   if (playersErr) {
     console.error('[game-launch-email] failed to load recipients', playersErr)
     return
   }
   if (!players || players.length === 0) return
-
-  // Honour the email-usage notice on the registration page: a player who
-  // hasn't played in 4 weeks stops getting the weekly announcement, out of
-  // respect for their inbox. Measured from their last real deed, or from
-  // signup if they've never played yet (so brand-new players still get a
-  // few weeks of nudges before falling off the list).
-  const fourWeeksAgo = new Date(Date.now() - 28 * 86_400_000).toISOString()
-  const activeRecipients = players.filter((p) => {
-    const referenceDate = p.last_valid_deed_date ?? p.created_at
-    return !referenceDate || referenceDate >= fourWeeksAgo
-  })
-  if (activeRecipients.length === 0) return
 
   // "Last week" = the Monday-Sunday cycle that just ended, i.e. the 7 days
   // immediately before the new week (weekYear) that just started — not a
@@ -600,7 +589,7 @@ async function sendGameLaunchEmails(supabase: ReturnType<typeof getSupabase>, we
   let sent = 0
   let failed = 0
   let activeVariantUsed = 0
-  for (const player of activeRecipients) {
+  for (const player of players) {
     const firstName = player.first_name ?? player.name ?? player.username ?? null
     const deedsLastWeek = perPlayerDeedsLastWeek.get(player.id) ?? 0
     const encouragement = deedsLastWeek > 0
@@ -617,7 +606,7 @@ async function sendGameLaunchEmails(supabase: ReturnType<typeof getSupabase>, we
       console.error('[game-launch-email] send failed for', player.email, err)
     }
   }
-  console.log(`[game-launch-email] week ${weekYear}: sent=${sent} failed=${failed} skipped_inactive=${players.length - activeRecipients.length} active_variant=${activeVariantUsed} zero_variant=${activeRecipients.length - activeVariantUsed} community_deeds_last_week=${communityDeedsLastWeek} active_source=${templates.active.source}${templates.active.fallback_reason ? ` (${templates.active.fallback_reason})` : ''} zero_source=${templates.zero.source}${templates.zero.fallback_reason ? ` (${templates.zero.fallback_reason})` : ''}`)
+  console.log(`[game-launch-email] week ${weekYear}: sent=${sent} failed=${failed} active_variant=${activeVariantUsed} zero_variant=${players.length - activeVariantUsed} community_deeds_last_week=${communityDeedsLastWeek} active_source=${templates.active.source}${templates.active.fallback_reason ? ` (${templates.active.fallback_reason})` : ''} zero_source=${templates.zero.source}${templates.zero.fallback_reason ? ` (${templates.zero.fallback_reason})` : ''}`)
 }
 
 const WIN_LABELS: Record<string, string> = {
@@ -4240,6 +4229,7 @@ Deno.serve(async (req: Request) => {
         .select('email, first_name, name, username')
         .eq('email_verified', true)
         .eq('role', 'user')
+        .eq('is_active', true)
 
       if (playersErr) throw playersErr
       if (!players || players.length === 0) {

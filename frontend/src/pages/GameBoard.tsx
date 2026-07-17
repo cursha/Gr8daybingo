@@ -1133,6 +1133,17 @@ const GameBoard: React.FC = () => {
               ?
             </button>
 
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => navigate('/leaderboard')}
+              className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
+              title="Leaderboard"
+            >
+              <Medal className="w-3.5 h-3.5 sm:mr-1" />
+              <span className="hidden sm:inline">Leaderboard</span>
+            </Button>
+
             {/* Everything else — profile, team, printing, admin, logout —
                 lives in one Menu so the bar doesn't turn into a row of 7+
                 competing buttons, especially on a phone. */}
@@ -1160,9 +1171,6 @@ const GameBoard: React.FC = () => {
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate('/players/me')} className="cursor-pointer focus:bg-white/10 focus:text-white">
                   <UserCircle className="w-3.5 h-3.5 mr-2" /> My Profile
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate('/leaderboard')} className="cursor-pointer focus:bg-white/10 focus:text-white">
-                  <Medal className="w-3.5 h-3.5 mr-2" /> Leaderboard
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate('/prize-history')} className="cursor-pointer focus:bg-white/10 focus:text-white">
                   <Trophy className="w-3.5 h-3.5 mr-2" /> My Wins

@@ -65,7 +65,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Medal, LogOut, Printer, ChevronDown, Shuffle, Share2, X, UserCircle, Edit2 } from 'lucide-react';
+import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Medal, LogOut, Printer, ChevronDown, Shuffle, Share2, X, UserCircle, Edit2, Menu as MenuIcon } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { downloadBingoCardPdf, downloadTeamCardsPdf, TeamMemberCard } from '@/lib/bingo-pdf';
 import { shareOrDownloadImpactCard } from '@/lib/impact-card';
@@ -1095,6 +1095,19 @@ const GameBoard: React.FC = () => {
               <span className="text-base font-bold text-white hidden sm:inline whitespace-nowrap">Gr8Day Bingo</span>
               <span className="text-[10px] text-white/40 select-none self-end mb-1 hidden sm:inline">{APP_VERSION}</span>
             </div>
+            {playerNumber && (
+              <span className="hidden sm:flex items-center gap-1">
+                {playerBadge && (
+                  <img
+                    src={`/badge-${playerBadge.badge_name.toLowerCase()}.png`}
+                    alt={playerBadge.badge_name}
+                    className="w-6 h-6 rounded-full object-cover"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                )}
+                <span className="text-xs text-white/50 font-mono">GR8-{playerNumber}</span>
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {/* Wallet balance stays on the bar — it's the one number players
@@ -1121,28 +1134,18 @@ const GameBoard: React.FC = () => {
             </button>
 
             {/* Everything else — profile, team, printing, admin, logout —
-                lives in one Account menu so the bar doesn't turn into a row
-                of 7+ competing buttons, especially on a phone. */}
+                lives in one Menu so the bar doesn't turn into a row of 7+
+                competing buttons, especially on a phone. */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   size="sm"
                   variant="outline"
                   className="relative border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
-                  title="Account"
+                  title="Menu"
                 >
-                  {playerBadge && (
-                    <img
-                      src={`/badge-${playerBadge.badge_name.toLowerCase()}.png`}
-                      alt={playerBadge.badge_name}
-                      className="w-4 h-4 rounded-full object-cover mr-1"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
-                  )}
-                  {!playerBadge && <UserCircle className="w-3.5 h-3.5" />}
-                  {playerNumber && (
-                    <span className="font-mono hidden sm:inline">GR8-{playerNumber}</span>
-                  )}
+                  <MenuIcon className="w-3.5 h-3.5 sm:mr-1" />
+                  <span className="hidden sm:inline">Menu</span>
                   <ChevronDown className="w-3 h-3 ml-0.5" />
                   {pendingTradeCount > 0 && (
                     <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">

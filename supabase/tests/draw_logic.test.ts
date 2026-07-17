@@ -54,7 +54,7 @@ test('quick-tap toggle honoured', () => {
 
 // ── Case 8: skipped week → ineligible when participation required ─────────────
 test('case8 no participation => ineligible', () => {
-  const c: PoolCandidate = { user_id: 'u', active_entries: 50, last_participation_date: null, is_recent_winner: false }
+  const c: PoolCandidate = { user_id: 'u', active_entries: 50, last_participation_date: null, is_recent_winner: false, is_active: true }
   eq(isEligible(c, DEFAULTS, /*participated*/ false), false, 'ineligible without participation')
   eq(isEligible(c, DEFAULTS, /*participated*/ true), true, 'eligible with participation')
 })
@@ -62,26 +62,32 @@ test('case8 no participation => ineligible', () => {
 // ── Case 6: rollover — entries persist; eligible if participating ─────────────
 test('case6 rollover entries remain eligible', () => {
   // 50 active carried from prior weeks; participated this week → still in the pool.
-  const c: PoolCandidate = { user_id: 'u', active_entries: 50, last_participation_date: '2026-01-01', is_recent_winner: false }
+  const c: PoolCandidate = { user_id: 'u', active_entries: 50, last_participation_date: '2026-01-01', is_recent_winner: false, is_active: true }
   eq(isEligible(c, DEFAULTS, true), true, 'rolled-over entries count when participating')
 })
 
 test('participation not required => eligible regardless', () => {
   const s = parseDrawSettings({ require_current_week_participation: '0' })
-  const c: PoolCandidate = { user_id: 'u', active_entries: 3, last_participation_date: null, is_recent_winner: false }
+  const c: PoolCandidate = { user_id: 'u', active_entries: 3, last_participation_date: null, is_recent_winner: false, is_active: true }
   eq(isEligible(c, s, false), true, 'no participation gate')
 })
 
 test('zero active entries never eligible', () => {
-  const c: PoolCandidate = { user_id: 'u', active_entries: 0, last_participation_date: '2026-01-01', is_recent_winner: false }
+  const c: PoolCandidate = { user_id: 'u', active_entries: 0, last_participation_date: '2026-01-01', is_recent_winner: false, is_active: true }
   eq(isEligible(c, DEFAULTS, true), false, 'no entries => out')
+})
+
+// ── Inactive players are excluded from the weekly prize draw ──────────────────
+test('inactive player never eligible, even with entries and participation', () => {
+  const c: PoolCandidate = { user_id: 'u', active_entries: 50, last_participation_date: '2026-01-01', is_recent_winner: false, is_active: false }
+  eq(isEligible(c, DEFAULTS, true), false, 'inactive excluded regardless of entries/participation')
 })
 
 // ── Weighted selection: weight proportional to active entries ─────────────────
 test('weighted selection picks by cumulative weight', () => {
   const cands: PoolCandidate[] = [
-    { user_id: 'a', active_entries: 1, last_participation_date: null, is_recent_winner: false },
-    { user_id: 'b', active_entries: 9, last_participation_date: null, is_recent_winner: false },
+    { user_id: 'a', active_entries: 1, last_participation_date: null, is_recent_winner: false, is_active: true },
+    { user_id: 'b', active_entries: 9, last_participation_date: null, is_recent_winner: false, is_active: true },
   ]
   // total weight = 10. rand01=0.05 -> 0.5 into pool -> 'a' (first 1.0). rand01=0.5 -> 5.0 -> 'b'.
   eq(selectWeightedWinner(cands, DEFAULTS, () => 0.05)!.user_id, 'a', 'low rand -> a')
@@ -91,8 +97,8 @@ test('weighted selection picks by cumulative weight', () => {
 
 test('recent winner gets reduced weight', () => {
   const cands: PoolCandidate[] = [
-    { user_id: 'a', active_entries: 10, last_participation_date: null, is_recent_winner: true },  // weight 0.5
-    { user_id: 'b', active_entries: 10, last_participation_date: null, is_recent_winner: false }, // weight 10
+    { user_id: 'a', active_entries: 10, last_participation_date: null, is_recent_winner: true, is_active: true },  // weight 0.5
+    { user_id: 'b', active_entries: 10, last_participation_date: null, is_recent_winner: false, is_active: true }, // weight 10
   ]
   // total = 10.5; only rand pushing past 0.5 lands on b. rand=0.01 -> 0.105 -> still 'a'.
   eq(selectWeightedWinner(cands, DEFAULTS, () => 0.01)!.user_id, 'a', 'tiny rand -> a')
@@ -101,15 +107,15 @@ test('recent winner gets reduced weight', () => {
 
 test('empty / zero-weight pool returns null', () => {
   eq(selectWeightedWinner([], DEFAULTS, () => 0.5), null, 'empty pool')
-  const zero: PoolCandidate[] = [{ user_id: 'a', active_entries: 0, last_participation_date: null, is_recent_winner: false }]
+  const zero: PoolCandidate[] = [{ user_id: 'a', active_entries: 0, last_participation_date: null, is_recent_winner: false, is_active: true }]
   eq(selectWeightedWinner(zero, DEFAULTS, () => 0.5), null, 'zero weight')
 })
 
 // ── Distribution sanity: ~proportional over many draws ────────────────────────
 test('selection is roughly proportional', () => {
   const cands: PoolCandidate[] = [
-    { user_id: 'a', active_entries: 1, last_participation_date: null, is_recent_winner: false },
-    { user_id: 'b', active_entries: 3, last_participation_date: null, is_recent_winner: false },
+    { user_id: 'a', active_entries: 1, last_participation_date: null, is_recent_winner: false, is_active: true },
+    { user_id: 'b', active_entries: 3, last_participation_date: null, is_recent_winner: false, is_active: true },
   ]
   let aWins = 0
   const N = 20000

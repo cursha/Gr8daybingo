@@ -71,10 +71,12 @@ export interface PoolCandidate {
   active_entries: number
   last_participation_date: string | null
   is_recent_winner: boolean
+  is_active: boolean
   user?: unknown
 }
 
 /** Filter a candidate to draw eligibility for a given week.
+ *  - must be an active player (users.is_active — see flag-inactive-players)
  *  - active entries > 0
  *  - if participation required, must have participated in the draw week
  *    (caller decides participation; here we accept a precomputed flag)        */
@@ -83,6 +85,7 @@ export function isEligible(
   settings: DrawSettings,
   participatedThisWeek: boolean,
 ): boolean {
+  if (!c.is_active) return false
   if (c.active_entries <= 0) return false
   if (settings.requireParticipation && !participatedThisWeek) return false
   return true

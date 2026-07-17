@@ -186,12 +186,19 @@ export async function runWeeklyDraw(
     .from('draw_winners').select('user_id').gte('selected_at', cutoff.toISOString())
   const recentIds = new Set((recent ?? []).map((w: { user_id: string }) => w.user_id))
 
+  // Inactive players are excluded from the draw — see is_active on users
+  // (flag-inactive-players, the daily sweep).
+  const { data: activeUsers } = await supabase
+    .from('users').select('id, is_active').in('id', balances.map((b: { player_id: string }) => b.player_id))
+  const activeIds = new Set((activeUsers ?? []).filter((u: { id: string; is_active: boolean }) => u.is_active).map((u: { id: string }) => u.id))
+
   const candidates: PoolCandidate[] = balances
     .map((b: { player_id: string; active_entries: number; last_participation_date: string | null }) => ({
       user_id: b.player_id,
       active_entries: Number(b.active_entries),
       last_participation_date: b.last_participation_date,
       is_recent_winner: recentIds.has(b.player_id),
+      is_active: activeIds.has(b.player_id),
     }))
     .filter((c: PoolCandidate) => isEligible(c, settings, participated.has(c.user_id) || !settings.requireParticipation))
 

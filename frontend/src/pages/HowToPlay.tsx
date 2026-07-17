@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import {
   ArrowLeft, Heart, Grid3x3, EyeOff, Eye, Sparkles, DollarSign, Users, Gift,
   Flame, ArrowLeftRight, Trophy, RefreshCw, Ban, Pause, Lock, Shuffle, Bomb, Crown, Ticket, Compass,
-  Target, Globe,
+  Target, Globe, Zap, Star,
 } from 'lucide-react';
 
 // ── Shared section shell ─────────────────────────────────────────────────────
@@ -75,6 +75,37 @@ const SpiritOfGameContent: React.FC = () => (
         nice bonus, not the point. You can absolutely game the system if you want to. But the
         squares were never the reward; the deed was. Fake your way through it and the only person
         you've actually shortchanged is you.
+      </p>
+    </Section>
+  </div>
+);
+
+// ── Quick Taps (shared across both modes) ────────────────────────────────────
+
+const QuickTapContent: React.FC = () => (
+  <div className="space-y-3 mb-6">
+    <h2 className="text-white/50 text-xs font-bold uppercase tracking-wider px-1">Quick Taps</h2>
+    <Section icon={<Zap className="w-4 h-4 text-emerald-300" />} title="Not Part of Your Bingo Card">
+      <p>
+        Quick Taps are separate from the 5×5 grid entirely — nothing about them marks a square or
+        counts toward Bingo. They're just a fast way to log a good deed the moment you do it,
+        without needing it to be on your card. Each tap still earns a draw entry and counts toward
+        your streak, same as any deed.
+      </p>
+    </Section>
+    <Section icon={<Sparkles className="w-4 h-4 text-amber-300" />} title="Yours to Customize">
+      <p>
+        You get up to three Quick Tap buttons. We start you off with a default set, but they're
+        entirely yours to change — hit <strong>Customize</strong> and pick whichever eligible deeds
+        fit your life best. Tap one as many times as you actually do it; there's no limit tied to
+        the deed itself.
+      </p>
+    </Section>
+    <Section icon={<Star className="w-4 h-4 text-amber-400" />} title="This Week's Spotlight">
+      <p>
+        A fourth button, set by us each week and visually called out from your own three — one
+        deed we're hoping everyone gives a shot. It's optional like everything else, just a nudge
+        toward something we think is worth doing this week.
       </p>
     </Section>
   </div>
@@ -293,6 +324,7 @@ const HowToPlay: React.FC = () => {
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
         <TheGoalsContent />
         <SpiritOfGameContent />
+        <QuickTapContent />
         <TeamPlayContent />
 
         <h2 className="text-white/50 text-xs font-bold uppercase tracking-wider px-1 -mb-3">Game Modes</h2>

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import {
   ArrowLeft, Heart, Grid3x3, EyeOff, Eye, Sparkles, DollarSign, Users, Gift,
   Flame, ArrowLeftRight, Trophy, RefreshCw, Ban, Pause, Lock, Shuffle, Bomb, Crown, Ticket, Compass,
+  Target, Globe,
 } from 'lucide-react';
 
 // ── Shared section shell ─────────────────────────────────────────────────────
@@ -21,6 +22,30 @@ const Section: React.FC<SectionProps> = ({ icon, title, children }) => (
       {title}
     </h3>
     <div className="text-sm text-indigo-200/80 space-y-2">{children}</div>
+  </div>
+);
+
+// ── The Two Goals (shared across both modes) ─────────────────────────────────
+
+const TheGoalsContent: React.FC = () => (
+  <div className="space-y-3 mb-6">
+    <h2 className="text-white/50 text-xs font-bold uppercase tracking-wider px-1">Why This Game Exists</h2>
+    <Section icon={<Target className="w-4 h-4 text-emerald-300" />} title="Goal 1: Do Gr8Day Deeds">
+      <p>
+        Realize how easy it actually is to make a difference in the lives of friends and
+        strangers. Most of these deeds take minutes, not money — the game just gives you a reason
+        to actually go do them.
+      </p>
+    </Section>
+    <Section icon={<Globe className="w-4 h-4 text-sky-300" />} title="Goal 2: Track the Impact">
+      <p>
+        Just as important — capture it. Plenty of people do good; almost nobody records it, so the
+        real scale of it never shows. Our goal is a bird's-eye view of the effort everyone's
+        putting in, and how far it reaches over time — one coffee bought here is one thing, but it
+        adds up to 5,000 coffees worldwide. The <strong>Leaderboard</strong> is where it all gets
+        gathered and recorded.
+      </p>
+    </Section>
   </div>
 );
 
@@ -266,6 +291,7 @@ const HowToPlay: React.FC = () => {
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+        <TheGoalsContent />
         <SpiritOfGameContent />
         <TeamPlayContent />
 

@@ -22,6 +22,11 @@ interface Cell {
   is_secret: boolean
   secret_reward: number | null
   secret_revealed?: boolean
+  // Bomb Square — ~1% of classic cards hide one (admin-configurable via
+  // bomb_square_probability_pct). Never sent to the client under any
+  // circumstance (see sanitizeCells) — the whole point is nobody, including
+  // the player looking at their own card, knows it's there until they tap it.
+  is_bomb?: boolean
   quantity: number
   category: string | null
   // I Dare Ya — snapshotted at generation, revealed on first center-cell click.
@@ -69,7 +74,7 @@ function sanitizeCells(cells: Cell[], completedCells: number[], hiddenCells?: nu
     }
 
     const secretRevealed = c.secret_revealed === true || completedCells.includes(c.index)
-    const { is_secret, secret_reward, secret_revealed,
+    const { is_secret, secret_reward, secret_revealed, is_bomb,
             dare_ya_outcome_type, dare_ya_label, dare_ya_action_value,
             bet_ya_outcome_type, bet_ya_label, bet_ya_action_value,
             ...rest } = c
@@ -261,6 +266,154 @@ function filterDeedsByTargeting<T extends { id: number }>(
  *  though they are never "marked". Returns their indices from the card data. */
 function freeSpaceIndices(cells: Cell[]): number[] {
   return cells.filter((c) => c.is_free_space).map((c) => c.index)
+}
+
+function cryptoRandFloat01(): number {
+  const buf = new Uint32Array(1)
+  crypto.getRandomValues(buf)
+  return buf[0] / 4_294_967_296
+}
+
+function cryptoRandInt(min: number, max: number): number {
+  return min + Math.floor(cryptoRandFloat01() * (max - min + 1))
+}
+
+function cryptoShuffle<T>(arr: T[]): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = cryptoRandInt(0, i)
+    ;[arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+}
+
+/** Bomb Square trigger: a full, genuinely-random reroll of every square on a
+ *  classic card — new deeds, new purchasable/secret/bomb positions, a fresh
+ *  I Dare Ya roll. Deliberately NOT the seeded per-(player,week) RNG that
+ *  /generate-card uses — reusing that seed would just rebuild the identical
+ *  card, and "instantly rewritten" needs an actually different one. Mirrors
+ *  the classic branch of /generate-card's cell-building; kept as its own
+ *  function rather than shared, since that path is deterministic-seed-
+ *  sensitive in a way this one deliberately isn't. Blackout has no bomb
+ *  squares (no special squares at all), so this is classic-only. */
+async function regenerateClassicCard(
+  supabase: ReturnType<typeof getSupabase>,
+  userId: string,
+  winCondition: string,
+): Promise<{ cells: Cell[]; referralCellIndices: number[] }> {
+  const { data: activeCategories } = await supabase
+    .from('deed_categories').select('name').eq('is_active', true)
+  const activeCategoryNames = (activeCategories ?? []).map((c) => c.name)
+
+  let deedQuery = supabase.from('good_deeds').select('*').eq('is_active', true).eq('status', 'Approved')
+  if (activeCategoryNames.length > 0) deedQuery = deedQuery.in('category', activeCategoryNames)
+  const { data: deeds } = await deedQuery
+  if (!deeds || deeds.length < 24) throw { status: 400, detail: 'Not enough active deeds to rebuild the card' }
+
+  const { playerValueIds, deedTargetingMap } = await fetchTargetingData(supabase, userId)
+  const targetedDeeds = filterDeedsByTargeting(deeds, playerValueIds, deedTargetingMap, deeds)
+  const deedList = [...targetedDeeds]
+  cryptoShuffle(deedList)
+  const selectedDeeds = deedList.slice(0, 24)
+
+  const { data: cfgRows } = await supabase.from('game_configs').select('config_key, config_value')
+  const cfg: Record<string, string> = {}
+  for (const r of cfgRows ?? []) cfg[r.config_key] = r.config_value ?? ''
+  const dollar1Pct = parseInt(cfg['dollar1_pct'] ?? '50')
+  const dollar2Pct = parseInt(cfg['dollar2_pct'] ?? '30')
+  const secret1Pct = parseInt(cfg['secret_reward_1_pct'] ?? '50')
+  const secret2Pct = parseInt(cfg['secret_reward_2_pct'] ?? '30')
+  const bombPct = parseInt(cfg['bomb_square_probability_pct'] ?? '1')
+
+  const purchasableCount = cryptoRandInt(1, 3)
+  const availablePos = Array.from({ length: 25 }, (_, i) => i).filter((i) => i !== 12)
+  cryptoShuffle(availablePos)
+  const purchasablePos = availablePos.slice(0, purchasableCount)
+  const remaining = availablePos.slice(purchasableCount)
+  const secretPosition: number | null = remaining.length > 0 ? remaining[0] : null
+
+  let secretReward: number | null = null
+  if (secretPosition !== null) {
+    const roll = cryptoRandInt(1, 100)
+    secretReward = roll <= secret1Pct ? 1.0 : roll <= secret1Pct + secret2Pct ? 2.0 : 5.0
+  }
+
+  const bombEligible = availablePos.filter((p) => !purchasablePos.includes(p) && p !== secretPosition)
+  const bombPosition: number | null =
+    cryptoRandInt(1, 100) <= bombPct && bombEligible.length > 0 ? bombEligible[0] : null
+
+  const prices: number[] = purchasablePos.map(() => {
+    const roll = cryptoRandInt(1, 100)
+    return roll <= dollar1Pct ? 0.5 : roll <= dollar1Pct + dollar2Pct ? 1.0 : 2.0
+  })
+
+  interface DareYaRow {
+    id: number; label: string; odds_percent: number; action_type: string
+    credit_amount: number; remove_amount: number; reward_amount: number
+  }
+  let dareYaOutcomeType: string | null = null
+  let dareYaLabel: string | null = null
+  let dareYaActionValue: number | null = null
+  if (winCondition !== 'fill_card') {
+    const { data: dareYaRows } = await supabase
+      .from('dare_ya_outcomes').select('id, label, odds_percent, action_type, credit_amount, remove_amount, reward_amount')
+      .eq('is_active', true)
+    const pool = (dareYaRows ?? []) as DareYaRow[]
+    if (pool.length > 0) {
+      const total = pool.reduce((s, r) => s + Number(r.odds_percent), 0)
+      let roll = cryptoRandFloat01() * total
+      let picked = pool[pool.length - 1]
+      for (const r of pool) {
+        roll -= Number(r.odds_percent)
+        if (roll <= 0) { picked = r; break }
+      }
+      dareYaOutcomeType = picked.action_type
+      dareYaLabel = picked.label
+      dareYaActionValue = picked.action_type === 'fund_credit' ? Number(picked.credit_amount)
+        : picked.action_type === 'remove_funds' ? Number(picked.remove_amount)
+        : picked.action_type === 'refer_friend' ? Number(picked.reward_amount)
+        : 0
+    }
+  }
+
+  const cells: Cell[] = []
+  let deedIdx = 0
+  for (let i = 0; i < 25; i++) {
+    if (i === 12) {
+      cells.push({
+        index: 12, deed_text: 'I Dare Ya!',
+        deed_text_long: 'Tap the centre square to take the I DARE YA challenge — you might win a little, lose a little, or get dared to refer a friend. The centre is a free space and always counts toward your Bingo.',
+        deed_id: null, is_free_space: true, is_purchasable: false, purchase_price: null,
+        is_referral_free: false, is_secret: false, secret_reward: null, is_bomb: false, quantity: 1, category: null,
+        dare_ya_outcome_type: dareYaOutcomeType,
+        dare_ya_label: dareYaLabel,
+        dare_ya_action_value: dareYaActionValue,
+        dare_ya_revealed: false,
+      })
+    } else {
+      const deed = selectedDeeds[deedIdx++]
+      const isPurchasable = purchasablePos.includes(i)
+      const priceIdx = purchasablePos.indexOf(i)
+      const isSecret = i === secretPosition
+      cells.push({
+        index: i,
+        deed_text: deed.deed_text,
+        deed_text_long: deed.deed_text_long ?? null,
+        deed_id: deed.id,
+        is_free_space: false,
+        is_purchasable: isPurchasable,
+        purchase_price: isPurchasable ? prices[priceIdx] : null,
+        is_referral_free: false,
+        is_secret: isSecret,
+        secret_reward: isSecret ? secretReward : null,
+        is_bomb: i === bombPosition,
+        quantity: deed.quantity ?? 1,
+        category: deed.category ?? null,
+      })
+    }
+  }
+
+  // referralFreeCount is currently 0 at generation (same as /generate-card),
+  // so no square is ever flagged is_referral_free — nothing to pre-mark.
+  return { cells, referralCellIndices: [] }
 }
 
 // The check-then-insert/update race above every users write below (SELECT for
@@ -1216,6 +1369,16 @@ Deno.serve(async (req: Request) => {
           secretReward = roll <= secret1Pct ? 1.0 : roll <= secret1Pct + secret2Pct ? 2.0 : 5.0
         }
 
+        // Bomb Square: rare (default 1%), picked from whatever's left over
+        // once purchasable/secret/referral positions are claimed. Tapping it
+        // doesn't complete it like a normal deed — see /mark-cell.
+        const bombPct = parseInt(cfg['bomb_square_probability_pct'] ?? '1')
+        const bombEligible = availablePos.filter(
+          (p) => !purchasablePos.includes(p) && p !== secretPosition && !referralPos.includes(p)
+        )
+        const bombPosition: number | null =
+          rng.randint(1, 100) <= bombPct && bombEligible.length > 0 ? bombEligible[0] : null
+
         const prices: number[] = purchasablePos.map(() => {
           const roll = rng.randint(1, 100)
           return roll <= dollar1Pct ? 0.5 : roll <= dollar1Pct + dollar2Pct ? 1.0 : 2.0
@@ -1264,7 +1427,7 @@ Deno.serve(async (req: Request) => {
               index: 12, deed_text: 'I Dare Ya!',
               deed_text_long: 'Tap the centre square to take the I DARE YA challenge — you might win a little, lose a little, or get dared to refer a friend. The centre is a free space and always counts toward your Bingo.',
               deed_id: null, is_free_space: true, is_purchasable: false, purchase_price: null,
-              is_referral_free: false, is_secret: false, secret_reward: null, quantity: 1, category: null,
+              is_referral_free: false, is_secret: false, secret_reward: null, is_bomb: false, quantity: 1, category: null,
               dare_ya_outcome_type: dareYaOutcomeType,
               dare_ya_label: dareYaLabel,
               dare_ya_action_value: dareYaActionValue,
@@ -1286,6 +1449,7 @@ Deno.serve(async (req: Request) => {
               is_referral_free: referralPos.includes(i),
               is_secret: isSecret,
               secret_reward: isSecret ? secretReward : null,
+              is_bomb: i === bombPosition,
               quantity: deed.quantity ?? 1,
               category: deed.category ?? null,
             })
@@ -1374,6 +1538,38 @@ Deno.serve(async (req: Request) => {
 
       const cells: Cell[] = JSON.parse(card.card_data)
       const cell = cells[cell_index]
+
+      // Bomb Square: doesn't complete like a normal deed — the whole card is
+      // instantly rewritten instead. No confirmation beyond the normal
+      // tap-then-confirm deed flow the player already went through to get
+      // here; that's the surprise. Classic-mode only (blackout has no
+      // special squares of any kind).
+      if (cell.is_bomb === true) {
+        const rebuilt = await regenerateClassicCard(supabase, user.sub, card.win_condition)
+        await supabase.from('player_cards').update({
+          card_data: JSON.stringify(rebuilt.cells),
+          completed_cells: '[]',
+          purchased_cells: '[]',
+          referral_cells: JSON.stringify(rebuilt.referralCellIndices),
+          is_bingo: false,
+          pick_three_used: false,
+          play_cycle: (card.play_cycle ?? 0) + 1,
+          bonus_lines_awarded: '[]',
+          updated_at: new Date().toISOString(),
+        }).eq('id', card_id)
+
+        return jsonResponse({
+          success: true,
+          bomb_triggered: true,
+          cells: sanitizeCells(rebuilt.cells, []),
+          completed_cells: [],
+          purchased_cells: [],
+          referral_cells: rebuilt.referralCellIndices,
+          is_bingo: false,
+          pick_three_used: false,
+        })
+      }
+
       if (cell.is_purchasable) {
         return errorResponse('This is a purchasable square. Use the purchase endpoint.', 400)
       }

@@ -102,6 +102,14 @@ export interface MarkCellResult {
   secret_reward?: number;
   draw_bonus_entries?: number;
   streak_update?: StreakUpdate;
+  // Bomb Square: the whole card was just rewritten instead of this one
+  // square being completed. When present, these replace the card's cells/
+  // purchased/referral/pick_three state wholesale.
+  bomb_triggered?: boolean;
+  cells?: CellData[];
+  purchased_cells?: number[];
+  referral_cells?: number[];
+  pick_three_used?: boolean;
 }
 
 export interface BlackoutState {

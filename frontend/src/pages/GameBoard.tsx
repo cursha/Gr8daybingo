@@ -446,6 +446,23 @@ const GameBoard: React.FC = () => {
     try {
       const result = await markCell(card.card_id, cellIndex);
 
+      // Bomb Square: the whole card was just rewritten, not this one square
+      // completed. Swap in the fresh state wholesale and stop — none of the
+      // normal completion/secret/bingo/streak handling below applies.
+      if (result.bomb_triggered && result.cells) {
+        setCard((prev) => prev ? {
+          ...prev,
+          cells: result.cells!,
+          completed_cells: result.completed_cells,
+          purchased_cells: result.purchased_cells ?? [],
+          referral_cells: result.referral_cells ?? [],
+          is_bingo: result.is_bingo,
+          pick_three_used: result.pick_three_used ?? false,
+        } : null);
+        toast.success('💣 Bomb Square! Your whole card just got rewritten — fresh deeds, fresh start!', { duration: 6000 });
+        return;
+      }
+
       // Update card state — also flip secret_revealed locally so a replay looks right.
       setCard((prev) => {
         if (!prev) return null;
@@ -1073,13 +1090,6 @@ const GameBoard: React.FC = () => {
             <Button variant="ghost" size="icon" onClick={() => navigate('/')} className="text-white/70 hover:text-white hover:bg-white/10">
               <ArrowLeft className="w-5 h-5" />
             </Button>
-            <button
-              onClick={() => navigate('/how-to-play')}
-              title="How to Play"
-              className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-900 font-black text-sm shadow-[0_0_0_3px_rgba(251,191,36,0.25)] transition-all hover:scale-105 flex-shrink-0"
-            >
-              ?
-            </button>
             <div className="flex items-center gap-2">
               <Heart className="w-5 h-5 text-pink-400 fill-pink-400" />
               <span className="text-base font-bold text-white hidden sm:inline whitespace-nowrap">Gr8Day Bingo</span>
@@ -1201,6 +1211,13 @@ const GameBoard: React.FC = () => {
                 <span className="hidden sm:inline">Admin</span>
               </Button>
             )}
+            <button
+              onClick={() => navigate('/how-to-play')}
+              title="How to Play"
+              className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-900 font-black text-sm shadow-[0_0_0_3px_rgba(251,191,36,0.25)] transition-all hover:scale-105 flex-shrink-0"
+            >
+              ?
+            </button>
             <Button
               size="sm"
               variant="outline"

@@ -1596,6 +1596,7 @@ const AdminPanel: React.FC = () => {
     { key: 'secret_reward_1_pct', label: 'Secret Square: 1 Buck Reward %', type: 'number' },
     { key: 'secret_reward_2_pct', label: 'Secret Square: 2 Bucks Reward %', type: 'number' },
     { key: 'secret_reward_5_pct', label: 'Secret Square: 5 Bucks Reward %', type: 'number' },
+    { key: 'bomb_square_probability_pct', label: 'Bomb Square Odds % (classic cards)', type: 'number' },
     { key: 'geo_drilldown_threshold', label: 'Leaderboard: players before a region drills to cities', type: 'number' },
     { key: 'non_referred_daily_deed_limit', label: 'Non-referred players: max Gr8Day Deeds per 24h (0 = no limit)', type: 'number' },
     { key: 'blackout_min_hidden_remaining', label: 'Blackout: minimum hidden squares remaining (reveal trims back once hit)', type: 'number' },

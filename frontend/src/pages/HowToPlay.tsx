@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
   ArrowLeft, Heart, Grid3x3, EyeOff, Eye, Sparkles, DollarSign, Users, Gift,
-  Flame, ArrowLeftRight, Trophy, RefreshCw, Ban, Pause, Lock,
+  Flame, ArrowLeftRight, Trophy, RefreshCw, Ban, Pause, Lock, Shuffle, Bomb, Crown,
 } from 'lucide-react';
 
 // ── Shared section shell ─────────────────────────────────────────────────────
@@ -21,6 +21,36 @@ const Section: React.FC<SectionProps> = ({ icon, title, children }) => (
       {title}
     </h3>
     <div className="text-sm text-indigo-200/80 space-y-2">{children}</div>
+  </div>
+);
+
+// ── Team Play (shared across both modes) ─────────────────────────────────────
+
+const TeamPlayContent: React.FC = () => (
+  <div className="space-y-3 mb-6">
+    <h2 className="text-white/50 text-xs font-bold uppercase tracking-wider px-1">Team Play</h2>
+    <Section icon={<Users className="w-4 h-4 text-teal-300" />} title="Getting on a Team">
+      <p>
+        Teams are set up by admins, not something you join yourself — if you're not on one yet,
+        ask an admin to add you. Teams show up on the leaderboard ranked by total deeds
+        completed, so it's a group effort, not just an individual score. Each team has a
+        captain.
+      </p>
+    </Section>
+    <Section icon={<Crown className="w-4 h-4 text-amber-300" />} title="Your Team Page">
+      <p>
+        See your whole roster, who's captain, and each teammate's card status from the{' '}
+        <strong>Team</strong> menu on the game board. You can also print every teammate's card
+        together as one PDF — handy for in-person events.
+      </p>
+    </Section>
+    <Section icon={<ArrowLeftRight className="w-4 h-4 text-sky-300" />} title="Trading With Teammates">
+      <p>
+        Once a week, offer to swap one of your uncompleted squares for a teammate's. They have 48
+        hours to accept or decline, and nothing changes on either card until they say yes. (In
+        Blackout mode, trades work a bit differently — see that tab below.)
+      </p>
+    </Section>
   </div>
 );
 
@@ -73,10 +103,20 @@ const ClassicContent: React.FC = () => (
       </p>
     </Section>
 
-    <Section icon={<ArrowLeftRight className="w-4 h-4 text-sky-300" />} title="Team Trades">
+    <Section icon={<Shuffle className="w-4 h-4 text-cyan-300" />} title="Pick Three">
       <p>
-        Once a week, you can offer to swap one of your uncompleted squares for a teammate's.
-        They have 48 hours to accept or decline — nothing changes on either card until they say yes.
+        Once per card, you can choose exactly three of your own unplayed squares and swap them
+        all for brand-new deeds — no waiting, no cost. Great for when a few challenges just don't
+        fit your week. It's a one-time power-up per card, so use it wisely.
+      </p>
+    </Section>
+
+    <Section icon={<Bomb className="w-4 h-4 text-red-400" />} title="The Bomb Square">
+      <p>
+        Here's the twist: roughly 1 in 100 cards hides a Bomb Square somewhere among its deeds —
+        no different-looking, no warning. If you tap it, your entire card is instantly rewritten:
+        every square, every challenge, brand new. Nothing you'd already completed carries over,
+        but the new card is just as playable as the old one. Consider it an unexpected plot twist.
       </p>
     </Section>
 
@@ -180,6 +220,9 @@ const HowToPlay: React.FC = () => {
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+        <TeamPlayContent />
+
+        <h2 className="text-white/50 text-xs font-bold uppercase tracking-wider px-1 -mb-3">Game Modes</h2>
         <div className="flex gap-2 bg-white/5 border border-white/10 rounded-xl p-1">
           <button
             onClick={() => setMode('classic')}

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
   ArrowLeft, Heart, Grid3x3, EyeOff, Eye, Sparkles, DollarSign, Users, Gift,
-  Flame, ArrowLeftRight, Trophy, RefreshCw, Ban, Pause, Lock, Shuffle, Bomb, Crown,
+  Flame, ArrowLeftRight, Trophy, RefreshCw, Ban, Pause, Lock, Shuffle, Bomb, Crown, Ticket, Compass,
 } from 'lucide-react';
 
 // ── Shared section shell ─────────────────────────────────────────────────────
@@ -24,6 +24,37 @@ const Section: React.FC<SectionProps> = ({ icon, title, children }) => (
   </div>
 );
 
+// ── Spirit of the Game (shared across both modes) ────────────────────────────
+
+const SpiritOfGameContent: React.FC = () => (
+  <div className="space-y-3 mb-6">
+    <h2 className="text-white/50 text-xs font-bold uppercase tracking-wider px-1">Spirit of the Game</h2>
+    <Section icon={<Compass className="w-4 h-4 text-rose-300" />} title="New, Not Routine">
+      <p>
+        The whole point is encouraging new, unique kindness — not logging things you already do.
+        If you already take your mother to lunch every Wednesday, that's wonderful, but it's not a
+        Gr8Day Deed. Save your squares for something you wouldn't have done otherwise — a bit of a
+        stretch, genuinely for someone else's day.
+      </p>
+    </Section>
+    <Section icon={<Sparkles className="w-4 h-4 text-amber-300" />} title="Record As You Go">
+      <p>
+        Mark each deed when you actually do it, not in a batch afterward. Logging 3-4 at once
+        tends to get flagged for a closer look — the game's built around real moments as they
+        happen, not an end-of-day catch-up session.
+      </p>
+    </Section>
+    <Section icon={<Heart className="w-4 h-4 text-pink-300" />} title="It's About Fun and Kindness">
+      <p>
+        At the end of the day, this game exists to get more kindness into the world — winning is a
+        nice bonus, not the point. You can absolutely game the system if you want to. But the
+        squares were never the reward; the deed was. Fake your way through it and the only person
+        you've actually shortchanged is you.
+      </p>
+    </Section>
+  </div>
+);
+
 // ── Team Play (shared across both modes) ─────────────────────────────────────
 
 const TeamPlayContent: React.FC = () => (
@@ -32,23 +63,25 @@ const TeamPlayContent: React.FC = () => (
     <Section icon={<Users className="w-4 h-4 text-teal-300" />} title="Getting on a Team">
       <p>
         Teams are set up by admins, not something you join yourself — if you're not on one yet,
-        ask an admin to add you. Teams show up on the leaderboard ranked by total deeds
-        completed, so it's a group effort, not just an individual score. Each team has a
-        captain.
+        ask an admin to add you. Teams are capped at 4 players. Teams show up on the leaderboard
+        ranked by total deeds completed, so it's a group effort, not just an individual score.
+        Each team has a captain.
       </p>
     </Section>
     <Section icon={<Crown className="w-4 h-4 text-amber-300" />} title="Your Team Page">
       <p>
         See your whole roster, who's captain, and each teammate's card status from the{' '}
-        <strong>Team</strong> menu on the game board. You can also print every teammate's card
-        together as one PDF — handy for in-person events.
+        <strong>Team</strong> menu on the game board. You can also print the whole team's cards
+        together — up to 4, laid out on one sheet — handy for in-person events where you can help
+        each other out.
       </p>
     </Section>
     <Section icon={<ArrowLeftRight className="w-4 h-4 text-sky-300" />} title="Trading With Teammates">
       <p>
-        Once a week, offer to swap one of your uncompleted squares for a teammate's. They have 48
-        hours to accept or decline, and nothing changes on either card until they say yes. (In
-        Blackout mode, trades work a bit differently — see that tab below.)
+        Once a week, offer to swap one of your uncompleted squares for a teammate's. It's
+        completely optional — nothing about the game requires it. They have 48 hours to accept or
+        decline, and nothing changes on either card until they say yes. (In Blackout mode, trades
+        work a bit differently — see that tab below.)
       </p>
     </Section>
   </div>
@@ -61,9 +94,8 @@ const ClassicContent: React.FC = () => (
     <Section icon={<Grid3x3 className="w-4 h-4 text-indigo-300" />} title="The Goal">
       <p>
         Your card is a 5×5 grid. Complete real acts of kindness — Gr8Day Deeds — to mark squares,
-        and get Bingo by matching whatever win pattern is active that week (one line, two lines,
-        four corners, an X, around the edges, or the whole card). You can keep playing the same
-        card past a win, all the way to the end of the week.
+        and get Bingo with 5 in a row — straight across, down, or diagonal. You can keep playing
+        the same card past a win, all the way to the end of the week.
       </p>
     </Section>
 
@@ -120,18 +152,32 @@ const ClassicContent: React.FC = () => (
       </p>
     </Section>
 
-    <Section icon={<Flame className="w-4 h-4 text-orange-300" />} title="Streaks & Bonus Draws">
+    <Section icon={<Flame className="w-4 h-4 text-orange-300" />} title="Streaks">
       <p>
         Complete at least one deed a day to build a streak, with milestones along the way.
-        Completing a full Bingo line also earns bonus entries into the prize draw — the more
-        lines, the more entries.
+      </p>
+    </Section>
+
+    <Section icon={<Ticket className="w-4 h-4 text-fuchsia-300" />} title="Draw Entries">
+      <p>
+        Every single deed you complete earns you an entry into that week's prize draw — not just
+        Bingo. On top of that, completing a full line earns a bonus of extra entries (a random
+        roll every time, more for more lines), and each new card gives every completed line its
+        own shot at another bonus. More deeds, more entries, better odds.
+      </p>
+      <p>
+        Your entries never expire and never get wiped just because a week ends — they carry
+        forward and keep stacking up. You've always got a chance, week after week, until the week
+        you actually win.
       </p>
     </Section>
 
     <Section icon={<RefreshCw className="w-4 h-4 text-teal-300" />} title="Weekly Reset & Prizes">
       <p>
-        A new card is generated each week. If you get Bingo, you can submit a prize claim —
-        check <strong>My Wins</strong> for your history and the winners page for who's won recently.
+        A new card is generated each week. The prize winner is picked from the draw entry pool —
+        so playing the deeds is what actually gives you a shot, whether or not you personally hit
+        Bingo that week. Check <strong>My Wins</strong> for your history and the winners page for
+        who's won recently.
       </p>
     </Section>
   </div>
@@ -154,41 +200,41 @@ const BlackoutContent: React.FC = () => (
       <p>
         Tap any hidden square to reveal it. Most of the time that's all that opens up, but
         occasionally 1–3 neighboring hidden squares flip open with it too — the odds are set by
-        the admins and skew heavily toward "just the one you tapped."
+        the admins and skew heavily toward "just the one you tapped." If extras do open with it,
+        every one of them has to be completed or passed too — not just the square you tapped —
+        before you can reveal anything new.
       </p>
     </Section>
 
     <Section icon={<Ban className="w-4 h-4 text-rose-300" />} title="Resolving an Open Group">
       <p>
-        Every square that opens has to be dealt with — either completed like a normal deed, or
-        passed on if you don't want it. A passed square is permanently blocked; it can't be
-        completed or traded later. You can't reveal anything new until every square currently
-        open has been resolved one way or the other.
+        <strong>You cannot open another square until every square currently open is dealt with</strong> —
+        either completed like a normal deed, or passed on if you don't want it. A passed square is
+        permanently blocked; it can't be completed or traded later.
       </p>
     </Section>
 
     <Section icon={<Pause className="w-4 h-4 text-amber-300" />} title="Pausing">
       <p>
-        There's no timer, so you can step away any time — just not in the middle of an open
-        group. Resolve what's open first, then pause and pick it back up whenever you like.
+        There's no timer — walk away whenever you want, for as long as you want. Open three
+        squares on Sunday and don't get back to it until Wednesday? That's fine. The only rule is
+        you can't reveal anything new until whatever's already open gets played or passed.
       </p>
     </Section>
 
     <Section icon={<Lock className="w-4 h-4 text-purple-300" />} title="Team Trades — Blind Picks">
       <p>
-        Trades work in Blackout too, and you can even offer a square you haven't revealed
-        yourself yet — otherwise there'd rarely be enough open squares to trade at all. When you
-        pick from a teammate's card, you'll see the names of what's available, not where any of
-        it sits on their board. If a trade goes through on a square that was still hidden, you'll
-        learn <em>what</em> you now have from the trade offer — but not <em>where</em> it landed
-        on your own card. You'll still have to reveal it for real to find out.
+        Trades still work in Blackout, and you can offer up a square you haven't even revealed
+        yet. When picking from a teammate's card, you'll see the names of their available deeds —
+        not where they sit on the board. So a trade can hand you a deed you know the name of, but
+        you still won't know which square it's on until you actually reveal it.
       </p>
     </Section>
 
     <Section icon={<Trophy className="w-4 h-4 text-emerald-300" />} title="Everything Else">
       <p>
-        Streaks, bonus draw entries for completed lines, the weekly reset, and prize claims all
-        work exactly the same as Classic mode.
+        Streaks, draw entries (every completed deed, plus bonus entries for lines), and the
+        weekly reset all work exactly the same as Classic mode — same draw pool, same odds.
       </p>
     </Section>
   </div>
@@ -220,6 +266,7 @@ const HowToPlay: React.FC = () => {
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+        <SpiritOfGameContent />
         <TeamPlayContent />
 
         <h2 className="text-white/50 text-xs font-bold uppercase tracking-wider px-1 -mb-3">Game Modes</h2>

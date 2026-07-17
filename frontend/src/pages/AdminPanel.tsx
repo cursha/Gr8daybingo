@@ -2078,7 +2078,7 @@ const AdminPanel: React.FC = () => {
                                   </label>
                                   <label className="flex items-center gap-2 text-sm text-slate-700 col-span-2">
                                     <input type="checkbox" checked={playerForm.is_active} onChange={e => setPlayerForm(f => ({ ...f, is_active: e.target.checked }))} />
-                                    Active (auto-set to false after {editConfigs['inactive_days_threshold'] || '30'} days without a deed; auto-reactivates when they play again)
+                                    Active (daily sweep sets this to false after {editConfigs['inactive_days_threshold'] || '30'} days without a deed, and back to true once they're playing again)
                                   </label>
                                   <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.country_id} onChange={e => handlePlayerCountryChange(e.target.value)}>
                                     <option value="">Country…</option>

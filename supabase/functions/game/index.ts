@@ -1166,6 +1166,26 @@ Deno.serve(async (req: Request) => {
       const weekYear = getCurrentWeekYear()
       const body = await req.json().catch(() => ({}))
 
+      // Flag the player inactive if they haven't completed a deed in the
+      // admin-configured window (default 30 days), and reactivate them if
+      // they're back within it — checked lazily here, at card generation,
+      // rather than on a schedule. Mirrors the last_valid_deed_date ??
+      // created_at fallback sendGameLaunchEmails() already uses for players
+      // who've never played.
+      const { data: inactiveCfg } = await supabase
+        .from('game_configs').select('config_value').eq('config_key', 'inactive_days_threshold').maybeSingle()
+      const inactiveDaysThreshold = parseInt(inactiveCfg?.config_value ?? '30')
+      const { data: playerRow } = await supabase
+        .from('users').select('last_valid_deed_date, created_at, is_active').eq('id', user.sub).maybeSingle()
+      if (playerRow) {
+        const referenceDate = playerRow.last_valid_deed_date ?? playerRow.created_at
+        const daysSinceLastDeed = referenceDate ? (Date.now() - new Date(referenceDate).getTime()) / 86_400_000 : Infinity
+        const shouldBeActive = daysSinceLastDeed <= inactiveDaysThreshold
+        if (shouldBeActive !== (playerRow.is_active ?? true)) {
+          await supabase.from('users').update({ is_active: shouldBeActive }).eq('id', user.sub)
+        }
+      }
+
       // Read admin win condition
       const { data: wcCfg } = await supabase
         .from('game_configs').select('config_value').eq('config_key', 'win_condition').maybeSingle()
@@ -3665,7 +3685,7 @@ Deno.serve(async (req: Request) => {
       requireAdmin(authUser)
       const { data } = await supabase
         .from('users')
-        .select('id, email, username, name, first_name, last_name, role, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified, is_trusted, is_test, created_at')
+        .select('id, email, username, name, first_name, last_name, role, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified, is_trusted, is_test, is_active, last_valid_deed_date, created_at')
         .order('player_number', { ascending: true })
       return jsonResponse({
         members: (data ?? []).map((u) => ({
@@ -3687,6 +3707,8 @@ Deno.serve(async (req: Request) => {
           email_verified: !!u.email_verified,
           is_trusted: !!u.is_trusted,
           is_test: !!u.is_test,
+          is_active: u.is_active ?? true,
+          last_valid_deed_date: u.last_valid_deed_date ?? null,
           created_at: u.created_at ?? null,
         })),
       })
@@ -5768,6 +5790,7 @@ Deno.serve(async (req: Request) => {
         ...(role !== undefined && { role }),
         ...('is_trusted' in body && { is_trusted: body.is_trusted === true }),
         ...('is_test' in body && { is_test: body.is_test === true }),
+        ...('is_active' in body && { is_active: body.is_active === true }),
       }).eq('id', targetId)
 
       if (playerUpdateErr) {

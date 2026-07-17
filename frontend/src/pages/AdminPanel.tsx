@@ -212,7 +212,7 @@ const AdminPanel: React.FC = () => {
   const [playerStates, setPlayerStates] = useState<StateOption[]>([]);
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<string | null>(null);
-  const [playerForm, setPlayerForm] = useState({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '' as string | number, state_id: '' as string | number, is_trusted: false, is_test: false });
+  const [playerForm, setPlayerForm] = useState({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '' as string | number, state_id: '' as string | number, is_trusted: false, is_test: false, is_active: true });
   const [playerFormLoading, setPlayerFormLoading] = useState(false);
 
 
@@ -935,7 +935,7 @@ const AdminPanel: React.FC = () => {
       await adminCreatePlayer({ ...playerForm, country_id: playerForm.country_id ? Number(playerForm.country_id) : undefined, state_id: playerForm.state_id ? Number(playerForm.state_id) : undefined } as any);
       toast.success('Player created');
       setShowAddPlayer(false);
-      setPlayerForm({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '', state_id: '', is_trusted: false, is_test: false });
+      setPlayerForm({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '', state_id: '', is_trusted: false, is_test: false, is_active: true });
       await loadMembers();
     } catch (err: any) {
       toast.error(err?.message || 'Failed to create player');
@@ -970,7 +970,7 @@ const AdminPanel: React.FC = () => {
   };
 
   const startEditPlayer = (m: MemberItem) => {
-    setPlayerForm({ first_name: m.first_name ?? '', last_name: m.last_name ?? '', email: m.email ?? '', username: m.username ?? '', password: '', role: m.role ?? 'user', city: (m as any).city ?? '', country_id: (m as any).country_id ?? '', state_id: (m as any).state_id ?? '', is_trusted: m.is_trusted ?? false, is_test: m.is_test ?? false });
+    setPlayerForm({ first_name: m.first_name ?? '', last_name: m.last_name ?? '', email: m.email ?? '', username: m.username ?? '', password: '', role: m.role ?? 'user', city: (m as any).city ?? '', country_id: (m as any).country_id ?? '', state_id: (m as any).state_id ?? '', is_trusted: m.is_trusted ?? false, is_test: m.is_test ?? false, is_active: m.is_active ?? true });
     setEditingPlayer(m.id);
     if ((m as any).country_id) getStates(Number((m as any).country_id)).then(setPlayerStates).catch(() => {});
   };
@@ -1599,6 +1599,7 @@ const AdminPanel: React.FC = () => {
     { key: 'bomb_square_probability_pct', label: 'Bomb Square Odds % (classic cards)', type: 'number' },
     { key: 'geo_drilldown_threshold', label: 'Leaderboard: players before a region drills to cities', type: 'number' },
     { key: 'non_referred_daily_deed_limit', label: 'Non-referred players: max Gr8Day Deeds per 24h (0 = no limit)', type: 'number' },
+    { key: 'inactive_days_threshold', label: 'Days idle before a player is flagged inactive', type: 'number' },
     { key: 'blackout_min_hidden_remaining', label: 'Blackout: minimum hidden squares remaining (reveal trims back once hit)', type: 'number' },
   ];
 
@@ -1998,6 +1999,7 @@ const AdminPanel: React.FC = () => {
                         <th className="px-3 py-2">Email</th>
                         <th className="px-3 py-2">Location</th>
                         <th className="px-3 py-2 text-center">Verified</th>
+                        <th className="px-3 py-2 text-center">Active</th>
                         <th className="px-3 py-2 text-center">Actions</th>
                       </tr>
                     </thead>
@@ -2028,6 +2030,11 @@ const AdminPanel: React.FC = () => {
                                 ? <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-semibold">Y</span>
                                 : <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-semibold">N</span>}
                             </td>
+                            <td className="px-3 py-2 text-center" title={m.last_valid_deed_date ? `Last deed: ${m.last_valid_deed_date}` : 'No deed on record'}>
+                              {m.is_active
+                                ? <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-semibold">Y</span>
+                                : <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-semibold">N</span>}
+                            </td>
                             <td className="px-3 py-2 text-center whitespace-nowrap">
                               <button onClick={() => editingPlayer === m.id ? setEditingPlayer(null) : startEditPlayer(m)} className="text-indigo-600 hover:text-indigo-800 text-xs mr-2 font-medium">{editingPlayer === m.id ? 'Cancel' : 'Edit'}</button>
                               <button onClick={() => handleDeletePlayer(m.id, m.name || m.email || '')} className="text-red-500 hover:text-red-700 text-xs font-medium">Delete</button>
@@ -2035,7 +2042,7 @@ const AdminPanel: React.FC = () => {
                           </tr>
                           {editingPlayer === m.id && (
                             <tr className="bg-indigo-50">
-                              <td colSpan={6} className="px-4 py-4">
+                              <td colSpan={7} className="px-4 py-4">
                                 <div className="grid grid-cols-2 gap-3 text-sm">
                                   <input placeholder="First name" className="border rounded px-2 py-1.5 text-sm" value={playerForm.first_name} onChange={e => setPlayerForm(f => ({ ...f, first_name: e.target.value }))} />
                                   <input placeholder="Last name" className="border rounded px-2 py-1.5 text-sm" value={playerForm.last_name} onChange={e => setPlayerForm(f => ({ ...f, last_name: e.target.value }))} />
@@ -2053,6 +2060,10 @@ const AdminPanel: React.FC = () => {
                                   <label className="flex items-center gap-2 text-sm text-slate-700 col-span-2">
                                     <input type="checkbox" checked={playerForm.is_test} onChange={e => setPlayerForm(f => ({ ...f, is_test: e.target.checked }))} />
                                     Test player (can keep playing while Offline Mode is on)
+                                  </label>
+                                  <label className="flex items-center gap-2 text-sm text-slate-700 col-span-2">
+                                    <input type="checkbox" checked={playerForm.is_active} onChange={e => setPlayerForm(f => ({ ...f, is_active: e.target.checked }))} />
+                                    Active (auto-set to false after {editConfigs['inactive_days_threshold'] || '30'} days without a deed; auto-reactivates when they play again)
                                   </label>
                                   <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.country_id} onChange={e => handlePlayerCountryChange(e.target.value)}>
                                     <option value="">Country…</option>

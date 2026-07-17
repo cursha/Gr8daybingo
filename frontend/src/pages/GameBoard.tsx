@@ -65,7 +65,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Medal, LogOut, Printer, ChevronDown, Shuffle, Share2, X, UserCircle } from 'lucide-react';
+import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Medal, LogOut, Printer, ChevronDown, Shuffle, Share2, X, UserCircle, Edit2 } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { downloadBingoCardPdf, downloadTeamCardsPdf, TeamMemberCard } from '@/lib/bingo-pdf';
 import { shareOrDownloadImpactCard } from '@/lib/impact-card';
@@ -1095,25 +1095,13 @@ const GameBoard: React.FC = () => {
               <span className="text-base font-bold text-white hidden sm:inline whitespace-nowrap">Gr8Day Bingo</span>
               <span className="text-[10px] text-white/40 select-none self-end mb-1 hidden sm:inline">{APP_VERSION}</span>
             </div>
-            {playerNumber && (
-              <button
-                onClick={() => setShowEditProfile(true)}
-                className="hidden sm:flex items-center gap-1 hover:opacity-80 transition-opacity"
-                title="Edit profile"
-              >
-                {playerBadge && (
-                  <img
-                    src={`/badge-${playerBadge.badge_name.toLowerCase()}.png`}
-                    alt={playerBadge.badge_name}
-                    className="w-6 h-6 rounded-full object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                  />
-                )}
-                <span className="text-xs text-white/50 font-mono">GR8-{playerNumber}</span>
-              </button>
-            )}
           </div>
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2">
+            {/* Wallet balance stays on the bar — it's the one number players
+                check constantly to decide whether they can afford a square,
+                so it doesn't get buried behind a menu tap like everything
+                else here. "Bucks" drops on mobile to save width; the number
+                itself never does. */}
             <Button
               size="sm"
               onClick={() => navigate('/wallet')}
@@ -1121,96 +1109,9 @@ const GameBoard: React.FC = () => {
               className="bg-amber-500 hover:bg-amber-600 text-black font-bold text-xs rounded-full px-3 py-1.5"
             >
               <Wallet className="w-3.5 h-3.5 mr-1" />
-              {wallet?.balance?.toFixed(2) || '0.00'} Bucks
+              {wallet?.balance?.toFixed(2) || '0.00'}<span className="hidden sm:inline">&nbsp;Bucks</span>
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
-                  title="Impact"
-                >
-                  <Trophy className="w-3.5 h-3.5 mr-0.5" />
-                  <span className="hidden sm:inline">Impact</span>
-                  <ChevronDown className="w-3 h-3 ml-0.5 hidden sm:inline" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="bg-slate-900 border-white/10 text-white">
-                <DropdownMenuItem onClick={() => navigate('/leaderboard')} className="cursor-pointer focus:bg-white/10 focus:text-white">
-                  <Medal className="w-3.5 h-3.5 mr-2" /> Leaderboard
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate('/players/me')} className="cursor-pointer focus:bg-white/10 focus:text-white">
-                  <UserCircle className="w-3.5 h-3.5 mr-2" /> My Profile
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate('/prize-history')} className="cursor-pointer focus:bg-white/10 focus:text-white">
-                  <Trophy className="w-3.5 h-3.5 mr-2" /> My Wins
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleOpenImpactPicker} className="cursor-pointer focus:bg-white/10 focus:text-white">
-                  <Share2 className="w-3.5 h-3.5 mr-2" /> Share My Impact
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            {myTeam && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="relative border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
-                    title="Team options"
-                  >
-                    <Users className="w-3.5 h-3.5 mr-0.5" />
-                    <span className="hidden sm:inline">Team</span>
-                    <ChevronDown className="w-3 h-3 ml-0.5 hidden sm:inline" />
-                    {pendingTradeCount > 0 && (
-                      <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                        {pendingTradeCount}
-                      </span>
-                    )}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="bg-slate-900 border-white/10 text-white">
-                  <DropdownMenuItem onClick={() => navigate('/team')} className="cursor-pointer focus:bg-white/10 focus:text-white">
-                    <Users className="w-3.5 h-3.5 mr-2" /> My Team
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handlePrintTeamPdf} className="cursor-pointer focus:bg-white/10 focus:text-white">
-                    <Printer className="w-3.5 h-3.5 mr-2" /> Team Print
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/trade')} className="cursor-pointer focus:bg-white/10 focus:text-white">
-                    <Users className="w-3.5 h-3.5 mr-2" /> Trade
-                    {pendingTradeCount > 0 && (
-                      <span className="ml-auto bg-rose-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                        {pendingTradeCount}
-                      </span>
-                    )}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handlePrintPdf}
-              disabled={!card}
-              className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
-              title="Print my card as PDF"
-            >
-              <Printer className="w-3.5 h-3.5 mr-0.5" />
-              <span className="hidden sm:inline">Print Card</span>
-            </Button>
-            {isAdmin && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => navigate('/admin')}
-                className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
-                title="Admin Panel"
-              >
-                <Shield className="w-3.5 h-3.5 mr-0.5" />
-                <span className="hidden sm:inline">Admin</span>
-              </Button>
-            )}
+
             <button
               onClick={() => navigate('/how-to-play')}
               title="How to Play"
@@ -1218,16 +1119,85 @@ const GameBoard: React.FC = () => {
             >
               ?
             </button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleLogout}
-              className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
-              title="Log Out"
-            >
-              <LogOut className="w-3.5 h-3.5 mr-0.5" />
-              <span className="hidden sm:inline">Log Out</span>
-            </Button>
+
+            {/* Everything else — profile, team, printing, admin, logout —
+                lives in one Account menu so the bar doesn't turn into a row
+                of 7+ competing buttons, especially on a phone. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="relative border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white text-xs"
+                  title="Account"
+                >
+                  {playerBadge && (
+                    <img
+                      src={`/badge-${playerBadge.badge_name.toLowerCase()}.png`}
+                      alt={playerBadge.badge_name}
+                      className="w-4 h-4 rounded-full object-cover mr-1"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                  )}
+                  {!playerBadge && <UserCircle className="w-3.5 h-3.5" />}
+                  {playerNumber && (
+                    <span className="font-mono hidden sm:inline">GR8-{playerNumber}</span>
+                  )}
+                  <ChevronDown className="w-3 h-3 ml-0.5" />
+                  {pendingTradeCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                      {pendingTradeCount}
+                    </span>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-slate-900 border-white/10 text-white">
+                <DropdownMenuItem onClick={() => setShowEditProfile(true)} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                  <Edit2 className="w-3.5 h-3.5 mr-2" /> Edit Profile
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate('/players/me')} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                  <UserCircle className="w-3.5 h-3.5 mr-2" /> My Profile
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate('/leaderboard')} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                  <Medal className="w-3.5 h-3.5 mr-2" /> Leaderboard
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate('/prize-history')} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                  <Trophy className="w-3.5 h-3.5 mr-2" /> My Wins
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleOpenImpactPicker} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                  <Share2 className="w-3.5 h-3.5 mr-2" /> Share My Impact
+                </DropdownMenuItem>
+                {myTeam && (
+                  <>
+                    <DropdownMenuItem onClick={() => navigate('/team')} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                      <Users className="w-3.5 h-3.5 mr-2" /> My Team
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handlePrintTeamPdf} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                      <Printer className="w-3.5 h-3.5 mr-2" /> Team Print
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate('/trade')} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                      <Users className="w-3.5 h-3.5 mr-2" /> Trade
+                      {pendingTradeCount > 0 && (
+                        <span className="ml-auto bg-rose-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                          {pendingTradeCount}
+                        </span>
+                      )}
+                    </DropdownMenuItem>
+                  </>
+                )}
+                <DropdownMenuItem onClick={handlePrintPdf} disabled={!card} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                  <Printer className="w-3.5 h-3.5 mr-2" /> Print Card
+                </DropdownMenuItem>
+                {isAdmin && (
+                  <DropdownMenuItem onClick={() => navigate('/admin')} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                    <Shield className="w-3.5 h-3.5 mr-2" /> Admin Panel
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={handleLogout} className="cursor-pointer focus:bg-white/10 focus:text-white">
+                  <LogOut className="w-3.5 h-3.5 mr-2" /> Log Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </header>

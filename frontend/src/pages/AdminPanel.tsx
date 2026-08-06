@@ -100,7 +100,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, Heart, Lock, Settings, Plus, Trash2, Save, Edit2, X, Target, Inbox, Check, XCircle, Lightbulb, Gift, Upload, Download, FileSpreadsheet, Printer, Trophy, Mail, Users, Ticket, Search, Flame, Sparkles, Eye, MessageCircleQuestion, ClipboardList, PenLine, ArrowLeftRight, Ban } from 'lucide-react';
+import { ArrowLeft, Heart, Lock, Settings, Plus, Trash2, Save, Edit2, X, Target, Inbox, Check, XCircle, Lightbulb, Gift, Upload, Download, FileSpreadsheet, Printer, Trophy, Mail, Users, Ticket, Search, Flame, Sparkles, Eye, MessageCircleQuestion, ClipboardList, PenLine, ArrowLeftRight, Ban, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { TargetingGroupsInput } from '@/components/TargetingGroupsInput';
 
@@ -139,6 +139,8 @@ const isNewMember = (createdAt: string | null): boolean => {
   const ageMs = Date.now() - new Date(createdAt).getTime();
   return ageMs >= 0 && ageMs < NEW_MEMBER_WINDOW_HOURS * 60 * 60 * 1000;
 };
+
+type MemberSortColumn = 'player_number' | 'name' | 'email' | 'location' | 'email_verified' | 'is_active';
 
 const AdminPanel: React.FC = () => {
   const navigate = useNavigate();
@@ -207,6 +209,8 @@ const AdminPanel: React.FC = () => {
   const [memberCountryFilter, setMemberCountryFilter] = useState('all');
   const [memberStateFilter, setMemberStateFilter] = useState('all');
   const [memberActiveFilter, setMemberActiveFilter] = useState('all');
+  const [memberSortColumn, setMemberSortColumn] = useState<MemberSortColumn | null>(null);
+  const [memberSortDirection, setMemberSortDirection] = useState<'asc' | 'desc'>('asc');
 
   // Player management state
   const [countries, setCountries] = useState<CountryOption[]>([]);
@@ -1475,8 +1479,53 @@ const AdminPanel: React.FC = () => {
     if (memberActiveFilter !== 'all') {
       result = result.filter((m) => m.is_active === (memberActiveFilter === 'active'));
     }
+    if (memberSortColumn) {
+      const dir = memberSortDirection === 'asc' ? 1 : -1;
+      const sortValue = (m: MemberItem): string | number => {
+        switch (memberSortColumn) {
+          case 'player_number': return m.player_number ?? -Infinity;
+          case 'name': return (m.name ?? '').toLowerCase();
+          case 'email': return (m.email ?? '').toLowerCase();
+          case 'location': return [m.city, m.province_state, m.country].filter(Boolean).join(', ').toLowerCase();
+          case 'email_verified': return m.email_verified ? 1 : 0;
+          case 'is_active': return m.is_active ? 1 : 0;
+        }
+      };
+      result.sort((a, b) => {
+        const aVal = sortValue(a);
+        const bVal = sortValue(b);
+        if (aVal < bVal) return -1 * dir;
+        if (aVal > bVal) return 1 * dir;
+        return 0;
+      });
+    }
     return result;
   };
+
+  const handleMemberSort = (column: MemberSortColumn) => {
+    if (memberSortColumn === column) {
+      setMemberSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setMemberSortColumn(column);
+      setMemberSortDirection('asc');
+    }
+  };
+
+  const MemberSortHeader = ({ column, label, align }: { column: MemberSortColumn; label: string; align?: 'center' }) => (
+    <th className={`px-3 py-2${align === 'center' ? ' text-center' : ''}`}>
+      <button
+        onClick={() => handleMemberSort(column)}
+        className={`flex items-center gap-1 hover:text-slate-800 ${align === 'center' ? 'mx-auto' : ''}`}
+      >
+        {label}
+        {memberSortColumn === column ? (
+          memberSortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+        ) : (
+          <ArrowUpDown className="w-3 h-3 opacity-40" />
+        )}
+      </button>
+    </th>
+  );
 
   const memberCountries = [...new Set(members.map((m) => m.country).filter(Boolean))].sort() as string[];
   const memberStates = [...new Set(
@@ -2009,12 +2058,12 @@ const AdminPanel: React.FC = () => {
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50 sticky top-0">
                       <tr className="text-left text-xs text-slate-500 uppercase tracking-wide">
-                        <th className="px-3 py-2">#</th>
-                        <th className="px-3 py-2">User</th>
-                        <th className="px-3 py-2">Email</th>
-                        <th className="px-3 py-2">Location</th>
-                        <th className="px-3 py-2 text-center">Verified</th>
-                        <th className="px-3 py-2 text-center">Active</th>
+                        <MemberSortHeader column="player_number" label="#" />
+                        <MemberSortHeader column="name" label="User" />
+                        <MemberSortHeader column="email" label="Email" />
+                        <MemberSortHeader column="location" label="Location" />
+                        <MemberSortHeader column="email_verified" label="Verified" align="center" />
+                        <MemberSortHeader column="is_active" label="Active" align="center" />
                         <th className="px-3 py-2 text-center">Actions</th>
                       </tr>
                     </thead>

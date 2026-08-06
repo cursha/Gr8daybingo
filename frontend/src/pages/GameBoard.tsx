@@ -65,7 +65,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Medal, LogOut, Printer, ChevronDown, Shuffle, Share2, X, UserCircle, Edit2, Menu as MenuIcon } from 'lucide-react';
+import { Heart, Wallet, ArrowLeft, Send, RefreshCw, Trophy, Users, DollarSign, Sparkles, Target, Lightbulb, Clock, Check, CheckCircle2, XCircle, Shield, Medal, LogOut, Printer, ChevronDown, Shuffle, Share2, X, UserCircle, Edit2, Menu as MenuIcon, SkipForward } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { downloadBingoCardPdf, downloadTeamCardsPdf, TeamMemberCard } from '@/lib/bingo-pdf';
 import { shareOrDownloadImpactCard } from '@/lib/impact-card';
@@ -1343,7 +1343,9 @@ const GameBoard: React.FC = () => {
               Your Gr8Day Card
             </h1>
             <p className="text-xs sm:text-sm text-indigo-300/70 mt-0.5">
-              Week {card?.week_year || '...'} · {completedCount}/{totalCells} squares completed
+              {card?.created_at
+                ? `Started ${new Date(card.created_at).toLocaleDateString()}`
+                : '...'} · {completedCount}/{totalCells} squares completed
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1355,6 +1357,30 @@ const GameBoard: React.FC = () => {
                 <span className="text-[10px] text-indigo-400/60 leading-tight hidden sm:block">{modeDescription}</span>
               </div>
             </div>
+            {/* Tap Out — available any time the card is old enough, not just
+                after a win. Winning never shortcuts this wait (see the bingo
+                strip / celebration modal, which use the same can_tap_out
+                flag and the same handler). */}
+            {card?.can_tap_out ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleStartNewGame}
+                disabled={actionLoading}
+                title="End this card and get a new one — no penalty"
+                className="border-white/20 text-white/70 hover:text-white hover:bg-white/10 h-9"
+              >
+                <SkipForward className="w-3.5 h-3.5 mr-1.5" />
+                {actionLoading ? 'Starting…' : 'Tap Out'}
+              </Button>
+            ) : card?.tap_out_eligible_at ? (
+              <span
+                className="text-[11px] text-indigo-300/50 hidden sm:inline"
+                title="Tap out unlocks once this card is a week old"
+              >
+                Tap out: {new Date(card.tap_out_eligible_at).toLocaleDateString()}
+              </span>
+            ) : null}
             <Button
               variant="outline"
               size="icon"
@@ -1379,10 +1405,10 @@ const GameBoard: React.FC = () => {
 
         {/* ========== BINGO STRIP — celebratory, compact, does not block or
             crowd out continued play. A player who wins keeps playing the
-            same card all the way to end of week: more completed deeds keep
-            earning votes, and every additional line completed earns its own
-            6-20 bonus roll. Start Over (reset) is an optional voluntary
-            action, not required — kept as a small text link, not a CTA. ==== */}
+            same card until they tap out: more completed deeds keep earning
+            entries, and every additional line completed earns its own 6-20
+            bonus roll. Winning does NOT shortcut tap-out eligibility — Start
+            Over only appears once the card has actually turned a week old. */}
         {card?.is_bingo && (
           <div className="mb-4 rounded-lg bg-amber-400 px-3 py-2 flex items-center gap-2 shadow-md">
             <Trophy className="w-4 h-4 text-slate-900 flex-shrink-0" />
@@ -1392,13 +1418,15 @@ const GameBoard: React.FC = () => {
                 <span> 🎟 +{card.draw_bonus_entries} this move!</span>
               )}
             </p>
-            <button
-              onClick={handleStartNewGame}
-              disabled={actionLoading}
-              className="text-[11px] font-bold text-slate-900 underline underline-offset-2 hover:text-slate-700 flex-shrink-0 disabled:opacity-50 p-2 -m-2"
-            >
-              Start Over
-            </button>
+            {card?.can_tap_out && (
+              <button
+                onClick={handleStartNewGame}
+                disabled={actionLoading}
+                className="text-[11px] font-bold text-slate-900 underline underline-offset-2 hover:text-slate-700 flex-shrink-0 disabled:opacity-50 p-2 -m-2"
+              >
+                Start Over
+              </button>
+            )}
           </div>
         )}
 
@@ -1716,12 +1744,14 @@ const GameBoard: React.FC = () => {
         </div>
       </div>
 
-      {/* Celebration */}
+      {/* Celebration — always shows and pays out on a win, but "Start New
+          Game" only appears once the card is actually old enough to tap out
+          of; winning never shortcuts that wait. */}
       <CelebrationOverlay
         show={showCelebration}
         onClose={() => setShowCelebration(false)}
         winCondition={card?.win_condition || 'one_line'}
-        onNewGame={handleStartNewGame}
+        onNewGame={card?.can_tap_out ? handleStartNewGame : undefined}
         newGameLoading={actionLoading}
       />
       {dareYaResult && (

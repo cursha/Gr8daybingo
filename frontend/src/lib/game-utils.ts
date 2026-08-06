@@ -122,6 +122,7 @@ export interface BlackoutState {
 export interface CardData {
   card_id: number;
   week_year: string;
+  created_at?: string;
   cells: CellData[];
   win_condition: string;
   completed_cells: number[];
@@ -132,6 +133,12 @@ export interface CardData {
   pick_three_used?: boolean;
   game_mode?: 'classic' | 'blackout';
   blackout?: BlackoutState | null;
+  // Tap-out eligibility — a card can only be replaced once it's at least a
+  // week old (see TAP_OUT_MIN_DAYS on the backend). Bingo doesn't shortcut
+  // this; these fields are the source of truth for whether "New Game"/
+  // "Start Over" should be enabled.
+  can_tap_out?: boolean;
+  tap_out_eligible_at?: string;
 }
 
 export type DareYaActionType = 'free_square' | 'refer_friend' | 'fund_credit' | 'remove_funds' | 'replace_three' | 'nothing';
@@ -269,6 +276,10 @@ export async function resumeBlackout(): Promise<{ success: boolean }> {
   return apiClient.post('/game/blackout/resume', {});
 }
 
+// "Tap out": voluntarily ends the current card and generates a genuinely new
+// one. Only succeeds once the current card is at least a week old — the
+// backend rejects the call with a 400 otherwise. No penalty on tap-out:
+// wallet, streak, and already-earned draw entries are untouched.
 export async function resetCard(): Promise<CardData> {
   return apiClient.post<CardData>('/game/reset-card', {});
 }

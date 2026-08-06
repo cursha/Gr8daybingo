@@ -135,6 +135,44 @@ function getCurrentWeekYear(): string {
   return `${year}-W${String(week).padStart(2, '0')}`
 }
 
+// A player's "current" card is simply their most recently created one —
+// no longer gated to matching today's calendar week. A card lives until the
+// player taps out (see TAP_OUT_MIN_DAYS below) or completes a bingo; neither
+// of those replaces the row, they just insert a newer one, so "most recent"
+// is always the right answer without needing an is_active flag.
+async function getPlayerCurrentCard(
+  supabase: ReturnType<typeof getSupabase>,
+  userId: string,
+) {
+  const { data } = await supabase
+    .from('player_cards')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return data
+}
+
+// A card must be at least this old before the player can tap out of it.
+// Bingo completion does NOT shortcut this — winning behaves exactly as it
+// always has (pays the bonus, lets them keep playing the same card); the
+// only path to a new card is tapping out once it's old enough.
+const TAP_OUT_MIN_DAYS = 7
+
+// Same rule for both game modes — Blackout's own reveal/pause/pass
+// mechanics are untouched, but it gets the same tap-out gate as classic.
+function getTapOutEligibility(card: { created_at: string }): {
+  can_tap_out: boolean
+  tap_out_eligible_at: string
+} {
+  const eligibleAt = new Date(new Date(card.created_at).getTime() + TAP_OUT_MIN_DAYS * 24 * 60 * 60 * 1000)
+  return {
+    can_tap_out: Date.now() >= eligibleAt.getTime(),
+    tap_out_eligible_at: eligibleAt.toISOString(),
+  }
+}
+
 function getWeekStart(weekYear: string): Date {
   const [year, weekStr] = weekYear.split('-W')
   const week = parseInt(weekStr)
@@ -414,6 +452,48 @@ async function regenerateClassicCard(
   // referralFreeCount is currently 0 at generation (same as /generate-card),
   // so no square is ever flagged is_referral_free — nothing to pre-mark.
   return { cells, referralCellIndices: [] }
+}
+
+// Blackout equivalent of regenerateClassicCard — used by tap-out. No special
+// squares at all (no free space, no purchasable/secret/bomb/dare-ya): every
+// one of the 25 cells is a plain deed square, matching /generate-card's
+// blackout branch exactly, just with true crypto randomness instead of the
+// seeded RNG (this is a voluntary reset, not a deterministic weekly seed).
+async function regenerateBlackoutCard(
+  supabase: ReturnType<typeof getSupabase>,
+  userId: string,
+): Promise<{ cells: Cell[] }> {
+  const { data: activeCategories } = await supabase
+    .from('deed_categories').select('name').eq('is_active', true)
+  const activeCategoryNames = (activeCategories ?? []).map((c) => c.name)
+
+  let deedQuery = supabase.from('good_deeds').select('*').eq('is_active', true).eq('status', 'Approved')
+  if (activeCategoryNames.length > 0) deedQuery = deedQuery.in('category', activeCategoryNames)
+  const { data: deeds } = await deedQuery
+  if (!deeds || deeds.length < 25) throw { status: 400, detail: 'Not enough active deeds to rebuild the card' }
+
+  const { playerValueIds, deedTargetingMap } = await fetchTargetingData(supabase, userId)
+  const targetedDeeds = filterDeedsByTargeting(deeds, playerValueIds, deedTargetingMap, deeds)
+  const deedList = [...targetedDeeds]
+  cryptoShuffle(deedList)
+  const selectedDeeds = deedList.slice(0, 25)
+
+  const cells: Cell[] = Array.from({ length: 25 }, (_, i) => ({
+    index: i,
+    deed_text: selectedDeeds[i].deed_text,
+    deed_text_long: selectedDeeds[i].deed_text_long ?? null,
+    deed_id: selectedDeeds[i].id,
+    is_free_space: false,
+    is_purchasable: false,
+    purchase_price: null,
+    is_referral_free: false,
+    is_secret: false,
+    secret_reward: null,
+    quantity: selectedDeeds[i].quantity ?? 1,
+    category: selectedDeeds[i].category ?? null,
+  }))
+
+  return { cells }
 }
 
 // The check-then-insert/update race above every users write below (SELECT for
@@ -1139,8 +1219,7 @@ Deno.serve(async (req: Request) => {
     // picker must never show once has_card is true.
     if (method === 'GET' && path === '/my-card-status') {
       const user = requireAuth(authUser)
-      const { data: existing } = await supabase
-        .from('player_cards').select('id').eq('user_id', user.sub).eq('week_year', getCurrentWeekYear()).maybeSingle()
+      const existing = await getPlayerCurrentCard(supabase, user.sub)
       const { data: boCfg } = await supabase
         .from('game_configs').select('config_value').eq('config_key', 'blackout_enabled').maybeSingle()
       return jsonResponse({
@@ -1172,13 +1251,9 @@ Deno.serve(async (req: Request) => {
       }
       const gameMode = blackoutOffered ? requestedMode : 'classic'
 
-      // Check for existing card this week
-      const { data: existing } = await supabase
-        .from('player_cards')
-        .select('*')
-        .eq('user_id', user.sub)
-        .eq('week_year', weekYear)
-        .maybeSingle()
+      // Check for an existing (still-current) card — no longer scoped to
+      // this calendar week; a card stays current until tap-out or bingo.
+      const existing = await getPlayerCurrentCard(supabase, user.sub)
 
       if (existing) {
         let needsSave = false
@@ -1246,9 +1321,11 @@ Deno.serve(async (req: Request) => {
 
         const completedIdx = parseJsonArr(existing.completed_cells) as number[]
 
-        // Check if player is entered in this week's draw
+        // Check if player is entered in THIS calendar week's draw — the real
+        // current week, not the (possibly weeks-old) week their card was
+        // created in.
         const { data: drawEntry } = await supabase
-          .from('draw_entries').select('id').eq('user_id', user.sub).eq('week_year', existing.week_year).maybeSingle()
+          .from('draw_entries').select('id').eq('user_id', user.sub).eq('week_year', getCurrentWeekYear()).maybeSingle()
 
         let blackoutState: { hidden_cells: number[]; blocked_cells: number[]; active_group: number[] | null; is_paused: boolean } | null = null
         if (existing.game_mode === 'blackout') {
@@ -1264,6 +1341,7 @@ Deno.serve(async (req: Request) => {
         return jsonResponse({
           card_id: existing.id,
           week_year: existing.week_year,
+          created_at: existing.created_at,
           game_mode: existing.game_mode ?? 'classic',
           cells: sanitizeCells(cells, completedIdx, blackoutState?.hidden_cells),
           win_condition: existing.win_condition,
@@ -1274,6 +1352,7 @@ Deno.serve(async (req: Request) => {
           draw_entered: drawEntry != null,
           pick_three_used: existing.pick_three_used ?? false,
           blackout: blackoutState,
+          ...getTapOutEligibility(existing),
         })
       }
 
@@ -1485,22 +1564,18 @@ Deno.serve(async (req: Request) => {
         blackoutState = { hidden_cells: allIndices, blocked_cells: [], active_group: null, is_paused: false }
       }
 
-      // Whichever card generation is first to claim this week_year fires the
-      // one-time "new game launched" email to every verified player. The
-      // PRIMARY KEY on game_launch_notifications is the real atomicity
-      // guarantee — a concurrent second claim for the same week_year fails
-      // this insert and simply never sends. Backgrounded so a Resend outage
-      // or slow batch can never delay this player's own card generation.
-      const { error: launchClaimErr } = await supabase
-        .from('game_launch_notifications')
-        .insert({ week_year: weekYear })
-      if (!launchClaimErr) {
-        backgroundTask(sendGameLaunchEmails(supabase, weekYear))
-      }
+      // The "new game launched" batch email (game_launch_notifications +
+      // sendGameLaunchEmails) is intentionally not fired here anymore — it
+      // was premised on everyone's cards dropping together on a shared
+      // weekly boundary. Now that card generation is per-player and async
+      // (tap-out/bingo-driven, not calendar-driven), there's no shared
+      // "launch moment" left to broadcast. Left in the codebase unused in
+      // case a deliberate first-card welcome email is wanted later.
 
       return jsonResponse({
         card_id: newCard.id,
         week_year: newCard.week_year,
+        created_at: newCard.created_at,
         game_mode: gameMode,
         cells: sanitizeCells(cells, [], blackoutState?.hidden_cells),
         win_condition: adminWinCondition,
@@ -1510,6 +1585,7 @@ Deno.serve(async (req: Request) => {
         is_bingo: false,
         pick_three_used: false,
         blackout: blackoutState,
+        ...getTapOutEligibility(newCard),
       })
     }
 
@@ -1664,14 +1740,17 @@ Deno.serve(async (req: Request) => {
       const drawSettings = await getDrawSettings(supabase)
       if (completedDeedId != null) {
         await awardDeedEntry(supabase, {
-          completedDeedId, playerId: user.sub, weekYear: card.week_year,
+          // Real-time calendar week, not the card's (possibly weeks-old)
+          // creation week — draw-entry eligibility rides the actual clock,
+          // independent of how long a card has been in play.
+          completedDeedId, playerId: user.sub, weekYear: getCurrentWeekYear(),
           sourceType: 'bingo_card', settings: drawSettings,
         })
       }
 
       // Award any newly-completed lines' bonuses + congratulate by email on first win.
       const bonusEntries = await awardNewBingoLines(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0,
+        playerId: user.sub, cardId: card_id, weekYear: getCurrentWeekYear(), playCycle: card.play_cycle ?? 0,
         newLineIndices, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
@@ -1693,39 +1772,83 @@ Deno.serve(async (req: Request) => {
       return jsonResponse(resp)
     }
 
-    // ── POST /reset-card ──────────────────────────────────────────────────────
+    // ── POST /reset-card — "tap out" ──────────────────────────────────────────
+    // Voluntarily ends the player's current card with no penalty (nothing
+    // about it is reversed — completed deeds, wallet credits, streak, and
+    // draw entries already earned all stand) and hands them a genuinely new
+    // one. Only unlocks once the current card is TAP_OUT_MIN_DAYS old —
+    // bingo completion does not shortcut this; winning behaves exactly as it
+    // always has. Inserts a new player_cards row rather than reusing the old
+    // one, so every card a player has played stays queryable as history.
     if (method === 'POST' && path === '/reset-card') {
       const user = requireAuth(authUser)
-      const weekYear = getCurrentWeekYear()
-      const { data: card } = await supabase
-        .from('player_cards').select('*')
-        .eq('user_id', user.sub).eq('week_year', weekYear).maybeSingle()
+      const card = await getPlayerCurrentCard(supabase, user.sub)
       if (!card) return errorResponse('No card to reset', 404)
-      if (card.game_mode === 'blackout') return errorResponse('Not available in Blackout mode', 400)
 
-      // A player can keep playing the same card past a win all the way to
-      // end of week without ever resetting — this is a voluntary "start
-      // over with a fresh card" action. Bump play_cycle and clear which
-      // lines have been paid so far, so lines completed in the new cycle
-      // are independently eligible for their own bonus roll.
-      const nextCycle = (card.play_cycle ?? 0) + 1
-      await supabase.from('player_cards').update({
-        completed_cells: '[]',
-        purchased_cells: '[]',
-        referral_cells: '[]',
-        is_bingo: false,
-        play_cycle: nextCycle,
-        bonus_lines_awarded: '[]',
-        updated_at: new Date().toISOString(),
-      }).eq('id', card.id)
+      const minAgeMs = TAP_OUT_MIN_DAYS * 24 * 60 * 60 * 1000
+      const cardAgeMs = Date.now() - new Date(card.created_at).getTime()
+      if (cardAgeMs < minAgeMs) {
+        const eligibleAt = new Date(new Date(card.created_at).getTime() + minAgeMs)
+        return errorResponse(
+          `You can tap out once this card turns ${TAP_OUT_MIN_DAYS} days old (${eligibleAt.toDateString()}).`,
+          400,
+        )
+      }
+
+      const isBlackout = card.game_mode === 'blackout'
+      let finalCells: Cell[]
+      let referralCellIndices: number[] = []
+      if (isBlackout) {
+        finalCells = (await regenerateBlackoutCard(supabase, user.sub)).cells
+      } else {
+        const rebuilt = await regenerateClassicCard(supabase, user.sub, card.win_condition)
+        finalCells = rebuilt.cells
+        referralCellIndices = rebuilt.referralCellIndices
+      }
+
+      const { data: newCard, error: cardErr } = await supabase
+        .from('player_cards')
+        .insert({
+          user_id: user.sub,
+          week_year: getCurrentWeekYear(),
+          card_data: JSON.stringify(finalCells),
+          win_condition: card.win_condition,
+          game_mode: card.game_mode ?? 'classic',
+          completed_cells: '[]',
+          purchased_cells: '[]',
+          referral_cells: JSON.stringify(referralCellIndices),
+          is_bingo: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .select()
+        .single()
+      if (cardErr) throw cardErr
+
+      let blackoutState: { hidden_cells: number[]; blocked_cells: number[]; active_group: number[] | null; is_paused: boolean } | null = null
+      if (isBlackout) {
+        const allIndices = Array.from({ length: 25 }, (_, i) => i)
+        await supabase.from('blackout_state').insert({
+          card_id: newCard.id,
+          hidden_cells: allIndices,
+          blocked_cells: [],
+          active_group: null,
+          is_paused: false,
+        })
+        blackoutState = { hidden_cells: allIndices, blocked_cells: [], active_group: null, is_paused: false }
+      }
 
       return jsonResponse({
         success: true,
-        card_id: card.id,
-        week_year: card.week_year,
-        cells: sanitizeCells(JSON.parse(card.card_data), []),
-        win_condition: card.win_condition,
-        completed_cells: [], purchased_cells: [], referral_cells: [], is_bingo: false,
+        card_id: newCard.id,
+        week_year: newCard.week_year,
+        created_at: newCard.created_at,
+        game_mode: newCard.game_mode,
+        cells: sanitizeCells(finalCells, [], blackoutState?.hidden_cells),
+        win_condition: newCard.win_condition,
+        completed_cells: [], purchased_cells: [], referral_cells: referralCellIndices, is_bingo: false,
+        blackout: blackoutState,
+        ...getTapOutEligibility(newCard),
       })
     }
 
@@ -1742,9 +1865,7 @@ Deno.serve(async (req: Request) => {
         return errorResponse('cell_index required', 400)
       }
 
-      const { data: card } = await supabase
-        .from('player_cards').select('id, card_data, game_mode')
-        .eq('user_id', user.sub).eq('week_year', getCurrentWeekYear()).maybeSingle()
+      const card = await getPlayerCurrentCard(supabase, user.sub)
       if (!card || card.game_mode !== 'blackout') return errorResponse('Not a Blackout card', 400)
 
       const { data: state } = await supabase.from('blackout_state').select('*').eq('card_id', card.id).maybeSingle()
@@ -1834,9 +1955,7 @@ Deno.serve(async (req: Request) => {
       const cellIndex = parseInt(body.cell_index)
       if (!Number.isFinite(cellIndex)) return errorResponse('cell_index required', 400)
 
-      const { data: card } = await supabase
-        .from('player_cards').select('id, game_mode')
-        .eq('user_id', user.sub).eq('week_year', getCurrentWeekYear()).maybeSingle()
+      const card = await getPlayerCurrentCard(supabase, user.sub)
       if (!card || card.game_mode !== 'blackout') return errorResponse('Not a Blackout card', 400)
 
       const { data: state } = await supabase.from('blackout_state').select('*').eq('card_id', card.id).maybeSingle()
@@ -1859,9 +1978,7 @@ Deno.serve(async (req: Request) => {
     // since there's no timer; this is purely a stepping-away state.
     if (method === 'POST' && path === '/blackout/pause') {
       const user = requireAuth(authUser)
-      const { data: card } = await supabase
-        .from('player_cards').select('id, game_mode')
-        .eq('user_id', user.sub).eq('week_year', getCurrentWeekYear()).maybeSingle()
+      const card = await getPlayerCurrentCard(supabase, user.sub)
       if (!card || card.game_mode !== 'blackout') return errorResponse('Not a Blackout card', 400)
 
       const { data: state } = await supabase.from('blackout_state').select('active_group').eq('card_id', card.id).maybeSingle()
@@ -1875,9 +1992,7 @@ Deno.serve(async (req: Request) => {
     // ── POST /blackout/resume ─────────────────────────────────────────────────
     if (method === 'POST' && path === '/blackout/resume') {
       const user = requireAuth(authUser)
-      const { data: card } = await supabase
-        .from('player_cards').select('id, game_mode')
-        .eq('user_id', user.sub).eq('week_year', getCurrentWeekYear()).maybeSingle()
+      const card = await getPlayerCurrentCard(supabase, user.sub)
       if (!card || card.game_mode !== 'blackout') return errorResponse('Not a Blackout card', 400)
 
       await supabase.from('blackout_state').update({ is_paused: false, updated_at: new Date().toISOString() }).eq('card_id', card.id)
@@ -1943,7 +2058,7 @@ Deno.serve(async (req: Request) => {
       // Note: a purchased square is not a completed deed, so it earns NO deed entry,
       // but it CAN complete lines, which still earn the random 6-20 bonus each.
       const bonusEntries = await awardNewBingoLines(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0,
+        playerId: user.sub, cardId: card_id, weekYear: getCurrentWeekYear(), playCycle: card.play_cycle ?? 0,
         newLineIndices, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
@@ -3618,13 +3733,9 @@ Deno.serve(async (req: Request) => {
         .maybeSingle()
       if (!targetUser) return errorResponse('Player not found', 404)
 
-      const weekYear = getCurrentWeekYear()
-      const { data: card } = await supabase
-        .from('player_cards')
-        .select('*')
-        .eq('user_id', targetUser.id)
-        .eq('week_year', weekYear)
-        .maybeSingle()
+      // The player's current card, whichever week it was created in — a
+      // card is no longer guaranteed to match today's calendar week.
+      const card = await getPlayerCurrentCard(supabase, targetUser.id)
 
       return jsonResponse({
         player: {
@@ -3639,6 +3750,7 @@ Deno.serve(async (req: Request) => {
         card: card ? {
           card_id: card.id,
           week_year: card.week_year,
+          created_at: card.created_at,
           cells: sanitizeCells(JSON.parse(card.card_data), parseJsonArr(card.completed_cells)),
           win_condition: card.win_condition,
           completed_cells: parseJsonArr(card.completed_cells),
@@ -4538,11 +4650,11 @@ Deno.serve(async (req: Request) => {
 
       const weekYear = getCurrentWeekYear()
 
-      // Verify player actually won this week
-      const { data: card } = await supabase
-        .from('player_cards').select('is_bingo, week_year')
-        .eq('user_id', user.sub).eq('week_year', weekYear).maybeSingle()
-      if (!card || !card.is_bingo) return errorResponse('No winning card found for this week', 400)
+      // Verify the player's current card (whichever week it was created in)
+      // has actually won — a card's win doesn't expire just because the
+      // calendar moved on since it was generated.
+      const card = await getPlayerCurrentCard(supabase, user.sub)
+      if (!card || !card.is_bingo) return errorResponse('No winning card found', 400)
 
       // Prevent duplicate claims
       const { data: existing } = await supabase
@@ -4962,13 +5074,21 @@ Deno.serve(async (req: Request) => {
         .single()
       if (teamError) throw teamError
 
-      // Fetch current-week card for each member
+      // Fetch each member's current card — no longer necessarily created
+      // this calendar week, so pick the most recent row per member rather
+      // than filtering by week_year.
       const memberUserIds = (team.team_members ?? []).map((m: any) => m.user_id)
-      const { data: cards } = await supabase
+      const { data: memberCardRows } = await supabase
         .from('player_cards')
         .select('id, user_id, week_year, card_data, win_condition, completed_cells, purchased_cells, referral_cells, is_bingo, game_mode')
-        .eq('week_year', weekYear)
         .in('user_id', memberUserIds)
+        .order('created_at', { ascending: false })
+      const seenMemberIds = new Set<string>()
+      const cards = (memberCardRows ?? []).filter((c) => {
+        if (seenMemberIds.has(c.user_id)) return false
+        seenMemberIds.add(c.user_id)
+        return true
+      })
 
       // Blocked (passed-on) Blackout squares stay off-limits for trading same
       // as completed/purchased/referral squares — fetch in one batch.
@@ -5103,15 +5223,13 @@ Deno.serve(async (req: Request) => {
         .or(`from_user_id.eq.${user.sub},to_user_id.eq.${user.sub}`)
       if ((completedCount ?? 0) >= 1) return errorResponse('Trade limit reached for this week', 400)
 
-      // Load from_card
-      const { data: fromCard } = await supabase
-        .from('player_cards').select('*').eq('user_id', user.sub).eq('week_year', weekYear).maybeSingle()
-      if (!fromCard) return errorResponse('You do not have a card this week', 400)
+      // Load each player's current card (not necessarily created this
+      // calendar week — the weekly limits above are a separate throttle).
+      const fromCard = await getPlayerCurrentCard(supabase, user.sub)
+      if (!fromCard) return errorResponse('You do not have a card', 400)
 
-      // Load to_card
-      const { data: toCard } = await supabase
-        .from('player_cards').select('*').eq('user_id', to_user_id).eq('week_year', weekYear).maybeSingle()
-      if (!toCard) return errorResponse('That player does not have a card this week', 400)
+      const toCard = await getPlayerCurrentCard(supabase, to_user_id)
+      if (!toCard) return errorResponse('That player does not have a card', 400)
 
       // Blackout: trading is allowed, including still-hidden squares (that's
       // the point — otherwise only the couple of currently-open squares would
@@ -6172,7 +6290,7 @@ Deno.serve(async (req: Request) => {
       // Award any newly-completed lines' bonuses + congratulate by email on
       // first win, same as mark-cell.
       const bonusEntries = await awardNewBingoLines(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0,
+        playerId: user.sub, cardId: card_id, weekYear: getCurrentWeekYear(), playCycle: card.play_cycle ?? 0,
         newLineIndices, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
@@ -6286,7 +6404,7 @@ Deno.serve(async (req: Request) => {
       }
 
       const bonusEntries = await awardNewBingoLines(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: card.week_year, playCycle: card.play_cycle ?? 0,
+        playerId: user.sub, cardId: card_id, weekYear: getCurrentWeekYear(), playCycle: card.play_cycle ?? 0,
         newLineIndices, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,

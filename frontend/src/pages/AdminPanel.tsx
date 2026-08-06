@@ -1907,12 +1907,16 @@ const AdminPanel: React.FC = () => {
 
                 {cardViewerResult.card === null ? (
                   <div className="text-center py-8 text-slate-400 text-sm">
-                    No card generated for the current week.
+                    This player has no card yet.
                   </div>
                 ) : (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-xs text-slate-500">
-                      <span>Week: <strong className="text-slate-700">{cardViewerResult.card.week_year}</strong></span>
+                      <span>
+                        Card started: <strong className="text-slate-700">
+                          {cardViewerResult.card.created_at ? new Date(cardViewerResult.card.created_at).toLocaleDateString() : cardViewerResult.card.week_year}
+                        </strong>
+                      </span>
                       <span>
                         Completed: <strong className="text-slate-700">{cardViewerResult.card.completed_cells.length + cardViewerResult.card.purchased_cells.length}</strong> squares
                         {cardViewerResult.card.is_bingo && <span className="ml-2 text-emerald-600 font-bold">🎉 BINGO!</span>}

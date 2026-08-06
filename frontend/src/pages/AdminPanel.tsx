@@ -1524,7 +1524,7 @@ const AdminPanel: React.FC = () => {
   <h1>Gr8Day Players</h1>
   <p class="meta">${list.length} player${list.length !== 1 ? 's' : ''} &nbsp;·&nbsp; ${filterDesc} &nbsp;·&nbsp; ${new Date().toLocaleDateString()}</p>
   <table>
-    <thead><tr><th>#</th><th>Name</th><th>Email</th><th>City</th><th>Province / State</th><th>Country</th><th>Verified</th><th>Last Active</th></tr></thead>
+    <thead><tr><th>#</th><th>User</th><th>Email</th><th>City</th><th>Province / State</th><th>Country</th><th>Verified</th><th>Last Active</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
   <script>window.onload=function(){window.print();}</script>
@@ -2010,7 +2010,7 @@ const AdminPanel: React.FC = () => {
                     <thead className="bg-slate-50 sticky top-0">
                       <tr className="text-left text-xs text-slate-500 uppercase tracking-wide">
                         <th className="px-3 py-2">#</th>
-                        <th className="px-3 py-2">Name</th>
+                        <th className="px-3 py-2">User</th>
                         <th className="px-3 py-2">Email</th>
                         <th className="px-3 py-2">Location</th>
                         <th className="px-3 py-2 text-center">Verified</th>

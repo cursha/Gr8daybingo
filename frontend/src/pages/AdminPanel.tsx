@@ -1511,8 +1511,8 @@ const AdminPanel: React.FC = () => {
     }
   };
 
-  const MemberSortHeader = ({ column, label, align }: { column: MemberSortColumn; label: string; align?: 'center' }) => (
-    <th className={`px-3 py-2${align === 'center' ? ' text-center' : ''}`}>
+  const MemberSortHeader = ({ column, label, align, tight }: { column: MemberSortColumn; label: string; align?: 'center'; tight?: boolean }) => (
+    <th className={`${tight ? 'px-1.5' : 'px-3'} py-2${align === 'center' ? ' text-center' : ''}`}>
       <button
         onClick={() => handleMemberSort(column)}
         className={`flex items-center gap-1 hover:text-slate-800 ${align === 'center' ? 'mx-auto' : ''}`}
@@ -2062,9 +2062,9 @@ const AdminPanel: React.FC = () => {
                         <MemberSortHeader column="name" label="User" />
                         <MemberSortHeader column="email" label="Email" />
                         <MemberSortHeader column="location" label="Location" />
-                        <MemberSortHeader column="email_verified" label="Verified" align="center" />
-                        <MemberSortHeader column="is_active" label="Active" align="center" />
-                        <th className="px-3 py-2 text-center">Actions</th>
+                        <MemberSortHeader column="email_verified" label="Ver" align="center" tight />
+                        <MemberSortHeader column="is_active" label="Act" align="center" tight />
+                        <th className="px-2 py-2 text-center">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -2078,7 +2078,7 @@ const AdminPanel: React.FC = () => {
                               {isNewMember(m.created_at) && (
                                 <span className="text-rose-500 font-bold mr-1" title={`Joined within the last ${NEW_MEMBER_WINDOW_HOURS} hours`}>*</span>
                               )}
-                              <span className="font-medium text-slate-800">{m.name || '—'}</span>
+                              <span className="font-medium text-slate-800 truncate max-w-[15ch] inline-block align-bottom" title={m.name || undefined}>{m.name || '—'}</span>
                               {m.role === 'admin' && (
                                 <span className="ml-1.5 text-[10px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded">admin</span>
                               )}
@@ -2089,17 +2089,17 @@ const AdminPanel: React.FC = () => {
                             <td className="px-3 py-2 text-slate-600">
                               {[m.city, m.province_state, m.country].filter(Boolean).join(', ') || '—'}
                             </td>
-                            <td className="px-3 py-2 text-center">
+                            <td className="px-1.5 py-2 text-center">
                               {m.email_verified
-                                ? <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-semibold">Y</span>
-                                : <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-semibold">N</span>}
+                                ? <span className="text-xs bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-semibold">Y</span>
+                                : <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-semibold">N</span>}
                             </td>
-                            <td className="px-3 py-2 text-center" title={m.last_valid_deed_date ? `Last deed: ${m.last_valid_deed_date}` : 'No deed on record'}>
+                            <td className="px-1.5 py-2 text-center" title={m.last_valid_deed_date ? `Last deed: ${m.last_valid_deed_date}` : 'No deed on record'}>
                               {m.is_active
-                                ? <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-semibold">Y</span>
-                                : <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-semibold">N</span>}
+                                ? <span className="text-xs bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-semibold">Y</span>
+                                : <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold">N</span>}
                             </td>
-                            <td className="px-3 py-2 text-center whitespace-nowrap">
+                            <td className="px-2 py-2 text-center whitespace-nowrap">
                               <button onClick={() => editingPlayer === m.id ? setEditingPlayer(null) : startEditPlayer(m)} className="text-indigo-600 hover:text-indigo-800 text-xs mr-2 font-medium">{editingPlayer === m.id ? 'Cancel' : 'Edit'}</button>
                               <button onClick={() => handleDeletePlayer(m.id, m.name || m.email || '')} className="text-red-500 hover:text-red-700 text-xs font-medium">Delete</button>
                             </td>

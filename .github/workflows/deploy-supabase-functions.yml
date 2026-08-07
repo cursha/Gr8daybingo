@@ -1,0 +1,32 @@
+name: Deploy Supabase Edge Functions
+
+# Companion to deploy-cpanel.yml (which handles the frontend) — this deploys
+# every Supabase Edge Function under supabase/functions/ whenever one of them
+# changes on main. Uses the Supabase CLI, authenticated via the
+# SUPABASE_ACCESS_TOKEN repo secret (a personal access token generated from
+# https://supabase.com/dashboard/account/tokens). The project ref below is
+# public (it's already baked into the frontend's published anon-key bundle),
+# so it's safe to commit — only the access token is secret.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'supabase/functions/**'
+      - '.github/workflows/deploy-supabase-functions.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy all edge functions
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase functions deploy --project-ref cjvnxvzuummcgzmjkffk

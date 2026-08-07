@@ -932,6 +932,13 @@ const GameBoard: React.FC = () => {
         is_bingo: result.is_bingo,
         completed_cells: result.completed_cells,
         draw_bonus_entries: result.draw_bonus_entries,
+        // Mirrors the backend: every outcome except refer_friend is marked
+        // revealed immediately (see game/index.ts /dare-ya-reveal). Without
+        // this, the centre square's "USED" overlay only appeared after a
+        // full page reload, since nothing else here touches card.cells.
+        cells: result.outcome === 'refer_friend'
+          ? prev.cells
+          : prev.cells.map((c) => c.index === 12 ? { ...c, dare_ya_revealed: true } : c),
       } : prev);
       if (result.is_bingo && !wasAlreadyBingo) {
         setTimeout(() => setShowCelebration(true), 500);

@@ -1359,7 +1359,7 @@ const GameBoard: React.FC = () => {
               <Sparkles className="w-5 h-5 text-amber-400" />
               Your Gr8Day Card
             </h1>
-            <p className="text-xs sm:text-sm text-indigo-300/70 mt-0.5">
+            <p className="text-xs sm:text-sm text-white/70 mt-0.5">
               {card?.created_at
                 ? `Started ${new Date(card.created_at).toLocaleDateString()}`
                 : '...'} · {completedCount}/{totalCells} squares completed
@@ -1392,7 +1392,7 @@ const GameBoard: React.FC = () => {
               </Button>
             ) : card?.tap_out_eligible_at ? (
               <span
-                className="text-[11px] text-indigo-200/60 hidden sm:inline"
+                className="text-[11px] text-white/60 hidden sm:inline"
                 title="Tap out unlocks once this card is a week old"
               >
                 Tap out: {new Date(card.tap_out_eligible_at).toLocaleDateString()}
@@ -1628,25 +1628,25 @@ const GameBoard: React.FC = () => {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
             <div className="flex items-center gap-2">
               <div className="w-5 h-5 rounded bg-white shadow-sm flex-shrink-0" />
-              <span className="text-indigo-200/80">Tap to complete</span>
+              <span className="text-white/80">Tap to complete</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-5 h-5 rounded bg-gradient-to-br from-slate-100 to-slate-200 shadow-sm flex-shrink-0 flex items-center justify-center">
                 <DollarSign className="w-3 h-3 text-amber-600" />
               </div>
-              <span className="text-indigo-200/80">Buy to unlock</span>
+              <span className="text-white/80">Buy to unlock</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-5 h-5 rounded bg-gradient-to-br from-teal-50 to-cyan-100 shadow-sm flex-shrink-0 flex items-center justify-center">
                 <Users className="w-3 h-3 text-teal-600" />
               </div>
-              <span className="text-indigo-200/80">Refer to unlock</span>
+              <span className="text-white/80">Refer to unlock</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-5 h-5 rounded bg-gradient-to-br from-emerald-400 to-green-500 shadow-sm flex-shrink-0 flex items-center justify-center">
                 <Trophy className="w-3 h-3 text-white" />
               </div>
-              <span className="text-indigo-200/80">Completed!</span>
+              <span className="text-white/80">Completed!</span>
             </div>
           </div>
         </div>
@@ -1833,12 +1833,12 @@ const GameBoard: React.FC = () => {
                   }`}
                 >
                   <p className="font-bold text-white text-sm">Total — {impactStats.total} Gr8Day Deed{impactStats.total === 1 ? '' : 's'}</p>
-                  <p className="text-xs text-indigo-200/60 mt-0.5">{IMPACT_PERIOD_LABELS[impactPeriod]}</p>
+                  <p className="text-xs text-white/60 mt-0.5">{IMPACT_PERIOD_LABELS[impactPeriod]}</p>
                 </button>
 
                 {impactStats.top_deeds.length > 0 && (
                   <>
-                    <p className="text-[11px] uppercase tracking-wider text-indigo-200/60 font-bold pt-1">Or feature one deed</p>
+                    <p className="text-[11px] uppercase tracking-wider text-white/60 font-bold pt-1">Or feature one deed</p>
                     {impactStats.top_deeds.map((d) => (
                       <button
                         key={d.deed_text}
@@ -1848,14 +1848,14 @@ const GameBoard: React.FC = () => {
                         }`}
                       >
                         <p className="font-bold text-white text-sm">{d.deed_text}</p>
-                        <p className="text-xs text-indigo-200/60 mt-0.5">{d.count} time{d.count === 1 ? '' : 's'}</p>
+                        <p className="text-xs text-white/60 mt-0.5">{d.count} time{d.count === 1 ? '' : 's'}</p>
                       </button>
                     ))}
                   </>
                 )}
               </div>
             ) : (
-              <p className="text-sm text-indigo-200/50 text-center py-8">No Gr8Day Deeds in this period yet — try a longer time frame.</p>
+              <p className="text-sm text-white/50 text-center py-8">No Gr8Day Deeds in this period yet — try a longer time frame.</p>
             )}
 
             <Button

@@ -21,7 +21,7 @@ const Section: React.FC<SectionProps> = ({ icon, title, children }) => (
       {icon}
       {title}
     </h3>
-    <div className="text-sm text-indigo-200/80 space-y-2">{children}</div>
+    <div className="text-sm text-white/80 space-y-2">{children}</div>
   </div>
 );
 

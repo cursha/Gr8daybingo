@@ -109,20 +109,20 @@ const PlayerProfilePage: React.FC = () => {
               </div>
               <h1 className="text-3xl font-black text-white">{profile.username}</h1>
               {profile.player_number && (
-                <p className="text-indigo-300/70 text-sm mt-1">Player #{profile.player_number}</p>
+                <p className="text-white/70 text-sm mt-1">Player #{profile.player_number}</p>
               )}
               <div className="inline-flex items-center gap-2 bg-gradient-to-r from-amber-500/20 to-amber-400/10 border border-amber-400/30 text-amber-200 px-4 py-1.5 rounded-full text-sm font-bold mt-4">
                 {profile.badge_name}
               </div>
               {profile.next_badge_name && profile.deeds_to_next_badge !== null && (
-                <p className="text-indigo-200/50 text-xs mt-3">
+                <p className="text-white/50 text-xs mt-3">
                   {profile.deeds_to_next_badge} deed{profile.deeds_to_next_badge === 1 ? '' : 's'} away from{' '}
-                  <span className="text-indigo-200/80 font-semibold">
+                  <span className="text-white/80 font-semibold">
                     {profile.next_badge_emoji} {profile.next_badge_name}
                   </span>
                 </p>
               )}
-              <p className="text-indigo-200/60 text-xs mt-4">
+              <p className="text-white/60 text-xs mt-4">
                 Member since {new Date(profile.member_since).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
               </p>
             </div>

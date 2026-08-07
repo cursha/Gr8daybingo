@@ -4484,7 +4484,7 @@ const AdminPanel: React.FC = () => {
             {/* Response review queue — nothing a player typed goes public until approved here */}
             <div className="border-t border-slate-200 pt-3 space-y-2">
               <label className="text-xs text-slate-500 font-medium">
-                Player Responses — approve to show on the Kindness Dashboard's Community Voices (username shown, never a real name)
+                Player Responses — approve to show on the GR8Day Leaderboard's Community Voices (username shown, never a real name)
               </label>
               {promptResponses.length === 0 ? (
                 <p className="text-sm text-slate-400 italic">No responses yet.</p>

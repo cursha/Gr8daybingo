@@ -316,7 +316,7 @@ const Leaderboard: React.FC = () => {
           <button onClick={() => navigate('/game')} className="text-indigo-200/70 hover:text-white flex items-center gap-1 text-sm font-medium">
             <ArrowLeft className="w-4 h-4" /> Play
           </button>
-          <h1 className="text-base font-black text-white flex-1 tracking-tight">Kindness Dashboard</h1>
+          <h1 className="text-base font-black text-white flex-1 tracking-tight">GR8Day Leaderboard</h1>
           <button onClick={() => navigate('/')} className="text-indigo-200/70 hover:text-white text-sm font-medium">Home</button>
         </div>
       </header>
@@ -328,7 +328,7 @@ const Leaderboard: React.FC = () => {
             <Eye className="w-5 h-5 text-amber-400 shrink-0" />
             <p className="text-sm text-amber-100 flex-1">
               <span className="font-bold">Demo view.</span> These are sample numbers.{' '}
-              <button onClick={() => navigate('/login')} className="underline font-bold hover:text-white">Sign in</button> to see the live Kindness Dashboard.
+              <button onClick={() => navigate('/login')} className="underline font-bold hover:text-white">Sign in</button> to see the live GR8Day Leaderboard.
             </p>
           </div>
         )}

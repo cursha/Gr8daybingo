@@ -938,7 +938,15 @@ const GameBoard: React.FC = () => {
         // full page reload, since nothing else here touches card.cells.
         cells: result.outcome === 'refer_friend'
           ? prev.cells
-          : prev.cells.map((c) => c.index === 12 ? { ...c, dare_ya_revealed: true } : c),
+          : prev.cells.map((c) => c.index === 12
+              ? {
+                  ...c,
+                  dare_ya_revealed: true,
+                  dare_ya_outcome_type: result.outcome,
+                  dare_ya_label: result.label,
+                  dare_ya_action_value: result.amount,
+                }
+              : c),
       } : prev);
       if (result.is_bingo && !wasAlreadyBingo) {
         setTimeout(() => setShowCelebration(true), 500);

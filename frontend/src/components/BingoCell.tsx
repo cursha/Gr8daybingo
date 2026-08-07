@@ -8,6 +8,30 @@ import {
   HoverCardTrigger,
 } from '@/components/ui/hover-card';
 
+// Mirrors DareModal's outcomeStyle emoji so the revealed tile and the reveal
+// popup read as the same result.
+const dareOutcomeEmoji: Record<string, string> = {
+  fund_credit: '💰',
+  remove_funds: '😬',
+  refer_friend: '🤝',
+  free_square: '⭐',
+  replace_three: '🎲',
+  nothing: '😶',
+};
+
+// Combines the admin-configured label with the actual dollar amount so the
+// revealed tile reads like "Bonus Bucks +$5.00" rather than just the label.
+function dareOutcomeText(outcomeType: string | null | undefined, label: string | null | undefined, amount: number | null | undefined): string {
+  const base = label || 'Used';
+  if (outcomeType === 'fund_credit' && typeof amount === 'number' && amount > 0) {
+    return `${base} +$${amount.toFixed(2)}`;
+  }
+  if (outcomeType === 'remove_funds' && typeof amount === 'number' && amount > 0) {
+    return `${base} -$${amount.toFixed(2)}`;
+  }
+  return base;
+}
+
 interface BingoCellProps {
   cell: CellData;
   completedCells: number[];
@@ -303,10 +327,12 @@ const BingoCell: React.FC<BingoCellProps> = ({
             className={`w-full h-full object-cover transition-all duration-300 ${dareUsed ? 'grayscale opacity-30' : 'hover:scale-105'}`}
           />
           {dareUsed && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 bg-black/50">
-              <Lock className="w-4 h-4 sm:w-5 sm:h-5 text-white/90" />
-              <span className="text-[8px] sm:text-[10px] font-black text-white/90 uppercase tracking-widest">
-                Used
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 bg-black/50 px-1 text-center">
+              <span className="text-base sm:text-lg leading-none">
+                {dareOutcomeEmoji[cell.dare_ya_outcome_type ?? ''] ?? <Lock className="w-4 h-4 sm:w-5 sm:h-5 text-white/90" />}
+              </span>
+              <span className="text-[7px] sm:text-[9px] font-black text-white/90 uppercase tracking-widest leading-tight line-clamp-2">
+                {dareOutcomeText(cell.dare_ya_outcome_type, cell.dare_ya_label, cell.dare_ya_action_value)}
               </span>
             </div>
           )}

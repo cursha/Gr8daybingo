@@ -108,6 +108,7 @@ const WIN_CONDITIONS = [
   { id: 'one_line', name: 'One Line', description: 'Complete 5 in a row (horizontal, vertical, or diagonal)' },
   { id: 'two_lines', name: 'Two Lines', description: 'Complete any two full lines' },
   { id: 'four_corners', name: 'Four Corners', description: 'Complete all four corner squares' },
+  { id: 'one_line_or_corners', name: 'One Line or Four Corners', description: 'Complete a full line (horizontal or vertical) OR all four corners — whichever comes first' },
   { id: 'x_pattern', name: 'X Pattern', description: 'Complete both diagonals forming an X across the card' },
   { id: 'around_the_edges', name: 'Around the Edges', description: 'Complete all 16 perimeter squares around the card' },
   { id: 'fill_card', name: 'Fill the Card', description: 'Complete every square on the entire card' },

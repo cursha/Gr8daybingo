@@ -12,6 +12,7 @@ const WIN_LABELS: Record<string, string> = {
   one_line: 'One Line',
   two_lines: 'Two Lines',
   four_corners: 'Four Corners',
+  one_line_or_corners: 'One Line or Four Corners',
   x_pattern: 'X Pattern',
   around_the_edges: 'Around the Edges',
   fill_card: 'Full Card',

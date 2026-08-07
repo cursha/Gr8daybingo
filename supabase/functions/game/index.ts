@@ -246,6 +246,7 @@ function checkBingo(completed: number[], winCondition: string): boolean {
     case 'one_line': return LINES.some(sub)
     case 'two_lines': return LINES.filter(sub).length >= 2
     case 'four_corners': return sub([0, 4, 20, 24])
+    case 'one_line_or_corners': return LINES.some(sub) || sub([0, 4, 20, 24])
     case 'x_pattern': return sub([0, 6, 12, 18, 24, 4, 8, 16, 20])
     case 'around_the_edges': return sub([0,1,2,3,4,5,9,10,14,15,19,20,21,22,23,24])
     case 'fill_card': return [...Array(25).keys()].every((x) => s.has(x))
@@ -691,6 +692,7 @@ async function sendGameLaunchEmails(supabase: ReturnType<typeof getSupabase>, we
 
 const WIN_LABELS: Record<string, string> = {
   one_line: 'One Line', two_lines: 'Two Lines', four_corners: 'Four Corners',
+  one_line_or_corners: 'One Line or Four Corners',
   x_pattern: 'X Pattern', around_the_edges: 'Around the Edges', fill_card: 'Fill the Card',
 }
 function winLabel(cond: string): string { return WIN_LABELS[cond] ?? cond }
@@ -1205,6 +1207,7 @@ Deno.serve(async (req: Request) => {
           { id: 'one_line', name: 'One Line', description: 'Complete 5 in a row (horizontal, vertical, or diagonal)' },
           { id: 'two_lines', name: 'Two Lines', description: 'Complete any two full lines' },
           { id: 'four_corners', name: 'Four Corners', description: 'Complete all four corner squares' },
+          { id: 'one_line_or_corners', name: 'One Line or Four Corners', description: 'Complete a full line (horizontal or vertical) OR all four corners — whichever comes first' },
           { id: 'x_pattern', name: 'X Pattern', description: 'Complete both diagonals forming an X across the card' },
           { id: 'around_the_edges', name: 'Around the Edges', description: 'Complete all 16 perimeter squares around the card' },
           { id: 'fill_card', name: 'Fill the Card', description: 'Complete every square on the entire card' },

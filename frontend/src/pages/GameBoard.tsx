@@ -83,6 +83,7 @@ const WIN_CONDITION_LABELS: Record<string, string> = {
   one_line: 'One Line',
   two_lines: 'Two Lines',
   four_corners: 'Four Corners',
+  one_line_or_corners: 'One Line or Four Corners',
   fill_card: 'Fill the Card',
 };
 
@@ -94,6 +95,7 @@ const WIN_CONDITION_DESCRIPTIONS: Record<string, string> = {
   one_line: 'Complete 5 in a row (horizontal, vertical, or diagonal)',
   two_lines: 'Complete any two full lines',
   four_corners: 'Complete all four corner squares',
+  one_line_or_corners: 'Complete a full line (horizontal or vertical) OR all four corners — whichever comes first',
   fill_card: 'Complete every square on the entire card',
 };
 

@@ -108,15 +108,15 @@ const Index: React.FC = () => {
       >
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Heart className="w-7 h-7 text-white fill-red-500" />
-            <span className="text-xl font-black text-white tracking-wide drop-shadow">Havagr8day!</span>
+            <Heart className="w-7 h-7 text-slate-900 fill-red-500" />
+            <span className="text-xl font-black text-slate-900 tracking-wide drop-shadow">Havagr8day!</span>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-3">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => navigate('/welcome')}
-              className="text-white hover:bg-white/20 hover:text-white px-2 sm:px-3"
+              className="text-slate-900 hover:bg-white/30 hover:text-slate-900 px-2 sm:px-3"
               title="Our Story"
             >
               <BookOpen className="w-4 h-4 sm:mr-1" />
@@ -126,7 +126,7 @@ const Index: React.FC = () => {
               variant="ghost"
               size="sm"
               onClick={() => navigate('/leaderboard')}
-              className="text-white hover:bg-white/20 hover:text-white px-2 sm:px-3"
+              className="text-slate-900 hover:bg-white/30 hover:text-slate-900 px-2 sm:px-3"
               title="Leaderboard"
             >
               <Medal className="w-4 h-4 sm:mr-1" />
@@ -136,7 +136,7 @@ const Index: React.FC = () => {
               variant="ghost"
               size="sm"
               onClick={() => navigate('/winners')}
-              className="text-white hover:bg-white/20 hover:text-white px-2 sm:px-3"
+              className="text-slate-900 hover:bg-white/30 hover:text-slate-900 px-2 sm:px-3"
               title="Past Winners"
             >
               <Trophy className="w-4 h-4 sm:mr-1" />
@@ -157,7 +157,7 @@ const Index: React.FC = () => {
                   variant="outline"
                   size="sm"
                   onClick={() => navigate('/wallet')}
-                  className="bg-white/10 border-white/40 text-white hover:bg-white/25 hover:text-white px-2 sm:px-3"
+                  className="bg-white/10 border-white/40 text-slate-900 hover:bg-white/30 hover:text-slate-900 px-2 sm:px-3"
                   title="Wallet"
                 >
                   <Wallet className="w-4 h-4 sm:mr-1" />
@@ -167,7 +167,7 @@ const Index: React.FC = () => {
                   variant="outline"
                   size="sm"
                   onClick={() => navigate('/admin')}
-                  className="bg-white/10 border-white/40 text-white hover:bg-white/25 hover:text-white px-2 sm:px-3"
+                  className="bg-white/10 border-white/40 text-slate-900 hover:bg-white/30 hover:text-slate-900 px-2 sm:px-3"
                   title="Admin Panel"
                 >
                   <Shield className="w-4 h-4 sm:mr-1" />
@@ -177,7 +177,7 @@ const Index: React.FC = () => {
                   variant="outline"
                   size="sm"
                   onClick={handleLogout}
-                  className="bg-white/10 border-white/40 text-white hover:bg-white/25 hover:text-white px-2 sm:px-3"
+                  className="bg-white/10 border-white/40 text-slate-900 hover:bg-white/30 hover:text-slate-900 px-2 sm:px-3"
                   title="Log Out"
                 >
                   <LogOut className="w-4 h-4 sm:mr-1" />
@@ -224,16 +224,16 @@ const Index: React.FC = () => {
 
           {/* Tagline */}
           <h1
-            className="text-3xl sm:text-5xl font-black text-white mb-3"
-            style={{ textShadow: '0 2px 0 rgba(0,0,0,0.25)' }}
+            className="text-3xl sm:text-5xl font-black text-slate-900 mb-3"
+            style={{ textShadow: '0 1px 0 rgba(255,255,255,0.35)' }}
           >
             Kickass Bingo with a Gr8day Twist!
           </h1>
-          <p className="text-white/90 text-base sm:text-lg max-w-2xl mx-auto mb-2">
+          <p className="text-slate-900/90 text-base sm:text-lg max-w-2xl mx-auto mb-2">
             Do real acts of kindness to mark your squares, win prizes, and help start a global
             movement of great days.
           </p>
-          <p className="text-yellow-200 text-sm sm:text-base font-semibold max-w-2xl mx-auto mb-7">
+          <p className="text-slate-900 text-sm sm:text-base font-semibold max-w-2xl mx-auto mb-7">
             Join the global movement to make Gr8days.
           </p>
 
@@ -284,7 +284,7 @@ const Index: React.FC = () => {
                   );
                 })}
               </div>
-              <p className="text-white/90 text-[11px] sm:text-xs font-medium mt-2 text-center">
+              <p className="text-slate-700 text-[11px] sm:text-xs font-medium mt-2 text-center">
                 Real deeds. Mark a square by actually doing it. Centre = Refer a Player.
               </p>
             </div>
@@ -301,18 +301,18 @@ const Index: React.FC = () => {
               {user ? 'Join In Now' : 'Get Started'} →
             </Button>
             {!user && (
-              <p className="text-white/90 text-sm">
+              <p className="text-slate-900 text-sm">
                 Already have an account?{' '}
                 <button
                   type="button"
                   onClick={handleLogin}
-                  className="font-bold text-yellow-200 hover:text-yellow-100 underline underline-offset-2"
+                  className="font-bold text-slate-900 hover:text-slate-700 underline underline-offset-2"
                 >
                   Sign In
                 </button>
               </p>
             )}
-            <div className="inline-flex items-center gap-2 bg-white/20 text-white px-4 py-1.5 rounded-full text-sm font-semibold mt-3 backdrop-blur-sm border border-white/30">
+            <div className="inline-flex items-center gap-2 bg-white/20 text-slate-900 px-4 py-1.5 rounded-full text-sm font-semibold mt-3 backdrop-blur-sm border border-white/30">
               <Star className="w-4 h-4 fill-yellow-300 text-yellow-300" /> New game starts every Monday
             </div>
 
@@ -326,7 +326,7 @@ const Index: React.FC = () => {
               New here? Read our story first
               <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1 motion-safe:animate-pulse" />
             </button>
-            <p className="text-white/80 text-xs">
+            <p className="text-slate-900/80 text-xs">
               Understand the movement before you play. It takes 2 minutes.
             </p>
           </div>
@@ -343,7 +343,7 @@ const Index: React.FC = () => {
                   <PartyPopper className="w-7 h-7" />
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-widest text-white/70 font-bold mb-0.5">
+                  <p className="text-xs uppercase tracking-widest text-white font-bold mb-0.5">
                     {formatWinnerWeek(latestWinner.week_year)} Draw Winner
                   </p>
                   <p className="text-lg sm:text-xl font-black">
@@ -354,13 +354,13 @@ const Index: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => navigate('/winners')}
-                  className="sm:ml-4 text-sm font-semibold text-white/90 underline underline-offset-2 hover:text-white flex-shrink-0"
+                  className="sm:ml-4 text-sm font-semibold text-white underline underline-offset-2 hover:text-white flex-shrink-0"
                 >
                   Past Winners
                 </button>
               </div>
             ) : (
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-2 text-white/90">
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2 text-white">
                 <Trophy className="w-5 h-5" />
                 <p className="text-sm sm:text-base font-semibold">
                   No draw has run yet — the first weekly winner will be announced right here.

@@ -122,7 +122,7 @@ const PlayerProfilePage: React.FC = () => {
                   </span>
                 </p>
               )}
-              <p className="text-indigo-300/50 text-xs mt-4">
+              <p className="text-indigo-200/60 text-xs mt-4">
                 Member since {new Date(profile.member_since).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
               </p>
             </div>
@@ -131,21 +131,21 @@ const PlayerProfilePage: React.FC = () => {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5 text-center">
                 <p className="text-3xl font-black text-white">{profile.total_deeds}</p>
-                <p className="text-indigo-300/60 text-xs font-medium uppercase tracking-wider mt-1">Gr8Day Deeds</p>
+                <p className="text-indigo-200/70 text-xs font-medium uppercase tracking-wider mt-1">Gr8Day Deeds</p>
               </div>
               <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5 text-center">
                 <div className="flex items-center justify-center gap-1.5">
                   <Flame className="w-5 h-5 text-orange-400" />
                   <p className="text-3xl font-black text-white">{profile.current_streak_days}</p>
                 </div>
-                <p className="text-indigo-300/60 text-xs font-medium uppercase tracking-wider mt-1">Current Streak</p>
+                <p className="text-indigo-200/70 text-xs font-medium uppercase tracking-wider mt-1">Current Streak</p>
               </div>
               <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5 text-center">
                 <div className="flex items-center justify-center gap-1.5">
                   <Flame className="w-5 h-5 text-rose-400" />
                   <p className="text-3xl font-black text-white">{profile.longest_streak_days}</p>
                 </div>
-                <p className="text-indigo-300/60 text-xs font-medium uppercase tracking-wider mt-1">Longest Streak</p>
+                <p className="text-indigo-200/70 text-xs font-medium uppercase tracking-wider mt-1">Longest Streak</p>
               </div>
             </div>
 

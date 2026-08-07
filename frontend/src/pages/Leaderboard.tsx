@@ -79,7 +79,7 @@ const Gauge: React.FC<{ value: number; label: string }> = ({ value, label }) => 
           <span className="text-xl font-black text-white tabular-nums">{pct}%</span>
         </div>
       </div>
-      <span className="text-[11px] uppercase tracking-wider text-indigo-300/60 text-center">{label}</span>
+      <span className="text-[11px] uppercase tracking-wider text-indigo-200/70 text-center">{label}</span>
     </div>
   );
 };
@@ -93,14 +93,14 @@ const PERIODS: { key: ImpactPeriod; label: string }[] = [
 
 const ImpactCard: React.FC<{ icon: React.ReactNode; label: string; value?: number }> = ({ icon, label, value }) => (
   <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-3">
-    <div className="flex items-center gap-1.5 text-indigo-300/60 text-[10px] uppercase tracking-wider">{icon}<span className="truncate">{label}</span></div>
+    <div className="flex items-center gap-1.5 text-indigo-200/70 text-[10px] uppercase tracking-wider">{icon}<span className="truncate">{label}</span></div>
     <p className="text-2xl font-black text-white tabular-nums mt-1">{value == null ? '—' : value.toLocaleString()}</p>
   </div>
 );
 
 const ImpactGroup: React.FC<{ title: string; cols: string; cards: { icon: React.ReactNode; label: string; value?: number }[] }> = ({ title, cols, cards }) => (
   <div>
-    <p className="text-[11px] uppercase tracking-widest text-indigo-300/50 font-bold mb-1.5 px-0.5">{title}</p>
+    <p className="text-[11px] uppercase tracking-widest text-indigo-200/60 font-bold mb-1.5 px-0.5">{title}</p>
     <div className={`grid ${cols} gap-2`}>
       {cards.map((c, i) => <ImpactCard key={i} {...c} />)}
     </div>
@@ -336,7 +336,7 @@ const Leaderboard: React.FC = () => {
         {/* Hero: community total + this-week count */}
         <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-5 flex items-center gap-5">
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-300/60">Community Gr8Day Deeds</p>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-200/70">Community Gr8Day Deeds</p>
             <p className="text-4xl sm:text-5xl font-black text-white mt-1 leading-none tabular-nums">{totalDeeds.toLocaleString()}</p>
             <p className="text-sm text-indigo-200/60 mt-1.5">
               by {totalPlayers.toLocaleString()} {totalPlayers === 1 ? 'player' : 'players'} · {heroCountries.toLocaleString()} {heroCountries === 1 ? 'country' : 'countries'}
@@ -344,7 +344,7 @@ const Leaderboard: React.FC = () => {
           </div>
           <div className="text-right shrink-0">
             <p className="text-3xl sm:text-4xl font-black text-emerald-400 tabular-nums leading-none">{thisWeekDeeds.toLocaleString()}</p>
-            <p className="text-[11px] uppercase tracking-wider text-indigo-300/60 mt-1.5 leading-tight">Gr8Day Deeds<br />This Week</p>
+            <p className="text-[11px] uppercase tracking-wider text-indigo-200/70 mt-1.5 leading-tight">Gr8Day Deeds<br />This Week</p>
           </div>
         </div>
 
@@ -354,19 +354,19 @@ const Leaderboard: React.FC = () => {
           <div className="flex items-center gap-6">
             <div>
               <p className="text-xl sm:text-2xl font-black text-white tabular-nums leading-none">{(impact?.reach.countries ?? heroCountries).toLocaleString()}</p>
-              <p className="text-[10px] uppercase tracking-wider text-indigo-300/60 mt-1">Countries</p>
+              <p className="text-[10px] uppercase tracking-wider text-indigo-200/70 mt-1">Countries</p>
             </div>
             <div>
               <p className="text-xl sm:text-2xl font-black text-white tabular-nums leading-none">{(impact?.reach.cities ?? 0).toLocaleString()}</p>
-              <p className="text-[10px] uppercase tracking-wider text-indigo-300/60 mt-1">Cities</p>
+              <p className="text-[10px] uppercase tracking-wider text-indigo-200/70 mt-1">Cities</p>
             </div>
             <div>
               <p className="text-xl sm:text-2xl font-black text-white tabular-nums leading-none">{(impact?.reach.provinces ?? 0).toLocaleString()}</p>
-              <p className="text-[10px] uppercase tracking-wider text-indigo-300/60 mt-1">Regions</p>
+              <p className="text-[10px] uppercase tracking-wider text-indigo-200/70 mt-1">Regions</p>
             </div>
             <div>
               <p className="text-xl sm:text-2xl font-black text-white tabular-nums leading-none">{(impact?.participation.active_players ?? totalPlayers).toLocaleString()}</p>
-              <p className="text-[10px] uppercase tracking-wider text-indigo-300/60 mt-1">Active Players</p>
+              <p className="text-[10px] uppercase tracking-wider text-indigo-200/70 mt-1">Active Players</p>
             </div>
           </div>
         </div>
@@ -376,7 +376,7 @@ const Leaderboard: React.FC = () => {
           <div className="space-y-2">
             <div className="flex items-center gap-2 px-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-300/60">Happening Right Now</p>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-200/70">Happening Right Now</p>
             </div>
             <div className="overflow-hidden -mx-4 px-4">
               <div
@@ -388,7 +388,7 @@ const Leaderboard: React.FC = () => {
                 {ticker.concat(ticker).map((d, i) => (
                   <div key={i} className="flex-none w-64 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-3">
                     <p className="text-xs font-semibold text-white leading-snug line-clamp-2">{d.deed_text}</p>
-                    <p className="text-[10px] text-indigo-300/50 mt-1.5 flex items-center justify-between">
+                    <p className="text-[10px] text-indigo-200/60 mt-1.5 flex items-center justify-between">
                       <span className="text-emerald-400 font-bold">{[d.city, d.country_name].filter(Boolean).join(', ') || 'Somewhere'}</span>
                       <span>{timeAgo(d.completed_at)}</span>
                     </p>
@@ -421,8 +421,8 @@ const Leaderboard: React.FC = () => {
           <ImpactGroup title="Participation" cols="grid-cols-2 sm:grid-cols-4" cards={[
             { icon: <Users className="w-3.5 h-3.5 text-sky-400" />, label: 'Active Players', value: impact?.participation.active_players },
             { icon: <UsersRound className="w-3.5 h-3.5 text-sky-400" />, label: 'Active Teams', value: impact?.participation.active_teams },
-            { icon: <Users className="w-3.5 h-3.5 text-indigo-300/60" />, label: 'Lifetime Players', value: impact?.participation.lifetime_players },
-            { icon: <UsersRound className="w-3.5 h-3.5 text-indigo-300/60" />, label: 'Lifetime Teams', value: impact?.participation.lifetime_teams },
+            { icon: <Users className="w-3.5 h-3.5 text-indigo-200/70" />, label: 'Lifetime Players', value: impact?.participation.lifetime_players },
+            { icon: <UsersRound className="w-3.5 h-3.5 text-indigo-200/70" />, label: 'Lifetime Teams', value: impact?.participation.lifetime_teams },
           ]} />
 
           <ImpactGroup title="Reach" cols="grid-cols-3" cards={[
@@ -435,13 +435,13 @@ const Leaderboard: React.FC = () => {
         {/* Community Voices — real reflection answers, admin-approved */}
         {voices.length > 0 && (
           <div className="space-y-2">
-            <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-300/60 px-0.5">Community Voices</p>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-200/70 px-0.5">Community Voices</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {voices.slice(0, 4).map((v, i) => (
                 <div key={i} className="bg-gradient-to-br from-amber-500/10 to-white/5 backdrop-blur-sm border border-amber-400/20 rounded-xl p-4">
                   <Quote className="w-4 h-4 text-amber-400 mb-1.5" />
                   <p className="text-sm font-semibold text-white leading-snug">{v.response_text}</p>
-                  <p className="text-[11px] text-indigo-300/50 mt-2">
+                  <p className="text-[11px] text-indigo-200/60 mt-2">
                     <span className="text-amber-300 font-bold">@{v.username ?? 'player'}</span> · {v.question_text}
                   </p>
                 </div>
@@ -483,7 +483,7 @@ const Leaderboard: React.FC = () => {
                     <Empty>No players ranked yet.</Empty>
                   ) : sortedPlayers.map((p, i) => (
                     <div key={p.user_id} className="flex items-center gap-3 px-4 py-2.5 border-t border-white/10">
-                      <span className="w-5 text-center text-sm font-bold text-indigo-300/50 tabular-nums">{i + 1}</span>
+                      <span className="w-5 text-center text-sm font-bold text-indigo-200/60 tabular-nums">{i + 1}</span>
                       <Monogram label={nameOf(p)} />
                       <button
                         type="button"
@@ -492,7 +492,7 @@ const Leaderboard: React.FC = () => {
                         className="flex-1 min-w-0 text-left disabled:cursor-default"
                       >
                         <p className={`font-bold text-white truncate ${p.username && !isDemo ? 'hover:underline' : ''}`}>{nameOf(p)}</p>
-                        <p className="text-[11px] text-indigo-300/50 truncate">
+                        <p className="text-[11px] text-indigo-200/60 truncate">
                           {[p.city, p.country_name].filter(Boolean).join(', ') || (p.player_number != null ? `GR8-${p.player_number}` : '')}
                         </p>
                       </button>
@@ -501,7 +501,7 @@ const Leaderboard: React.FC = () => {
                         <div className="mt-1"><RateBar ratio={p.deeds / maxDeeds} /></div>
                       </div>
                       <div className="w-24 shrink-0 text-right">
-                        <p className="text-xs text-indigo-300/50 tabular-nums">{fmtPlayed(p.last_played)}</p>
+                        <p className="text-xs text-indigo-200/60 tabular-nums">{fmtPlayed(p.last_played)}</p>
                       </div>
                     </div>
                   ))}
@@ -531,7 +531,7 @@ const Leaderboard: React.FC = () => {
                     const days = streakDays(e);
                     return (
                       <div key={i} className="flex items-center gap-3 px-4 py-2.5 border-t border-white/10">
-                        <span className="w-5 text-center text-sm font-bold text-indigo-300/50 tabular-nums">{i + 1}</span>
+                        <span className="w-5 text-center text-sm font-bold text-indigo-200/60 tabular-nums">{i + 1}</span>
                         <Monogram label={name} />
                         <p className="flex-1 min-w-0 font-bold text-white truncate">{name}</p>
                         <div className="w-28 shrink-0">
@@ -541,13 +541,13 @@ const Leaderboard: React.FC = () => {
                           <div className="mt-1"><RateBar ratio={days / maxStreak} /></div>
                         </div>
                         <div className="w-24 shrink-0 text-right">
-                          <p className="text-xs text-indigo-300/50 tabular-nums">{fmtPlayed(e.last_valid_deed_date)}</p>
+                          <p className="text-xs text-indigo-200/60 tabular-nums">{fmtPlayed(e.last_valid_deed_date)}</p>
                         </div>
                       </div>
                     );
                   })}
                 </Panel>
-                <p className="text-center text-xs text-indigo-300/40">A streak grows by one each day you complete at least one Gr8Day Deed.</p>
+                <p className="text-center text-xs text-indigo-200/60">A streak grows by one each day you complete at least one Gr8Day Deed.</p>
               </div>
             )}
 
@@ -560,11 +560,11 @@ const Leaderboard: React.FC = () => {
                     <Empty>No teams ranked yet.</Empty>
                   ) : (teams?.teams ?? []).map((t, i) => (
                     <div key={t.team_id} className="flex items-center gap-3 px-4 py-2.5 border-t border-white/10">
-                      <span className="w-5 text-center text-sm font-bold text-indigo-300/50 tabular-nums">{i + 1}</span>
+                      <span className="w-5 text-center text-sm font-bold text-indigo-200/60 tabular-nums">{i + 1}</span>
                       <Monogram label={t.team_name} />
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-white truncate">{t.team_name}</p>
-                        <p className="text-[11px] text-indigo-300/50 truncate">
+                        <p className="text-[11px] text-indigo-200/60 truncate">
                           {t.team_number != null ? `Team #${t.team_number}` : ''}
                         </p>
                       </div>
@@ -573,7 +573,7 @@ const Leaderboard: React.FC = () => {
                         <div className="mt-1"><RateBar ratio={t.deeds / maxTeamDeeds} /></div>
                       </div>
                       <div className="w-24 shrink-0 text-right">
-                        <p className="text-xs text-indigo-300/50 tabular-nums">{t.total_members}</p>
+                        <p className="text-xs text-indigo-200/60 tabular-nums">{t.total_members}</p>
                       </div>
                     </div>
                   ))}
@@ -589,7 +589,7 @@ const Leaderboard: React.FC = () => {
                   <Empty>No deeds completed yet.</Empty>
                 ) : deeds.map((d, i) => (
                   <div key={d.deed_id} className="flex items-center gap-3 px-4 py-2.5 border-t border-white/10">
-                    <span className="w-5 text-center text-sm font-bold text-indigo-300/50 tabular-nums">{i + 1}</span>
+                    <span className="w-5 text-center text-sm font-bold text-indigo-200/60 tabular-nums">{i + 1}</span>
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-white truncate">{d.deed_text}</p>
                       {d.category && <p className="text-[10px] uppercase tracking-wider text-sky-400 font-bold mt-0.5">{d.category}</p>}
@@ -607,14 +607,14 @@ const Leaderboard: React.FC = () => {
             {view === 'places' && (
               <Panel>
                 {(country || stateNode) && (
-                  <div className="flex items-center gap-1.5 px-4 py-2.5 text-sm text-indigo-300/60 border-b border-white/10">
+                  <div className="flex items-center gap-1.5 px-4 py-2.5 text-sm text-indigo-200/70 border-b border-white/10">
                     <ChevronLeft className="w-4 h-4" />
                     <button className="hover:text-white" onClick={() => { setCountry(null); setStateNode(null); }}>All countries</button>
-                    {country && <><ChevronRight className="w-3 h-3 text-indigo-300/30" /><button className="hover:text-white" onClick={() => setStateNode(null)}>{country.name}</button></>}
-                    {stateNode && <><ChevronRight className="w-3 h-3 text-indigo-300/30" /><span className="text-white">{stateNode.name}</span></>}
+                    {country && <><ChevronRight className="w-3 h-3 text-indigo-300/60" /><button className="hover:text-white" onClick={() => setStateNode(null)}>{country.name}</button></>}
+                    {stateNode && <><ChevronRight className="w-3 h-3 text-indigo-300/60" /><span className="text-white">{stateNode.name}</span></>}
                   </div>
                 )}
-                <div className="flex items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-indigo-300/50 font-bold">
+                <div className="flex items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-indigo-200/60 font-bold">
                   <span className="flex-1">Region</span>
                   <span className="w-16 text-right">Deeds</span>
                   <span className="w-12 text-right">Players</span>
@@ -646,7 +646,7 @@ const Leaderboard: React.FC = () => {
           </>
         )}
 
-        <p className="text-center text-xs text-indigo-300/40">
+        <p className="text-center text-xs text-indigo-200/60">
           Rankings count real Gr8Day Deeds only. Purchased and referral squares don't count.
         </p>
       </div>
@@ -688,7 +688,7 @@ const TableHead: React.FC<{
     );
   };
   return (
-    <div className="flex items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-indigo-300/50 font-bold">
+    <div className="flex items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-indigo-200/60 font-bold">
       {cell(cols[0], 0, 'w-5 text-center')}
       {cell(cols[1], 1, 'flex-1')}
       {cols[2] != null && cell(cols[2], 2, 'w-24 text-right')}
@@ -698,7 +698,7 @@ const TableHead: React.FC<{
 };
 
 const Empty: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p className="text-center text-indigo-300/40 py-10 text-sm border-t border-white/10">{children}</p>
+  <p className="text-center text-indigo-200/60 py-10 text-sm border-t border-white/10">{children}</p>
 );
 
 const PlaceRow: React.FC<{
@@ -709,7 +709,7 @@ const PlaceRow: React.FC<{
     <div className="flex-1 min-w-0">
       <p className="font-bold text-white truncate">{title}</p>
       {subtitle && (
-        <p className={`text-[11px] truncate flex items-center gap-1 mt-0.5 ${locked ? 'text-amber-400/80' : 'text-indigo-300/50'}`}>
+        <p className={`text-[11px] truncate flex items-center gap-1 mt-0.5 ${locked ? 'text-amber-400/80' : 'text-indigo-200/60'}`}>
           {locked && <Lock className="w-3 h-3" />}{subtitle}
         </p>
       )}
@@ -718,9 +718,9 @@ const PlaceRow: React.FC<{
       <p className="font-black text-white tabular-nums leading-tight">{deeds.toLocaleString()}</p>
     </div>
     <div className="w-12 text-right flex items-center justify-end gap-1 text-indigo-200/70">
-      <Users className="w-3 h-3 text-indigo-300/50" /><span className="tabular-nums text-sm">{players}</span>
+      <Users className="w-3 h-3 text-indigo-200/60" /><span className="tabular-nums text-sm">{players}</span>
     </div>
-    {onClick && <ChevronRight className="w-4 h-4 text-indigo-300/40 shrink-0" />}
+    {onClick && <ChevronRight className="w-4 h-4 text-indigo-200/60 shrink-0" />}
   </button>
 );
 

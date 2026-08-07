@@ -122,7 +122,7 @@ const DareModal: React.FC<DareModalProps> = ({ result, onClose, onSubmitReferral
                       value={referEmail}
                       onChange={(e) => setReferEmail(e.target.value)}
                       placeholder="friend@example.com"
-                      className="w-full rounded-lg px-3 py-2 text-sm bg-black/30 border border-sky-700 text-white placeholder:text-sky-400/50 focus:outline-none focus:border-sky-400"
+                      className="w-full rounded-lg px-3 py-2 text-sm bg-black/30 border border-sky-700 text-white placeholder:text-sky-300/70 focus:outline-none focus:border-sky-400"
                     />
                     <button
                       onClick={handleReferSubmit}

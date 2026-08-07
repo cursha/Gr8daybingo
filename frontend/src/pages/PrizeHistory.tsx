@@ -53,12 +53,12 @@ const PrizeHistory: React.FC = () => {
         <div className="flex items-center justify-between">
           <button
             onClick={() => navigate('/game')}
-            className="flex items-center gap-1.5 text-white hover:text-yellow-300 transition-colors font-semibold"
+            className="flex items-center gap-1.5 text-slate-900 hover:text-slate-700 transition-colors font-semibold"
           >
             <ArrowLeft className="w-4 h-4" /> Back to Game
           </button>
-          <button onClick={() => navigate('/')} className="flex items-center gap-2 text-white">
-            <Heart className="w-5 h-5 fill-white" />
+          <button onClick={() => navigate('/')} className="flex items-center gap-2 text-slate-900">
+            <Heart className="w-5 h-5 fill-rose-600" />
             <span className="font-black tracking-wide">Havagr8day!</span>
           </button>
         </div>

@@ -1356,7 +1356,7 @@ const GameBoard: React.FC = () => {
               <Target className="w-3.5 h-3.5 text-indigo-400" />
               <div className="text-left">
                 <span className="text-xs font-bold text-indigo-300 block leading-tight">{modeLabel}</span>
-                <span className="text-[10px] text-indigo-400/60 leading-tight hidden sm:block">{modeDescription}</span>
+                <span className="text-[10px] text-indigo-200/70 leading-tight hidden sm:block">{modeDescription}</span>
               </div>
             </div>
             {/* Tap Out — available any time the card is old enough, not just
@@ -1377,7 +1377,7 @@ const GameBoard: React.FC = () => {
               </Button>
             ) : card?.tap_out_eligible_at ? (
               <span
-                className="text-[11px] text-indigo-300/50 hidden sm:inline"
+                className="text-[11px] text-indigo-200/60 hidden sm:inline"
                 title="Tap out unlocks once this card is a week old"
               >
                 Tap out: {new Date(card.tap_out_eligible_at).toLocaleDateString()}
@@ -1642,7 +1642,7 @@ const GameBoard: React.FC = () => {
             <Users className="w-4 h-4 text-teal-400" />
             Invite a Friend
           </h3>
-          <p className="text-xs text-indigo-300/60 mb-3">
+          <p className="text-xs text-indigo-200/70 mb-3">
             Invite a friend by email. When they sign up and verify their email, you both get a Gr8Day Bucks bonus in your wallet.
           </p>
           <div className="flex gap-2">
@@ -1670,7 +1670,7 @@ const GameBoard: React.FC = () => {
             <Lightbulb className="w-4 h-4 text-amber-400" />
             Suggest a Gr8Day Deed
           </h3>
-          <p className="text-xs text-indigo-300/60 mb-3">
+          <p className="text-xs text-indigo-200/70 mb-3">
             Got a great idea? Submit a Gr8Day Deed and an admin will review it. Approved Gr8Day Deeds join the weekly pool for everyone to enjoy.
           </p>
           <div className="space-y-2">
@@ -1731,7 +1731,7 @@ const GameBoard: React.FC = () => {
                       <div className="flex-1 min-w-0">
                         <p className="text-white/80 truncate">{s.deed_text}</p>
                         {s.category && (
-                          <span className="text-[10px] text-indigo-300/60">{s.category}</span>
+                          <span className="text-[10px] text-indigo-200/70">{s.category}</span>
                         )}
                       </div>
                       <span className={`text-[10px] font-bold ${statusConfig.color} flex-shrink-0`}>
@@ -1823,7 +1823,7 @@ const GameBoard: React.FC = () => {
 
                 {impactStats.top_deeds.length > 0 && (
                   <>
-                    <p className="text-[11px] uppercase tracking-wider text-indigo-300/50 font-bold pt-1">Or feature one deed</p>
+                    <p className="text-[11px] uppercase tracking-wider text-indigo-200/60 font-bold pt-1">Or feature one deed</p>
                     {impactStats.top_deeds.map((d) => (
                       <button
                         key={d.deed_text}

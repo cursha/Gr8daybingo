@@ -56,33 +56,35 @@ export async function awardDeedEntry(
   return data != null // null = duplicate / no-op
 }
 
-/** Award the bonus for ONE completed line: a server-side random 6-20
- *  entries (never a fixed or client-supplied value — every line gets its
- *  own independent roll). Idempotent per (card, week, play cycle, line):
+/** Award the bonus for ONE newly-satisfied scoring pattern (one line, two
+ *  lines, four corners, X, around the edges, fill card — see
+ *  ALL_SCORING_PATTERNS in game/index.ts): a server-side roll of
+ *  `squares` x uniform-random(1, 4), never a fixed or client-supplied
+ *  value. Idempotent per (card, pattern):
  *  draw_apply's unique index on (event_type, source_event_id) means a
  *  retried/duplicate call may roll again here, but only the first roll that
- *  actually inserts a new ledger row for that specific line is ever applied
- *  — a duplicate's roll is discarded, never double-awarded. A player who
- *  keeps playing the same card after their first win can complete more
- *  lines and earn more of these; a "Start New Game" reset (bumping cycle)
- *  resets which lines have been paid. Returns the awarded amount, or null
- *  if nothing was awarded. */
-export async function awardBingoBonus(
+ *  actually inserts a new ledger row for that specific pattern is ever
+ *  applied — a duplicate's roll is discarded, never double-awarded. Each
+ *  pattern pays at most once per card (a fresh card, via tap-out or the
+ *  first one ever, starts with a clean slate). Returns the awarded amount,
+ *  or null if nothing was awarded. */
+export async function awardPatternBonus(
   supabase: SupabaseClient,
-  opts: { playerId: string; cardId: number; weekYear: string; cycle: number; lineIndex: number; settings?: DrawSettings },
+  opts: { playerId: string; cardId: number; weekYear: string; pattern: string; squares: number; settings?: DrawSettings },
 ): Promise<number | null> {
   const settings = opts.settings ?? (await getDrawSettings(supabase))
   if (!bingoShouldAward(settings)) return null
-  const bonus = Math.floor(Math.random() * 15) + 6 // uniform 6-20 inclusive
-  const { data, error } = await supabase.rpc('draw_award_bingo', {
+  if (opts.squares <= 0) return null // every cell in the pattern was purchased/referral/free — nothing earned
+  const roll = Math.floor(Math.random() * 4) + 1 // uniform 1-4 inclusive
+  const bonus = opts.squares * roll
+  const { data, error } = await supabase.rpc('draw_award_pattern_bonus', {
     p_player: opts.playerId,
     p_card_id: opts.cardId,
+    p_pattern: opts.pattern,
     p_week_year: opts.weekYear,
     p_bonus: bonus,
-    p_cycle: opts.cycle,
-    p_line: opts.lineIndex,
   })
-  if (error) { console.error('awardBingoBonus rpc error:', error); return null }
+  if (error) { console.error('awardPatternBonus rpc error:', error); return null }
   return data != null ? bonus : null // null = duplicate / no-op
 }
 
@@ -99,14 +101,14 @@ export async function reverseDeedEntry(
   return data != null
 }
 
-export async function reverseBingoBonus(
-  supabase: SupabaseClient, cardId: number, weekYear: string, cycle: number, lineIndex: number, adminId: string, reason?: string,
+export async function reversePatternBonus(
+  supabase: SupabaseClient, cardId: number, pattern: string, adminId: string, reason?: string,
 ): Promise<boolean> {
-  const { data, error } = await supabase.rpc('draw_reverse_bingo', {
-    p_card_id: cardId, p_week_year: weekYear, p_cycle: cycle, p_line: lineIndex, p_admin: adminId,
-    p_reason: reason ?? 'Bingo reversed by admin',
+  const { data, error } = await supabase.rpc('draw_reverse_pattern_bonus', {
+    p_card_id: cardId, p_pattern: pattern, p_admin: adminId,
+    p_reason: reason ?? 'Pattern bonus reversed by admin',
   })
-  if (error) { console.error('reverseBingoBonus rpc error:', error); return false }
+  if (error) { console.error('reversePatternBonus rpc error:', error); return false }
   return data != null
 }
 

@@ -60,8 +60,9 @@ export function deedShouldAward(
   return settings.entriesPerDeed > 0
 }
 
-/** Should a completed bingo earn the bonus, given settings? Amount is no
- *  longer config-driven — it's a random 6-20 roll (see awardBingoBonus). */
+/** Should a newly-satisfied scoring pattern earn its bonus, given settings?
+ *  Amount is squares x a random 1-4 roll, not config-driven (see
+ *  awardPatternBonus). */
 export function bingoShouldAward(settings: DrawSettings): boolean {
   return settings.weeklyDrawEnabled && settings.bingoBonusEnabled
 }

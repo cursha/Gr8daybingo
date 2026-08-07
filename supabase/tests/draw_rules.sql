@@ -51,53 +51,55 @@ BEGIN
   END LOOP;
   PERFORM _assert(_active('u3')=5, 'case3 active=5');
 
-  -- ── Case 4: a bingo → deed entry + bingo bonus ────────────────────────────
+  -- ── Case 4: a bingo → deed entry + pattern bonus ──────────────────────────
   INSERT INTO completed_deeds (player_id,source_type,deed_id,card_id) VALUES ('u4','bingo_card',9,101) RETURNING id INTO cd;
   PERFORM draw_award_deed(cd,'u4',wy,1,false);
-  PERFORM draw_award_bingo('u4',101,wy,10);
+  PERFORM draw_award_pattern_bonus('u4',101,'one_line',wy,10);
   PERFORM _assert(_active('u4')=11, 'case4 deed(1)+bonus(10)=11');
 
-  -- ── Case 5: multiple bingos → bonus per bingo ─────────────────────────────
-  PERFORM draw_award_bingo('u4',102,wy,10);
-  PERFORM draw_award_bingo('u4',103,wy,10);
+  -- ── Case 5: multiple cards → bonus per card ────────────────────────────────
+  PERFORM draw_award_pattern_bonus('u4',102,'one_line',wy,10);
+  PERFORM draw_award_pattern_bonus('u4',103,'one_line',wy,10);
   PERFORM _assert(_active('u4')=31, 'case5 11 + 10 + 10 = 31');
 
   -- ── Case 15: duplicate event processing → no double award ─────────────────
-  -- Re-run the very same card-bingo event and the same deed id; both no-op.
-  led := draw_award_bingo('u4',103,wy,10);              -- duplicate card:week
-  PERFORM _assert(led IS NULL, 'case15 duplicate bingo returns NULL');
+  -- Re-run the very same card-pattern event and the same deed id; both no-op.
+  led := draw_award_pattern_bonus('u4',103,'one_line',wy,10);  -- duplicate card:pattern
+  PERFORM _assert(led IS NULL, 'case15 duplicate bonus returns NULL');
   PERFORM draw_award_deed(cd,'u4',wy,1,false);           -- duplicate completed_deed id
   PERFORM _assert(_active('u4')=31, 'case15 active unchanged after dup');
 
-  -- ── Case 16: new play_cycle on the same card → independent bonus roll ─────
-  -- Simulates "Start New Game" (POST /reset-card bumps play_cycle) then
-  -- winning again in the same week — must NOT be treated as a duplicate.
-  PERFORM draw_award_bingo('u4',103,wy,10,1);            -- cycle 1, same card:week
-  PERFORM _assert(_active('u4')=41, 'case16 new cycle awards again: 31+10=41');
-  led := draw_award_bingo('u4',103,wy,10,1);             -- duplicate WITHIN cycle 1
-  PERFORM _assert(led IS NULL, 'case16 duplicate within same cycle still NULL');
+  -- ── Case 16: a genuinely new card (simulates tap-out) → independent bonus ──
+  -- A card_id is unique per "life" now (tap-out inserts a new row rather than
+  -- reusing the old one), so a fresh card_id earning the same pattern is NOT
+  -- a duplicate of an earlier card's bonus — no play_cycle needed anymore.
+  PERFORM draw_award_pattern_bonus('u4',104,'one_line',wy,10);  -- a different card, same pattern
+  PERFORM _assert(_active('u4')=41, 'case16 a different card pays independently: 31+10=41');
+  led := draw_award_pattern_bonus('u4',104,'one_line',wy,10);   -- duplicate on that same card+pattern
+  PERFORM _assert(led IS NULL, 'case16 duplicate on same card+pattern still NULL');
   PERFORM _assert(_active('u4')=41, 'case16 active unchanged after dup');
 
-  -- ── Case 17: multiple lines on the SAME card+cycle → each pays independently ──
-  -- Simulates one move completing 2 lines at once, or two separate moves
-  -- each completing a new line — every distinct line index is its own bonus,
-  -- uncapped, and a duplicate of an already-paid line is still a no-op.
-  PERFORM draw_award_bingo('u4',103,wy,10,1,0);          -- cycle 1, line 0
-  PERFORM _assert(_active('u4')=51, 'case17 new line on same cycle: 41+10=51');
-  PERFORM draw_award_bingo('u4',103,wy,10,1,1);          -- cycle 1, line 1 (different line)
-  PERFORM _assert(_active('u4')=61, 'case17 a second distinct line also pays: 51+10=61');
-  led := draw_award_bingo('u4',103,wy,10,1,0);           -- duplicate of line 0 within cycle 1
-  PERFORM _assert(led IS NULL, 'case17 duplicate of an already-paid line still NULL');
-  PERFORM _assert(_active('u4')=61, 'case17 active unchanged after line dup');
+  -- ── Case 17: multiple DIFFERENT patterns on the SAME card → each pays independently ──
+  -- Simulates a card that's completed both One Line and Four Corners (or a
+  -- move that satisfies several patterns at once) — every distinct pattern
+  -- is its own bonus, uncapped, and a duplicate of an already-paid pattern
+  -- is still a no-op.
+  PERFORM draw_award_pattern_bonus('u4',104,'four_corners',wy,10);  -- same card, different pattern
+  PERFORM _assert(_active('u4')=51, 'case17 a second distinct pattern also pays: 41+10=51');
+  PERFORM draw_award_pattern_bonus('u4',104,'x_pattern',wy,10);     -- same card, a third pattern
+  PERFORM _assert(_active('u4')=61, 'case17 a third distinct pattern also pays: 51+10=61');
+  led := draw_award_pattern_bonus('u4',104,'four_corners',wy,10);   -- duplicate of an already-paid pattern
+  PERFORM _assert(led IS NULL, 'case17 duplicate of an already-paid pattern still NULL');
+  PERFORM _assert(_active('u4')=61, 'case17 active unchanged after pattern dup');
 
-  -- ── Case 18: per-line reversal — reversing one line leaves another intact ──
-  PERFORM draw_award_bingo('u3',301,wy,10,0,0);          -- fresh card, cycle 0, line 0
-  PERFORM draw_award_bingo('u3',301,wy,10,0,1);          -- same card+cycle, line 1
+  -- ── Case 18: per-pattern reversal — reversing one pattern leaves another intact ──
+  PERFORM draw_award_pattern_bonus('u3',301,'one_line',wy,10);   -- fresh card
+  PERFORM draw_award_pattern_bonus('u3',301,'two_lines',wy,10);  -- same card, different pattern
   PERFORM _assert(_active('u3')=25, 'case18 pre: 5(prior)+10+10=25');
-  PERFORM draw_reverse_bingo(p_card_id => 301, p_week_year => wy, p_admin => 'admin1', p_cycle => 0, p_line => 0, p_reason => 'reverse line 0 only');
-  PERFORM _assert(_active('u3')=15, 'case18 line0 reversed, line1 remains: 25-10=15');
-  led := draw_reverse_bingo(p_card_id => 301, p_week_year => wy, p_admin => 'admin1', p_cycle => 0, p_line => 0, p_reason => 'dup reverse');
-  PERFORM _assert(led IS NULL, 'case18 duplicate reversal of same line is NULL');
+  PERFORM draw_reverse_pattern_bonus(p_card_id => 301, p_pattern => 'one_line', p_admin => 'admin1', p_reason => 'reverse one_line only');
+  PERFORM _assert(_active('u3')=15, 'case18 one_line reversed, two_lines remains: 25-10=15');
+  led := draw_reverse_pattern_bonus(p_card_id => 301, p_pattern => 'one_line', p_admin => 'admin1', p_reason => 'dup reverse');
+  PERFORM _assert(led IS NULL, 'case18 duplicate reversal of same pattern is NULL');
   PERFORM _assert(_active('u3')=15, 'case18 active unchanged after dup reversal');
 
   RAISE NOTICE 'cases 1-5,15,16,17,18 PASS';
@@ -123,10 +125,10 @@ BEGIN
   -- Case 11: reverse a deed that caused a bingo → deed entry AND bonus removed.
   INSERT INTO completed_deeds (player_id,source_type,deed_id,card_id) VALUES ('u2','bingo_card',3,201) RETURNING id INTO cd;
   PERFORM draw_award_deed(cd,'u2',wy,1,false);
-  PERFORM draw_award_bingo('u2',201,wy,10);
+  PERFORM draw_award_pattern_bonus('u2',201,'one_line',wy,10);
   PERFORM _assert(_active('u2')=12, 'case11 pre 1(prev)+1+10=12');
   PERFORM draw_reverse_deed(cd,'admin1','reverse bingo-causing deed');
-  PERFORM draw_reverse_bingo(p_card_id => 201, p_week_year => wy, p_admin => 'admin1', p_reason => 'bingo undone');
+  PERFORM draw_reverse_pattern_bonus(p_card_id => 201, p_pattern => 'one_line', p_admin => 'admin1', p_reason => 'bingo undone');
   PERFORM _assert(_active('u2')=1, 'case11 back to the earlier 1');
 
   RAISE NOTICE 'cases 10,11 PASS';

@@ -2760,6 +2760,53 @@ const AdminPanel: React.FC = () => {
           </CardContent>
         </Card>
 
+        {/* Bonus Scoring Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Ticket className="w-5 h-5 text-fuchsia-500" />
+              Bonus Scoring Table
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-slate-500">
+              Independent of whichever win condition is active above — a player earns these draw-entry bonuses for
+              any of these six patterns they reach on a card, and can earn more than one on the same card (e.g.
+              completing two lines pays both the One Line and Two Lines bonus). Each pays once per card. Bonus ={' '}
+              <strong>real deed squares in the pattern × a random roll from 1 to 4</strong> — purchased, referral,
+              and free-space squares never count toward the square total, only ones actually earned by doing a deed.
+              This table is a formula, not admin-editable numbers.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border rounded-lg overflow-hidden">
+                <thead className="bg-slate-50">
+                  <tr className="text-left text-xs text-slate-500 uppercase tracking-wide">
+                    <th className="px-3 py-2">Pattern</th>
+                    <th className="px-3 py-2 text-center">Squares</th>
+                    <th className="px-3 py-2 text-center">Bonus Range</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {[
+                    { name: 'One Line', squares: 5 },
+                    { name: 'Two Lines', squares: 10 },
+                    { name: 'Four Corners', squares: 4 },
+                    { name: 'X Pattern', squares: 9 },
+                    { name: 'Around the Outside', squares: 16 },
+                    { name: 'Full Page', squares: 25 },
+                  ].map((row) => (
+                    <tr key={row.name}>
+                      <td className="px-3 py-2 font-medium text-slate-800">{row.name}</td>
+                      <td className="px-3 py-2 text-center text-slate-600">{row.squares}</td>
+                      <td className="px-3 py-2 text-center text-slate-600">{row.squares}–{row.squares * 4}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Blackout Mode */}
         <Card>
           <CardHeader>

@@ -80,7 +80,7 @@ async function computeSubjectLineStatPool(
   let bingoQuery = supabase
     .from('draw_entry_ledger')
     .select('id', { count: 'exact', head: true })
-    .eq('reason', 'Bingo completed — bonus entries')
+    .eq('event_type', 'bingo_bonus')
     .gte('created_at', rangeStartIso)
   if (rangeEndIso) bingoQuery = bingoQuery.lt('created_at', rangeEndIso)
   const { count: bingoCount } = await bingoQuery
@@ -355,11 +355,14 @@ Deno.serve(async (req: Request) => {
     const newPlayersThisWeek = newPlayersCount ?? 0
 
     // Bingos achieved this week — one draw_entry_ledger row per newly-
-    // completed line, same ledger awardNewBingoLines writes to in game/index.ts.
+    // satisfied scoring pattern (one line, two lines, four corners, X,
+    // around the edges, fill card), same ledger awardBingoPatterns writes
+    // to in game/index.ts. Matched on event_type rather than the reason
+    // text, since the reason now varies per pattern name.
     const { count: bingosCount } = await supabase
       .from('draw_entry_ledger')
       .select('id', { count: 'exact', head: true })
-      .eq('reason', 'Bingo completed — bonus entries')
+      .eq('event_type', 'bingo_bonus')
       .gte('created_at', weekStartIso)
     const bingosThisWeek = bingosCount ?? 0
 

@@ -4,8 +4,8 @@ import { getSupabase, getSubPath, matchPath } from '../_shared/db.ts'
 import { sendEmail, passwordResetEmail, adminLockoutEmail, adminPasswordResetEmail, referralInviteEmail, bingoWinEmail, prizeClaimConfirmationEmail, prizeVoucherEmail, gameAnnouncementEmail, newGameLaunchEmail } from '../_shared/email.ts'
 import { callAnthropicForText } from '../_shared/anthropic.ts'
 import {
-  getDrawSettings, awardDeedEntry, awardBingoBonus,
-  reverseDeedEntry, reverseBingoBonus, manualAdjust, runWeeklyDraw,
+  getDrawSettings, awardDeedEntry, awardPatternBonus,
+  reverseDeedEntry, reversePatternBonus, manualAdjust, runWeeklyDraw,
 } from '../_shared/draw.ts'
 import bcrypt from 'npm:bcryptjs@2'
 
@@ -219,7 +219,8 @@ class SeededRandom {
 
 // The 12 possible bingo lines on a 5x5 card: 5 rows, 5 columns, 2 diagonals.
 // Shared by checkBingo (win_condition threshold check) and
-// completedLineIndices (per-line bonus tracking — see awardNewBingoLines).
+// completedLineIndices (feeds the One Line / Two Lines scoring patterns —
+// see newlySatisfiedPatterns/awardBingoPatterns).
 const LINES: number[][] = (() => {
   const lines: number[][] = []
   for (let r = 0; r < 5; r++) lines.push([r * 5, r * 5 + 1, r * 5 + 2, r * 5 + 3, r * 5 + 4])
@@ -254,8 +255,88 @@ function checkBingo(completed: number[], winCondition: string): boolean {
   }
 }
 
+// ── Scoring table (Section 8 admin feature) ─────────────────────────────────
+// Six named milestones, independent of whichever win_condition is active —
+// a card can hit several of these on the way to (or past) its official win.
+// Each pays once per card, the first time it's reached: bonus = the number
+// of REAL deed squares in that pattern x a uniform random roll from 1 to 4
+// (see awardPatternBonus in _shared/draw.ts, where the roll happens).
+// "Real deed squares" excludes anything the player didn't actually do a
+// deed for — purchased cells, referral-free cells, and the free centre
+// space all still count toward WINNING (they're part of `allCompleted`,
+// same as checkBingo), but none of them count toward the BONUS math, so a
+// pattern leaned on shortcuts pays less than one earned the hard way.
+
+// Nominal (all-cells) square counts — used only for the admin reference
+// table, since the real payout varies per card based on which cells in the
+// pattern were actually earned via a deed vs. purchased/free/referral.
+const PATTERN_NOMINAL_SQUARES: Record<string, number> = {
+  one_line: 5, two_lines: 10, four_corners: 4, x_pattern: 9, around_the_edges: 16, fill_card: 25,
+}
+const ALL_SCORING_PATTERNS = Object.keys(PATTERN_NOMINAL_SQUARES)
+
+const PATTERN_FIXED_CELLS: Record<string, number[]> = {
+  four_corners: [0, 4, 20, 24],
+  x_pattern: [0, 6, 12, 18, 24, 4, 8, 16, 20],
+  around_the_edges: [0, 1, 2, 3, 4, 5, 9, 10, 14, 15, 19, 20, 21, 22, 23, 24],
+  fill_card: Array.from({ length: 25 }, (_, i) => i),
+}
+
+function isPatternComplete(pattern: string, lineCount: number, completedSet: Set<number>): boolean {
+  if (pattern === 'one_line') return lineCount >= 1
+  if (pattern === 'two_lines') return lineCount >= 2
+  return (PATTERN_FIXED_CELLS[pattern] ?? []).every((x) => completedSet.has(x))
+}
+
+/** Real (deed-only) square count for a satisfied pattern. `completedDeeds`
+ *  is the player's actual deed-marked cells (never purchased/referral/free
+ *  — those all live in `allCompleted` but never in `completed`). For the
+ *  two line-based patterns, which specific line(s) qualify isn't tracked,
+ *  so this picks whichever currently-satisfied line(s) have the most real
+ *  deed squares — the most generous reasonable reading, not an exact
+ *  attribution (the existing per-line system never deduplicated overlap
+ *  between two lines either, so this stays at the same precision level). */
+function realSquaresForPattern(pattern: string, completedDeeds: number[], allCompleted: number[]): number {
+  const completedDeedSet = new Set(completedDeeds)
+  if (pattern === 'one_line' || pattern === 'two_lines') {
+    const allCompletedSet = new Set(allCompleted)
+    const realCounts = LINES
+      .filter((line) => line.every((c) => allCompletedSet.has(c)))
+      .map((line) => line.filter((c) => completedDeedSet.has(c)).length)
+      .sort((a, b) => b - a)
+    return pattern === 'one_line'
+      ? (realCounts[0] ?? 0)
+      : (realCounts[0] ?? 0) + (realCounts[1] ?? 0)
+  }
+  return (PATTERN_FIXED_CELLS[pattern] ?? []).filter((c) => completedDeedSet.has(c)).length
+}
+
+/** Which of the 6 scoring patterns are satisfied by `allCompleted` but
+ *  aren't in `existingPatterns` yet, with each one's real bonus square
+ *  count already computed — called up front so the caller can persist the
+ *  updated pattern list in the same DB write that marks the cell, before
+ *  the actual awarding (a separate async/RPC step) happens. */
+function newlySatisfiedPatterns(
+  completedDeeds: number[], allCompleted: number[], existingPatterns: string[],
+): { pattern: string; squares: number }[] {
+  const completedSet = new Set(allCompleted)
+  const lineCount = completedLineIndices(allCompleted).length
+  const result: { pattern: string; squares: number }[] = []
+  for (const pattern of ALL_SCORING_PATTERNS) {
+    if (existingPatterns.includes(pattern)) continue
+    if (!isPatternComplete(pattern, lineCount, completedSet)) continue
+    result.push({ pattern, squares: realSquaresForPattern(pattern, completedDeeds, allCompleted) })
+  }
+  return result
+}
+
 function parseJsonArr(raw: string | null | undefined): number[] {
   try { return JSON.parse(raw ?? '[]') } catch { return [] }
+}
+
+function parseJsonStrArr(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw as string[]
+  try { return JSON.parse((raw as string) ?? '[]') } catch { return [] }
 }
 
 /** Fetch a player's targeting value IDs and a map of deed_id → Set of targeting_value_ids. */
@@ -731,27 +812,23 @@ async function formatPublicWinner(
   }
 }
 
-/** Award a fresh 6-20 roll for every newly-completed line (any of the 12
- *  possible rows/columns/diagonals) on this action, and send the one-time
- *  "you've won" email the first time the configured win_condition is
- *  satisfied. A "bingo" for payout purposes is any newly-completed line,
- *  independent of win_condition — uncapped: one move that completes several
- *  lines at once (including all 12 via fill_card) pays each one separately.
- *  A player keeps playing the same card past their first win, all the way
- *  to end of week, so this can fire repeatedly over a card's lifetime.
- *  Idempotent per (card, week, play cycle, line): a retried call may roll
- *  again, but only the first roll that actually inserts a new ledger row
- *  for that specific line is ever applied. Returns the total newly-awarded
- *  entries (0 if nothing new this action). Caller persists the updated
- *  bonus_lines_awarded list onto the card row. */
-async function awardNewBingoLines(
+/** Awards each already-computed newly-satisfied pattern (see
+ *  newlySatisfiedPatterns) — squares x a fresh 1-PATTERN_BONUS_MAX_MULTIPLIER
+ *  roll per pattern, each pattern paid once ever per card — and sends the
+ *  one-time "you've won" email the first time the configured win_condition
+ *  is satisfied (independent of which scoring patterns have paid out).
+ *  Idempotent per (card, pattern): a retried call may roll again, but only
+ *  the first roll that actually inserts a new ledger row for that pattern
+ *  is ever applied. Returns the total newly-awarded entries (0 if nothing
+ *  new this action). Caller persists the updated bonus_patterns_awarded
+ *  list onto the card row. */
+async function awardBingoPatterns(
   supabase: ReturnType<typeof getSupabase>,
   opts: {
     playerId: string
     cardId: number
     weekYear: string
-    playCycle: number
-    newLineIndices: number[]
+    newPatterns: { pattern: string; squares: number }[]
     winCondition: string
     wasAlreadyBingo: boolean
     isBingoNow: boolean
@@ -760,12 +837,12 @@ async function awardNewBingoLines(
   },
 ): Promise<number> {
   let total = 0
-  if (opts.newLineIndices.length > 0) {
+  if (opts.newPatterns.length > 0) {
     const drawSettings = await getDrawSettings(supabase)
-    for (const lineIndex of opts.newLineIndices) {
-      const bonus = await awardBingoBonus(supabase, {
+    for (const { pattern, squares } of opts.newPatterns) {
+      const bonus = await awardPatternBonus(supabase, {
         playerId: opts.playerId, cardId: opts.cardId, weekYear: opts.weekYear,
-        cycle: opts.playCycle, lineIndex, settings: drawSettings,
+        pattern, squares, settings: drawSettings,
       })
       if (bonus != null) total += bonus
     }
@@ -1622,7 +1699,7 @@ Deno.serve(async (req: Request) => {
           is_bingo: false,
           pick_three_used: false,
           play_cycle: (card.play_cycle ?? 0) + 1,
-          bonus_lines_awarded: '[]',
+          bonus_patterns_awarded: '[]',
           updated_at: new Date().toISOString(),
         }).eq('id', card_id)
 
@@ -1694,18 +1771,18 @@ Deno.serve(async (req: Request) => {
       const allCompleted = [...new Set([...completed, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
       const isBingo = checkBingo(allCompleted, card.win_condition)
 
-      // A "bingo" for bonus-payout purposes is any newly-completed line
-      // (row/column/diagonal) — independent of win_condition, and the
-      // player keeps playing this same card past their first win, so more
-      // can complete later. See awardNewBingoLines.
-      const existingLines: number[] = Array.isArray(card.bonus_lines_awarded) ? card.bonus_lines_awarded : []
-      const newLineIndices = completedLineIndices(allCompleted).filter((i) => !existingLines.includes(i))
+      // Scoring table (One Line, Two Lines, Four Corners, X, Around the
+      // Edges, Fill Card) — independent of win_condition, and the player
+      // keeps playing this same card past their first win, so more can
+      // complete later. See newlySatisfiedPatterns/awardBingoPatterns.
+      const existingPatterns = parseJsonStrArr(card.bonus_patterns_awarded)
+      const newPatterns = newlySatisfiedPatterns(completed, allCompleted, existingPatterns)
 
       await supabase.from('player_cards').update({
         card_data: JSON.stringify(cells),
         completed_cells: JSON.stringify(completed),
         is_bingo: isBingo,
-        bonus_lines_awarded: JSON.stringify([...existingLines, ...newLineIndices]),
+        bonus_patterns_awarded: JSON.stringify([...existingPatterns, ...newPatterns.map((p) => p.pattern)]),
         updated_at: new Date().toISOString(),
       }).eq('id', card_id)
 
@@ -1751,10 +1828,11 @@ Deno.serve(async (req: Request) => {
         })
       }
 
-      // Award any newly-completed lines' bonuses + congratulate by email on first win.
-      const bonusEntries = await awardNewBingoLines(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: getCurrentWeekYear(), playCycle: card.play_cycle ?? 0,
-        newLineIndices, winCondition: card.win_condition,
+      // Award any newly-completed scoring patterns' bonuses + congratulate
+      // by email on first win.
+      const bonusEntries = await awardBingoPatterns(supabase, {
+        playerId: user.sub, cardId: card_id, weekYear: getCurrentWeekYear(),
+        newPatterns, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })
@@ -2047,22 +2125,24 @@ Deno.serve(async (req: Request) => {
       const allCompleted = [...new Set([...completed, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
       const isBingo = checkBingo(allCompleted, card.win_condition)
 
-      const existingLines: number[] = Array.isArray(card.bonus_lines_awarded) ? card.bonus_lines_awarded : []
-      const newLineIndices = completedLineIndices(allCompleted).filter((i) => !existingLines.includes(i))
+      const existingPatterns = parseJsonStrArr(card.bonus_patterns_awarded)
+      const newPatterns = newlySatisfiedPatterns(completed, allCompleted, existingPatterns)
 
       await supabase.from('player_cards').update({
         purchased_cells: JSON.stringify(purchased),
         is_bingo: isBingo,
-        bonus_lines_awarded: JSON.stringify([...existingLines, ...newLineIndices]),
+        bonus_patterns_awarded: JSON.stringify([...existingPatterns, ...newPatterns.map((p) => p.pattern)]),
         updated_at: new Date().toISOString(),
       }).eq('id', card_id)
 
-      // Award any newly-completed lines' bonuses + congratulate by email on first win.
-      // Note: a purchased square is not a completed deed, so it earns NO deed entry,
-      // but it CAN complete lines, which still earn the random 6-20 bonus each.
-      const bonusEntries = await awardNewBingoLines(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: getCurrentWeekYear(), playCycle: card.play_cycle ?? 0,
-        newLineIndices, winCondition: card.win_condition,
+      // Award any newly-completed scoring patterns' bonuses + congratulate by
+      // email on first win. Note: a purchased square is not a completed deed,
+      // so it earns NO deed entry, and it doesn't count as a "real" square
+      // toward the bonus math either — only cells actually earned via a deed
+      // (`completed`) do, per newlySatisfiedPatterns/realSquaresForPattern.
+      const bonusEntries = await awardBingoPatterns(supabase, {
+        playerId: user.sub, cardId: card_id, weekYear: getCurrentWeekYear(),
+        newPatterns, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })
@@ -4973,11 +5053,11 @@ Deno.serve(async (req: Request) => {
       // Remove the deed's draw entry (idempotent).
       const deedReversed = await reverseDeedEntry(supabase, completedDeedId, admin.sub, reason)
 
-      // If this deed sat on a bingo card, recompute which lines are still
-      // complete once this cell is removed. Any line that was previously
-      // paid but is no longer complete gets its bonus reversed individually
-      // — a card can have multiple independently-paid lines now, not just
-      // one card-level bonus.
+      // If this deed sat on a bingo card, recompute which scoring patterns
+      // are still satisfied once this cell is removed. Any pattern that was
+      // previously paid but no longer holds gets its bonus reversed
+      // individually — a card can have multiple independently-paid
+      // patterns now, not just one card-level bonus.
       let bingoReversed = false
       if (deed.source_type === 'bingo_card' && deed.card_id != null) {
         const { data: card } = await supabase
@@ -4990,21 +5070,22 @@ Deno.serve(async (req: Request) => {
           const allCompleted = [...new Set([...completed, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
           const stillBingo = checkBingo(allCompleted, card.win_condition)
 
-          const stillCompleteLines = new Set(completedLineIndices(allCompleted))
-          const previouslyAwardedLines: number[] = Array.isArray(card.bonus_lines_awarded) ? card.bonus_lines_awarded : []
-          const linesToReverse = previouslyAwardedLines.filter((i) => !stillCompleteLines.has(i))
-          const remainingAwardedLines = previouslyAwardedLines.filter((i) => stillCompleteLines.has(i))
+          const completedSet = new Set(allCompleted)
+          const lineCount = completedLineIndices(allCompleted).length
+          const previouslyAwardedPatterns = parseJsonStrArr(card.bonus_patterns_awarded)
+          const patternsToReverse = previouslyAwardedPatterns.filter((p) => !isPatternComplete(p, lineCount, completedSet))
+          const remainingAwardedPatterns = previouslyAwardedPatterns.filter((p) => isPatternComplete(p, lineCount, completedSet))
 
           // Reflect the removal on the card itself.
           await supabase.from('player_cards').update({
             completed_cells: JSON.stringify(completed),
             is_bingo: stillBingo,
-            bonus_lines_awarded: JSON.stringify(remainingAwardedLines),
+            bonus_patterns_awarded: JSON.stringify(remainingAwardedPatterns),
             updated_at: new Date().toISOString(),
           }).eq('id', card.id)
 
-          for (const lineIndex of linesToReverse) {
-            const reversed = await reverseBingoBonus(supabase, card.id, card.week_year, card.play_cycle ?? 0, lineIndex, admin.sub, reason)
+          for (const pattern of patternsToReverse) {
+            const reversed = await reversePatternBonus(supabase, card.id, pattern, admin.sub, reason)
             if (reversed) bingoReversed = true
           }
         }
@@ -6279,22 +6360,22 @@ Deno.serve(async (req: Request) => {
       const allCompleted = [...new Set([...updatedCompleted, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
       const isBingo = checkBingo(allCompleted, card.win_condition)
 
-      const existingLines: number[] = Array.isArray(card.bonus_lines_awarded) ? card.bonus_lines_awarded : []
-      const newLineIndices = completedLineIndices(allCompleted).filter((i) => !existingLines.includes(i))
+      const existingPatterns = parseJsonStrArr(card.bonus_patterns_awarded)
+      const newPatterns = newlySatisfiedPatterns(updatedCompleted, allCompleted, existingPatterns)
 
       await supabase.from('player_cards').update({
         card_data: JSON.stringify(cells),
         completed_cells: JSON.stringify(updatedCompleted),
         is_bingo: isBingo,
-        bonus_lines_awarded: JSON.stringify([...existingLines, ...newLineIndices]),
+        bonus_patterns_awarded: JSON.stringify([...existingPatterns, ...newPatterns.map((p) => p.pattern)]),
         updated_at: new Date().toISOString(),
       }).eq('id', card_id)
 
-      // Award any newly-completed lines' bonuses + congratulate by email on
-      // first win, same as mark-cell.
-      const bonusEntries = await awardNewBingoLines(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: getCurrentWeekYear(), playCycle: card.play_cycle ?? 0,
-        newLineIndices, winCondition: card.win_condition,
+      // Award any newly-completed scoring patterns' bonuses + congratulate by
+      // email on first win, same as mark-cell.
+      const bonusEntries = await awardBingoPatterns(supabase, {
+        playerId: user.sub, cardId: card_id, weekYear: getCurrentWeekYear(),
+        newPatterns, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })
@@ -6390,14 +6471,14 @@ Deno.serve(async (req: Request) => {
       const allCompleted = [...new Set([...updatedCompleted, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
       const isBingo = checkBingo(allCompleted, card.win_condition)
 
-      const existingLines: number[] = Array.isArray(card.bonus_lines_awarded) ? card.bonus_lines_awarded : []
-      const newLineIndices = completedLineIndices(allCompleted).filter((i) => !existingLines.includes(i))
+      const existingPatterns = parseJsonStrArr(card.bonus_patterns_awarded)
+      const newPatterns = newlySatisfiedPatterns(updatedCompleted, allCompleted, existingPatterns)
 
       await supabase.from('player_cards').update({
         card_data: JSON.stringify(cells),
         completed_cells: JSON.stringify(updatedCompleted),
         is_bingo: isBingo,
-        bonus_lines_awarded: JSON.stringify([...existingLines, ...newLineIndices]),
+        bonus_patterns_awarded: JSON.stringify([...existingPatterns, ...newPatterns.map((p) => p.pattern)]),
         updated_at: new Date().toISOString(),
       }).eq('id', card_id)
 
@@ -6406,9 +6487,9 @@ Deno.serve(async (req: Request) => {
         completed_cells: updatedCompleted, is_bingo: isBingo,
       }
 
-      const bonusEntries = await awardNewBingoLines(supabase, {
-        playerId: user.sub, cardId: card_id, weekYear: getCurrentWeekYear(), playCycle: card.play_cycle ?? 0,
-        newLineIndices, winCondition: card.win_condition,
+      const bonusEntries = await awardBingoPatterns(supabase, {
+        playerId: user.sub, cardId: card_id, weekYear: getCurrentWeekYear(),
+        newPatterns, winCondition: card.win_condition,
         wasAlreadyBingo: card.is_bingo, isBingoNow: isBingo,
         userEmail: user.email, userName: user.name as string | undefined,
       })

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import {
   ArrowLeft, Heart, Grid3x3, EyeOff, Eye, Sparkles, DollarSign, Users, Gift,
   Flame, ArrowLeftRight, Trophy, RefreshCw, Ban, Pause, Lock, Shuffle, Bomb, Crown, Ticket, Compass,
-  Target, Globe, Zap, Star,
+  Target, Globe, Zap, Star, Smile,
 } from 'lucide-react';
 
 // ── Shared section shell ─────────────────────────────────────────────────────
@@ -44,6 +44,13 @@ const TheGoalsContent: React.FC = () => (
         putting in, and how far it reaches over time — one coffee bought here is one thing, but it
         adds up to 5,000 coffees worldwide. The <strong>Leaderboard</strong> is where it all gets
         gathered and recorded.
+      </p>
+    </Section>
+    <Section icon={<Smile className="w-4 h-4 text-amber-300" />} title="Goal 3: Have Fun">
+      <p>
+        Inspire others that doing good is fun. Simply paying attention as your world unfolds and
+        finding small ways to make others smile is contagious. Soon you'll find that the more you
+        do, the more you want to do.
       </p>
     </Section>
   </div>

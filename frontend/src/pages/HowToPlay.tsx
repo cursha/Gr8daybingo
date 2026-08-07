@@ -150,8 +150,10 @@ const ClassicContent: React.FC = () => (
     <Section icon={<Grid3x3 className="w-4 h-4 text-indigo-300" />} title="The Goal">
       <p>
         Your card is a 5×5 grid. Complete real acts of kindness — Gr8Day Deeds — to mark squares,
-        and get Bingo with 5 in a row — straight across, down, or diagonal. You can keep playing
-        the same card past a win, all the way to the end of the week.
+        and get Bingo by completing whichever winning pattern is currently active — a full line,
+        all four corners, one line <em>or</em> four corners, or another shape entirely. The badge
+        near the top of your board always shows this cycle's actual rule. Winning doesn't end your
+        card — you keep playing the same one until you choose to tap out (see below).
       </p>
     </Section>
 
@@ -228,12 +230,19 @@ const ClassicContent: React.FC = () => (
       </p>
     </Section>
 
-    <Section icon={<RefreshCw className="w-4 h-4 text-teal-300" />} title="Weekly Reset & Prizes">
+    <Section icon={<RefreshCw className="w-4 h-4 text-teal-300" />} title="Tap Out & Prizes">
       <p>
-        A new card is generated each week. The prize winner is picked from the draw entry pool —
-        so playing the deeds is what actually gives you a shot, whether or not you personally hit
-        Bingo that week. Check <strong>My Wins</strong> for your history and the winners page for
-        who's won recently.
+        Your card doesn't expire on its own — you keep it for as long as you want. Once it's been
+        active for 7 days, a <strong>Tap Out</strong> button appears in your board's header: tap
+        it to end that card and get a completely new one on the spot, no penalty at all — nothing
+        you've earned (Bucks, streak, draw entries) is touched. Getting Bingo doesn't shortcut the
+        7 days; even after a win, Tap Out only shows up once the card is actually old enough.
+      </p>
+      <p>
+        The prize draw runs on its own separate weekly clock — a winner is picked from the draw
+        entry pool every Monday, independent of when your card started. Playing deeds is what
+        actually gives you a shot, whether or not you personally hit Bingo that week. Check{' '}
+        <strong>My Wins</strong> for your history and the winners page for who's won recently.
       </p>
     </Section>
   </div>
@@ -289,8 +298,9 @@ const BlackoutContent: React.FC = () => (
 
     <Section icon={<Trophy className="w-4 h-4 text-emerald-300" />} title="Everything Else">
       <p>
-        Streaks, draw entries (every completed deed, plus bonus entries for lines), and the
-        weekly reset all work exactly the same as Classic mode — same draw pool, same odds.
+        Streaks, draw entries (every completed deed, plus bonus entries for lines), and Tap Out
+        (once your card's been active 7 days) all work exactly the same as Classic mode — same
+        draw pool, same odds.
       </p>
     </Section>
   </div>

@@ -29,14 +29,14 @@ const StreakDisplay: React.FC<Props> = ({ streak }) => {
           <span className={`text-2xl font-bold ${isActive ? 'text-orange-300' : 'text-white/40'}`}>
             {streak.current_streak_days}
           </span>
-          <span className="text-xs text-indigo-200/70 text-center mt-0.5">Current<br />Streak</span>
+          <span className="text-xs text-white/70 text-center mt-0.5">Current<br />Streak</span>
         </div>
 
         {/* Longest Streak */}
         <div className="flex flex-col items-center bg-indigo-500/10 rounded-xl p-3">
           <Trophy className="w-6 h-6 mb-1 text-indigo-300" />
           <span className="text-2xl font-bold text-indigo-300">{streak.longest_streak_days}</span>
-          <span className="text-xs text-indigo-200/70 text-center mt-0.5">Best<br />Streak</span>
+          <span className="text-xs text-white/70 text-center mt-0.5">Best<br />Streak</span>
         </div>
 
         {/* Last Deed Date */}
@@ -45,13 +45,13 @@ const StreakDisplay: React.FC<Props> = ({ streak }) => {
           <span className="text-xs font-semibold text-emerald-300 text-center leading-tight mt-1">
             {formatDate(streak.last_valid_deed_date)}
           </span>
-          <span className="text-xs text-indigo-200/70 text-center mt-0.5">Last<br />Deed</span>
+          <span className="text-xs text-white/70 text-center mt-0.5">Last<br />Deed</span>
         </div>
       </div>
 
       {streak.achievements.length > 0 && (
         <div className="mt-3 pt-3 border-t border-white/10">
-          <p className="text-xs text-indigo-200/70 mb-1.5 font-medium">Milestones Achieved</p>
+          <p className="text-xs text-white/70 mb-1.5 font-medium">Milestones Achieved</p>
           <div className="flex flex-wrap gap-1.5">
             {streak.achievements.map((a, i) => (
               <span

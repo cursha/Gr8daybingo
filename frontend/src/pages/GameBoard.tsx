@@ -1043,7 +1043,7 @@ const GameBoard: React.FC = () => {
         <div className="w-full max-w-md bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 space-y-5">
           <div className="text-center space-y-1">
             <h1 className="text-xl font-black text-white">Choose Your Game</h1>
-            <p className="text-sm text-indigo-200/70">This locks in for the whole week once you confirm.</p>
+            <p className="text-sm text-white/70">This locks in for the whole week once you confirm.</p>
           </div>
           <div className="grid grid-cols-1 gap-3">
             <button
@@ -1371,7 +1371,7 @@ const GameBoard: React.FC = () => {
               <Target className="w-3.5 h-3.5 text-indigo-400" />
               <div className="text-left">
                 <span className="text-xs font-bold text-indigo-300 block leading-tight">{modeLabel}</span>
-                <span className="text-[10px] text-indigo-200/70 leading-tight hidden sm:block">{modeDescription}</span>
+                <span className="text-[10px] text-white/70 leading-tight hidden sm:block">{modeDescription}</span>
               </div>
             </div>
             {/* Tap Out — available any time the card is old enough, not just
@@ -1657,7 +1657,7 @@ const GameBoard: React.FC = () => {
             <Users className="w-4 h-4 text-teal-400" />
             Invite a Friend
           </h3>
-          <p className="text-xs text-indigo-200/70 mb-3">
+          <p className="text-xs text-white/70 mb-3">
             Invite a friend by email. When they sign up and verify their email, you both get a Gr8Day Bucks bonus in your wallet.
           </p>
           <div className="flex gap-2">
@@ -1685,7 +1685,7 @@ const GameBoard: React.FC = () => {
             <Lightbulb className="w-4 h-4 text-amber-400" />
             Suggest a Gr8Day Deed
           </h3>
-          <p className="text-xs text-indigo-200/70 mb-3">
+          <p className="text-xs text-white/70 mb-3">
             Got a great idea? Submit a Gr8Day Deed and an admin will review it. Approved Gr8Day Deeds join the weekly pool for everyone to enjoy.
           </p>
           <div className="space-y-2">
@@ -1746,7 +1746,7 @@ const GameBoard: React.FC = () => {
                       <div className="flex-1 min-w-0">
                         <p className="text-white/80 truncate">{s.deed_text}</p>
                         {s.category && (
-                          <span className="text-[10px] text-indigo-200/70">{s.category}</span>
+                          <span className="text-[10px] text-white/70">{s.category}</span>
                         )}
                       </div>
                       <span className={`text-[10px] font-bold ${statusConfig.color} flex-shrink-0`}>

@@ -92,7 +92,7 @@ const PlayerProfilePage: React.FC = () => {
         {notFound ? (
           <div className="text-center py-20">
             <p className="text-2xl font-black text-white mb-2">Player not found</p>
-            <p className="text-indigo-200/70">No player goes by that username.</p>
+            <p className="text-white/70">No player goes by that username.</p>
           </div>
         ) : profile ? (
           <div className="space-y-6">
@@ -131,21 +131,21 @@ const PlayerProfilePage: React.FC = () => {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5 text-center">
                 <p className="text-3xl font-black text-white">{profile.total_deeds}</p>
-                <p className="text-indigo-200/70 text-xs font-medium uppercase tracking-wider mt-1">Gr8Day Deeds</p>
+                <p className="text-white/70 text-xs font-medium uppercase tracking-wider mt-1">Gr8Day Deeds</p>
               </div>
               <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5 text-center">
                 <div className="flex items-center justify-center gap-1.5">
                   <Flame className="w-5 h-5 text-orange-400" />
                   <p className="text-3xl font-black text-white">{profile.current_streak_days}</p>
                 </div>
-                <p className="text-indigo-200/70 text-xs font-medium uppercase tracking-wider mt-1">Current Streak</p>
+                <p className="text-white/70 text-xs font-medium uppercase tracking-wider mt-1">Current Streak</p>
               </div>
               <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5 text-center">
                 <div className="flex items-center justify-center gap-1.5">
                   <Flame className="w-5 h-5 text-rose-400" />
                   <p className="text-3xl font-black text-white">{profile.longest_streak_days}</p>
                 </div>
-                <p className="text-indigo-200/70 text-xs font-medium uppercase tracking-wider mt-1">Longest Streak</p>
+                <p className="text-white/70 text-xs font-medium uppercase tracking-wider mt-1">Longest Streak</p>
               </div>
             </div>
 

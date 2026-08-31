@@ -2,7 +2,18 @@ import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { createAccessToken, getAuthUser, requireAuth } from '../_shared/auth.ts'
 import { getSupabase, getSubPath } from '../_shared/db.ts'
 import { sendEmail, referralJoinedEmail, welcomeEmail, verifyEmailEmail, newPlayerNotificationEmail, secondLetterEmail, thirdLetterEmail } from '../_shared/email.ts'
+import { checkRateLimit, recordAttempt, clearRateLimit, getClientIp } from '../_shared/rate_limit.ts'
 import bcrypt from 'npm:bcryptjs@2'
+
+// Per-account login lockout: 15 minutes' worth of guesses is plenty for a
+// real person to mistype their own password a few times, and short enough
+// that a locked-out real player isn't stuck for long — while making
+// scripted password-guessing impractical.
+const LOGIN_RATE_LIMIT = { maxAttempts: 5, windowMinutes: 15, lockMinutes: 15 }
+// Per-IP signup throttle: generous enough that a shared IP (office, school,
+// family) registering several real accounts in an hour never gets blocked,
+// while still capping how fast a script can farm accounts.
+const SIGNUP_RATE_LIMIT = { maxAttempts: 10, windowMinutes: 60, lockMinutes: 60 }
 
 const ADMIN_EMAIL = 'curt.skene@curtskene.com'
 const SITE_URL = 'https://havagr8day.com'
@@ -38,6 +49,11 @@ Deno.serve(async (req: Request) => {
   try {
     // POST /register
     if (method === 'POST' && path === '/register') {
+      const signupBucket = `register:${getClientIp(req)}`
+      const signupRl = await checkRateLimit(supabase, signupBucket)
+      if (!signupRl.allowed) return errorResponse(signupRl.message!, 429)
+      await recordAttempt(supabase, signupBucket, SIGNUP_RATE_LIMIT)
+
       const body = await req.json()
       const email = String(body.email ?? '').trim().toLowerCase()
       const username = String(body.username ?? '').trim()
@@ -121,6 +137,10 @@ Deno.serve(async (req: Request) => {
       const body = await req.json()
       const email = String(body.email ?? '').trim().toLowerCase()
       const password = String(body.password ?? '')
+      const loginBucket = `login:${email}`
+
+      const loginRl = await checkRateLimit(supabase, loginBucket)
+      if (!loginRl.allowed) return errorResponse(loginRl.message!, 429)
 
       const { data: user } = await supabase
         .from('users')
@@ -129,11 +149,16 @@ Deno.serve(async (req: Request) => {
         .maybeSingle()
 
       if (!user || !user.password_hash) {
+        await recordAttempt(supabase, loginBucket, LOGIN_RATE_LIMIT)
         return errorResponse('Invalid email or password.', 401)
       }
 
       const valid = await bcrypt.compare(password, user.password_hash)
-      if (!valid) return errorResponse('Invalid email or password.', 401)
+      if (!valid) {
+        await recordAttempt(supabase, loginBucket, LOGIN_RATE_LIMIT)
+        return errorResponse('Invalid email or password.', 401)
+      }
+      await clearRateLimit(supabase, loginBucket)
 
       if (!user.email_verified) {
         return errorResponse('Please verify your email address before signing in. Check your inbox for the verification link.', 403)
@@ -162,6 +187,11 @@ Deno.serve(async (req: Request) => {
 
     // POST /register-anonymous (Issue #17) — nickname + password only, no email.
     if (method === 'POST' && path === '/register-anonymous') {
+      const signupBucket = `register:${getClientIp(req)}`
+      const signupRl = await checkRateLimit(supabase, signupBucket)
+      if (!signupRl.allowed) return errorResponse(signupRl.message!, 429)
+      await recordAttempt(supabase, signupBucket, SIGNUP_RATE_LIMIT)
+
       const body = await req.json()
       const nickname = String(body.nickname ?? body.username ?? '').trim()
       const password = String(body.password ?? '')
@@ -233,6 +263,10 @@ Deno.serve(async (req: Request) => {
       const body = await req.json()
       const nickname = String(body.nickname ?? body.username ?? '').trim()
       const password = String(body.password ?? '')
+      const loginBucket = `login:${nickname}`
+
+      const loginRl = await checkRateLimit(supabase, loginBucket)
+      if (!loginRl.allowed) return errorResponse(loginRl.message!, 429)
 
       const { data: user } = await supabase
         .from('users')
@@ -242,10 +276,15 @@ Deno.serve(async (req: Request) => {
         .maybeSingle()
 
       if (!user || !user.password_hash) {
+        await recordAttempt(supabase, loginBucket, LOGIN_RATE_LIMIT)
         return errorResponse('Invalid nickname or password.', 401)
       }
       const valid = await bcrypt.compare(password, user.password_hash)
-      if (!valid) return errorResponse('Invalid nickname or password.', 401)
+      if (!valid) {
+        await recordAttempt(supabase, loginBucket, LOGIN_RATE_LIMIT)
+        return errorResponse('Invalid nickname or password.', 401)
+      }
+      await clearRateLimit(supabase, loginBucket)
 
       const now = new Date().toISOString()
       await supabase.from('users').update({ last_login: now }).eq('id', user.id)

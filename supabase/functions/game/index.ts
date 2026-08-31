@@ -17,7 +17,7 @@ import {
   isPatternComplete, realSquaresForPattern, newlySatisfiedPatterns,
 } from '../_shared/bingo_logic.ts'
 import { getCurrentWeekYear, getWeekStart } from '../_shared/week.ts'
-import { Cell, dareYaField, parseJsonArr, parseJsonStrArr, freeSpaceIndices } from '../_shared/card_helpers.ts'
+import { Cell, dareYaField, parseJsonArr, parseJsonStrArr, freeSpaceIndices, getPlayerCurrentCard, sanitizeCells } from '../_shared/card_helpers.ts'
 import { recordCompletedDeed, checkDeedGate, updatePlayerStreak } from '../_shared/deed_completion.ts'
 import { getBadge } from '../_shared/badges.ts'
 import { fetchTargetingData, filterDeedsByTargeting } from '../_shared/targeting.ts'
@@ -35,6 +35,8 @@ import { handleCardPickupPromptsRoutes } from './routes/card_pickup_prompts.ts'
 import { handleAdminDrawResultsRoutes } from './routes/admin_draw_results.ts'
 import { handleStreaksRoutes } from './routes/streaks.ts'
 import { handleAdminDeedsRoutes } from './routes/admin_deeds.ts'
+import { handlePrizesRoutes } from './routes/prizes.ts'
+import { handleAdminConfigRoutes } from './routes/admin_config.ts'
 import bcrypt from 'npm:bcryptjs@2'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -42,64 +44,7 @@ import bcrypt from 'npm:bcryptjs@2'
 // live in _shared/card_helpers.ts now (imported at the top of this file) —
 // they're used across nearly every route, including the extracted ones.
 
-// ── Security: strip secret fields before sending cells to client ─────────────
-// is_secret/secret_reward and dare_ya outcome details must never be exposed
-// until the respective square has been revealed by the player.
-function sanitizeCells(cells: Cell[], completedCells: number[], hiddenCells?: number[]): unknown[] {
-  const hiddenSet = new Set(hiddenCells ?? [])
-  return cells.map((c) => {
-    // Blackout fog: a still-hidden square's deed content must never reach the
-    // client — otherwise a player could read the network response and know
-    // what's under a square before revealing it.
-    if (hiddenSet.has(c.index)) {
-      return {
-        index: c.index, is_free_space: false, is_purchasable: false, purchase_price: null,
-        is_referral_free: false, is_secret: false, secret_reward: null, quantity: 1,
-        category: null, deed_text: null, deed_text_long: null, deed_id: null,
-        is_hidden: true,
-      }
-    }
-
-    const secretRevealed = c.secret_revealed === true || completedCells.includes(c.index)
-    const { is_secret, secret_reward, secret_revealed, is_bomb,
-            dare_ya_outcome_type, dare_ya_label, dare_ya_action_value,
-            bet_ya_outcome_type, bet_ya_label, bet_ya_action_value,
-            ...rest } = c
-    return {
-      ...rest,
-      ...(is_secret && secretRevealed ? { is_secret: true, secret_reward, secret_revealed: true } : {}),
-      // Expose I Dare Ya details only after the player has clicked and revealed
-      ...(dareYaField(c, 'revealed')
-        ? {
-            dare_ya_outcome_type: dareYaField(c, 'outcome_type'),
-            dare_ya_label: dareYaField(c, 'label'),
-            dare_ya_action_value: dareYaField(c, 'action_value'),
-          }
-        : {}),
-    }
-  })
-}
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
-// A player's "current" card is simply their most recently created one —
-// no longer gated to matching today's calendar week. A card lives until the
-// player taps out (see TAP_OUT_MIN_DAYS below) or completes a bingo; neither
-// of those replaces the row, they just insert a newer one, so "most recent"
-// is always the right answer without needing an is_active flag.
-async function getPlayerCurrentCard(
-  supabase: ReturnType<typeof getSupabase>,
-  userId: string,
-) {
-  const { data } = await supabase
-    .from('player_cards')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  return data
-}
-
 // A card must be at least this old before the player can tap out of it.
 // Bingo completion does NOT shortcut this — winning behaves exactly as it
 // always has (pays the bonus, lets them keep playing the same card); the
@@ -1963,266 +1908,12 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: true })
     }
 
-    // ── GET /admin/config ─────────────────────────────────────────────────────
-    // admin_password is deliberately excluded — it's a bcrypt hash, not a
-    // setting, and has its own dedicated verify/reset-password flow. Never
-    // surface it through the generic settings editor.
-    if (method === 'GET' && path === '/admin/config') {
-      requireAdmin(authUser)
-      const { data } = await supabase.from('game_configs').select('*').neq('config_key', 'admin_password')
-      const configs: Record<string, { value: string; description: string }> = {}
-      for (const c of data ?? []) configs[c.config_key] = { value: c.config_value ?? '', description: c.description ?? '' }
-      return jsonResponse({ configs })
-    }
-
-    // ── POST /admin/config ────────────────────────────────────────────────────
-    if (method === 'POST' && path === '/admin/config') {
-      requireAdmin(authUser)
-      const body = await req.json()
-      for (const [key, value] of Object.entries(body.configs ?? {})) {
-        // Never let the generic settings editor write admin_password as
-        // plaintext — that's exactly the hole /admin/reset-password's bcrypt
-        // hashing exists to close.
-        if (key === 'admin_password') continue
-        const { data: existing } = await supabase
-          .from('game_configs').select('id').eq('config_key', key).maybeSingle()
-        if (existing) {
-          await supabase.from('game_configs')
-            .update({ config_value: String(value), updated_at: new Date().toISOString() })
-            .eq('config_key', key)
-        } else {
-          await supabase.from('game_configs').insert({
-            config_key: key, config_value: String(value), description: '', updated_at: new Date().toISOString(),
-          })
-        }
-      }
-      return jsonResponse({ success: true })
-    }
-
-    // ── GET /admin/teams ──────────────────────────────────────────────────────
-    if (method === 'GET' && path === '/admin/teams') {
-      requireAdmin(authUser)
-      const { data, error } = await supabase
-        .from('teams')
-        .select(`
-          id, team_number, team_name, created_at,
-          captain:users!captain_user_id(id, player_number, first_name, last_name, username),
-          team_members(id, user_id, users(id, player_number, first_name, last_name, username))
-        `)
-        .order('team_number', { ascending: true })
-      if (error) throw error
-      return jsonResponse({ teams: data ?? [] })
-    }
-
-    // ── POST /admin/teams ─────────────────────────────────────────────────────
-    if (method === 'POST' && path === '/admin/teams') {
-      requireAdmin(authUser)
-      const body = await req.json()
-      const teamName = String(body.team_name ?? '').trim()
-      if (!teamName) return errorResponse('team_name is required', 400)
-
-      // Resolve captain by player_number if provided
-      let captainUserId: string | null = null
-      if (body.captain_player_number) {
-        const pn = parseInt(body.captain_player_number)
-        const { data: cap } = await supabase.from('users').select('id').eq('player_number', pn).maybeSingle()
-        captainUserId = cap?.id ?? null
-      }
-
-      const { data: team, error } = await supabase
-        .from('teams')
-        .insert({ team_name: teamName, captain_user_id: captainUserId })
-        .select()
-        .single()
-      if (error) throw error
-
-      // Auto-add captain as a member and mark them as captain on their profile
-      if (captainUserId) {
-        await supabase.from('team_members')
-          .upsert({ team_id: team.id, user_id: captainUserId }, { onConflict: 'user_id' })
-        await supabase.from('users').update({ captain_team_id: team.id }).eq('id', captainUserId)
-      }
-
-      return jsonResponse({ success: true, team })
-    }
-
-    // ── PUT /admin/teams/:id ──────────────────────────────────────────────────
-    const teamEditMatch = matchPath('/admin/teams/:id', path)
-    if (method === 'PUT' && teamEditMatch) {
-      requireAdmin(authUser)
-      const teamId = parseInt(teamEditMatch.id)
-      const body = await req.json()
-      const teamName = body.team_name != null ? String(body.team_name).trim() : undefined
-
-      let captainUserId: string | null | undefined = undefined
-      if (body.captain_player_number !== undefined) {
-        if (!body.captain_player_number) {
-          captainUserId = null
-        } else {
-          const pn = parseInt(body.captain_player_number)
-          const { data: cap } = await supabase.from('users').select('id').eq('player_number', pn).maybeSingle()
-          captainUserId = cap?.id ?? null
-        }
-      }
-
-      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
-      if (teamName !== undefined) updates.team_name = teamName
-      if (captainUserId !== undefined) {
-        // Clear captain_team_id from the old captain first
-        await supabase.from('users').update({ captain_team_id: null }).eq('captain_team_id', teamId)
-        updates.captain_user_id = captainUserId
-        if (captainUserId) {
-          await supabase.from('team_members')
-            .upsert({ team_id: teamId, user_id: captainUserId }, { onConflict: 'user_id' })
-          await supabase.from('users').update({ captain_team_id: teamId }).eq('id', captainUserId)
-        }
-      }
-
-      await supabase.from('teams').update(updates).eq('id', teamId)
-      return jsonResponse({ success: true })
-    }
-
-    // ── DELETE /admin/teams/:id ───────────────────────────────────────────────
-    const teamDeleteMatch = matchPath('/admin/teams/:id', path)
-    if (method === 'DELETE' && teamDeleteMatch) {
-      requireAdmin(authUser)
-      const teamId = parseInt(teamDeleteMatch.id)
-      // Clear captain_team_id from the captain before deleting
-      await supabase.from('users').update({ captain_team_id: null }).eq('captain_team_id', teamId)
-      await supabase.from('teams').delete().eq('id', teamId)
-      return jsonResponse({ success: true })
-    }
-
-    // ── POST /admin/teams/:id/members ─────────────────────────────────────────
-    const teamMemberMatch = matchPath('/admin/teams/:id/members', path)
-    if (method === 'POST' && teamMemberMatch) {
-      requireAdmin(authUser)
-      const teamId = parseInt(teamMemberMatch.id)
-      const body = await req.json()
-      const pn = parseInt(body.player_number)
-      if (isNaN(pn)) return errorResponse('player_number is required', 400)
-
-      const { data: player } = await supabase.from('users').select('id').eq('player_number', pn).maybeSingle()
-      if (!player) return errorResponse(`No player found with number ${pn}`, 404)
-
-      // Check team size limit
-      const { count } = await supabase.from('team_members')
-        .select('id', { count: 'exact', head: true }).eq('team_id', teamId)
-      if ((count ?? 0) >= 4) return errorResponse('Teams are limited to 4 players.', 400)
-
-      // Check player isn't already on a team
-      const { data: existing } = await supabase.from('team_members')
-        .select('team_id').eq('user_id', player.id).maybeSingle()
-      if (existing) return errorResponse('This player is already on a team.', 400)
-
-      await supabase.from('team_members').insert({ team_id: teamId, user_id: player.id })
-      return jsonResponse({ success: true })
-    }
-
-    // ── DELETE /admin/teams/:id/members/:userId ───────────────────────────────
-    const teamMemberDeleteMatch = matchPath('/admin/teams/:id/members/:userId', path)
-    if (method === 'DELETE' && teamMemberDeleteMatch) {
-      requireAdmin(authUser)
-      const teamId = parseInt(teamMemberDeleteMatch.id)
-      const userId = teamMemberDeleteMatch.userId
-      await supabase.from('team_members').delete().eq('team_id', teamId).eq('user_id', userId)
-      return jsonResponse({ success: true })
-    }
-
-    // ── GET /admin/player-card?player_number=X  OR  ?last_name=Smith ────────
-    if (method === 'GET' && path === '/admin/player-card') {
-      requireAdmin(authUser)
-      const params = new URL(req.url).searchParams
-      const pnStr = params.get('player_number')
-      const lastNameQ = params.get('last_name')?.trim()
-
-      // Search by last name: return a list of matches (no card data)
-      if (lastNameQ) {
-        const { data: matches } = await supabase
-          .from('users')
-          .select('id, first_name, last_name, username, email, player_number')
-          .ilike('last_name', `%${lastNameQ}%`)
-          .order('last_name', { ascending: true })
-          .limit(20)
-        return jsonResponse({ matches: (matches ?? []).map((u) => ({
-          id: u.id,
-          player_number: u.player_number,
-          display_name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || `GR8-${u.player_number}`,
-          email: u.email,
-        })) })
-      }
-
-      if (!pnStr) return errorResponse('player_number or last_name is required', 400)
-      const pn = parseInt(pnStr)
-      if (isNaN(pn)) return errorResponse('player_number must be a number', 400)
-
-      const { data: targetUser } = await supabase
-        .from('users')
-        .select('id, first_name, last_name, username, email, player_number, current_streak_days, longest_streak_days, last_valid_deed_date')
-        .eq('player_number', pn)
-        .maybeSingle()
-      if (!targetUser) return errorResponse('Player not found', 404)
-
-      // The player's current card, whichever week it was created in — a
-      // card is no longer guaranteed to match today's calendar week.
-      const card = await getPlayerCurrentCard(supabase, targetUser.id)
-
-      return jsonResponse({
-        player: {
-          id: targetUser.id,
-          player_number: targetUser.player_number,
-          display_name: [targetUser.first_name, targetUser.last_name].filter(Boolean).join(' ') || targetUser.username || `GR8-${targetUser.player_number}`,
-          email: targetUser.email,
-          current_streak_days: targetUser.current_streak_days ?? 0,
-          longest_streak_days: targetUser.longest_streak_days ?? 0,
-          last_valid_deed_date: targetUser.last_valid_deed_date ?? null,
-        },
-        card: card ? {
-          card_id: card.id,
-          week_year: card.week_year,
-          created_at: card.created_at,
-          cells: sanitizeCells(JSON.parse(card.card_data), parseJsonArr(card.completed_cells)),
-          win_condition: card.win_condition,
-          completed_cells: parseJsonArr(card.completed_cells),
-          purchased_cells: parseJsonArr(card.purchased_cells),
-          referral_cells: parseJsonArr(card.referral_cells),
-          is_bingo: card.is_bingo,
-        } : null,
-      })
-    }
-
-    // ── GET /admin/members ────────────────────────────────────────────────────
-    if (method === 'GET' && path === '/admin/members') {
-      requireAdmin(authUser)
-      const { data } = await supabase
-        .from('users')
-        .select('id, email, username, name, first_name, last_name, role, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified, is_trusted, is_test, is_active, last_valid_deed_date, created_at')
-        .order('player_number', { ascending: true })
-      return jsonResponse({
-        members: (data ?? []).map((u) => ({
-          id: u.id,
-          name: u.name ?? `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim(),
-          first_name: u.first_name ?? null,
-          last_name: u.last_name ?? null,
-          username: u.username ?? null,
-          email: u.email ?? null,
-          role: u.role ?? 'user',
-          province_state: u.province_state ?? null,
-          country: u.country ?? null,
-          city: u.city ?? null,
-          country_id: u.country_id ?? null,
-          state_id: u.state_id ?? null,
-          player_number: u.player_number ?? null,
-          last_login: u.last_login ?? null,
-          profile_completed: !!u.profile_completed,
-          email_verified: !!u.email_verified,
-          is_trusted: !!u.is_trusted,
-          is_test: !!u.is_test,
-          is_active: u.is_active ?? true,
-          last_valid_deed_date: u.last_valid_deed_date ?? null,
-          created_at: u.created_at ?? null,
-        })),
-      })
+    // ── Admin config/teams: settings editor, team CRUD/membership, and the
+    // player-lookup (single card + full member list) endpoints ───────────────
+    // Extracted to routes/admin_config.ts.
+    {
+      const res = await handleAdminConfigRoutes({ req, url, method, path, authUser, supabase })
+      if (res) return res
     }
 
     // ── Deed catalog: admin CRUD/import, targeting, suggest-deed, and the
@@ -2447,119 +2138,11 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: true, message: 'Password updated successfully' })
     }
 
-    // ── POST /claim-prize ─────────────────────────────────────────────────────
-    if (method === 'POST' && path === '/claim-prize') {
-      const user = requireAuth(authUser)
-
-      // Anonymous accounts (Issue #17) have no contact info, so they are not
-      // eligible for prizes. Enforced server-side.
-      const { data: claimant } = await supabase
-        .from('users').select('registration_type').eq('id', user.sub).maybeSingle()
-      if (claimant?.registration_type === 'anonymous') {
-        return errorResponse(
-          'Anonymous accounts are not eligible for prizes because we have no way to contact you.',
-          403,
-        )
-      }
-
-      const body = await req.json()
-      const { full_name, email, phone, mailing_address, notes } = body
-
-      if (!full_name || !email) return errorResponse('Name and email are required', 400)
-
-      const weekYear = getCurrentWeekYear()
-
-      // Verify the player's current card (whichever week it was created in)
-      // has actually won — a card's win doesn't expire just because the
-      // calendar moved on since it was generated.
-      const card = await getPlayerCurrentCard(supabase, user.sub)
-      if (!card || !card.is_bingo) return errorResponse('No winning card found', 400)
-
-      // Prevent duplicate claims
-      const { data: existing } = await supabase
-        .from('prize_claims').select('id').eq('user_id', user.sub).eq('week_year', weekYear).maybeSingle()
-      if (existing) return errorResponse('You have already submitted a claim for this week', 400)
-
-      const { error } = await supabase.from('prize_claims').insert({
-        user_id: user.sub,
-        week_year: weekYear,
-        full_name: String(full_name).trim(),
-        email: String(email).trim().toLowerCase(),
-        phone: phone ? String(phone).trim() : null,
-        mailing_address: mailing_address ? String(mailing_address).trim() : null,
-        notes: notes ? String(notes).trim() : null,
-        status: 'pending',
-      })
-      if (error) throw error
-
-      // Confirmation email to the claimant (best-effort).
-      const claimantEmail = String(email).trim().toLowerCase()
-      if (claimantEmail) {
-        const tpl = prizeClaimConfirmationEmail(String(full_name).trim() || null)
-        await sendEmail({ to: claimantEmail, subject: tpl.subject, html: tpl.html })
-      }
-
-      return jsonResponse({ success: true, message: 'Prize claim submitted! We will contact you within 48 hours.' })
-    }
-
-    // ── GET /admin/prize-claims ───────────────────────────────────────────────
-    if (method === 'GET' && path === '/admin/prize-claims') {
-      requireAdmin(authUser)
-      const { data } = await supabase
-        .from('prize_claims').select('*').order('created_at', { ascending: false })
-      return jsonResponse({
-        claims: (data ?? []).map((c) => ({
-          id: c.id,
-          user_id: c.user_id,
-          week_year: c.week_year,
-          full_name: c.full_name,
-          email: c.email,
-          phone: c.phone ?? null,
-          mailing_address: c.mailing_address ?? null,
-          notes: c.notes ?? null,
-          status: c.status,
-          created_at: c.created_at,
-        })),
-      })
-    }
-
-    // ── PUT /admin/prize-claims/:id ───────────────────────────────────────────
-    const claimMatch = matchPath('/admin/prize-claims/:id', path)
-    if (method === 'PUT' && claimMatch) {
-      requireAdmin(authUser)
-      const body = await req.json()
-      const { status } = body
-      if (!['pending', 'contacted', 'fulfilled', 'rejected'].includes(status)) {
-        return errorResponse('Invalid status', 400)
-      }
-      const claimId = parseInt(claimMatch.id)
-      const { data: existingClaim } = await supabase
-        .from('prize_claims').select('full_name, email, status').eq('id', claimId).maybeSingle()
-      const { error } = await supabase.from('prize_claims')
-        .update({ status, updated_at: new Date().toISOString() })
-        .eq('id', claimId)
-      if (error) throw error
-
-      // Email the voucher code the moment a claim newly becomes "fulfilled" —
-      // never on re-saving an already-fulfilled claim, and best-effort so a
-      // send failure never breaks the status update itself.
-      if (status === 'fulfilled' && existingClaim && existingClaim.status !== 'fulfilled' && existingClaim.email) {
-        try {
-          const { data: cfgRows } = await supabase
-            .from('game_configs').select('config_key, config_value')
-            .in('config_key', ['prize_title', 'prize_voucher_code', 'prize_image_url'])
-          const cfg: Record<string, string> = {}
-          for (const r of cfgRows ?? []) cfg[r.config_key] = r.config_value ?? ''
-          if (cfg['prize_voucher_code']) {
-            const tpl = prizeVoucherEmail(existingClaim.full_name ?? null, cfg['prize_title'] ?? null, cfg['prize_voucher_code'], cfg['prize_image_url'] ?? null)
-            await sendEmail({ to: existingClaim.email, subject: tpl.subject, html: tpl.html })
-          }
-        } catch (err) {
-          console.error('[prize-voucher-email] failed to send', err)
-        }
-      }
-
-      return jsonResponse({ success: true })
+    // ── Prize claims: player submission and admin queue management ───────────
+    // Extracted to routes/prizes.ts.
+    {
+      const res = await handlePrizesRoutes({ req, url, method, path, authUser, supabase })
+      if (res) return res
     }
 
     // ── GET /admin/deed-log, GET /admin/deed-log/export ──────────────────────

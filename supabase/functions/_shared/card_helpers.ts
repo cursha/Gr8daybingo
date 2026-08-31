@@ -1,7 +1,8 @@
 // =============================================================================
-// Core card/cell types and tiny pure helpers, shared by game/index.ts and
-// every extracted route module that touches card_data. No external imports.
+// Core card/cell types and small helpers, shared by game/index.ts and every
+// extracted route module that touches card_data.
 // =============================================================================
+import { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 
 export interface Cell {
   index: number
@@ -49,6 +50,44 @@ export function dareYaField<K extends 'outcome_type' | 'label' | 'action_value' 
   return (cell[newKey] ?? cell[oldKey]) as Cell[`dare_ya_${K}`]
 }
 
+// ── Security: strip secret fields before sending cells to client ─────────────
+// is_secret/secret_reward and dare_ya outcome details must never be exposed
+// until the respective square has been revealed by the player.
+export function sanitizeCells(cells: Cell[], completedCells: number[], hiddenCells?: number[]): unknown[] {
+  const hiddenSet = new Set(hiddenCells ?? [])
+  return cells.map((c) => {
+    // Blackout fog: a still-hidden square's deed content must never reach the
+    // client — otherwise a player could read the network response and know
+    // what's under a square before revealing it.
+    if (hiddenSet.has(c.index)) {
+      return {
+        index: c.index, is_free_space: false, is_purchasable: false, purchase_price: null,
+        is_referral_free: false, is_secret: false, secret_reward: null, quantity: 1,
+        category: null, deed_text: null, deed_text_long: null, deed_id: null,
+        is_hidden: true,
+      }
+    }
+
+    const secretRevealed = c.secret_revealed === true || completedCells.includes(c.index)
+    const { is_secret, secret_reward, secret_revealed, is_bomb,
+            dare_ya_outcome_type, dare_ya_label, dare_ya_action_value,
+            bet_ya_outcome_type, bet_ya_label, bet_ya_action_value,
+            ...rest } = c
+    return {
+      ...rest,
+      ...(is_secret && secretRevealed ? { is_secret: true, secret_reward, secret_revealed: true } : {}),
+      // Expose I Dare Ya details only after the player has clicked and revealed
+      ...(dareYaField(c, 'revealed')
+        ? {
+            dare_ya_outcome_type: dareYaField(c, 'outcome_type'),
+            dare_ya_label: dareYaField(c, 'label'),
+            dare_ya_action_value: dareYaField(c, 'action_value'),
+          }
+        : {}),
+    }
+  })
+}
+
 export function parseJsonArr(raw: string | null | undefined): number[] {
   try { return JSON.parse(raw ?? '[]') } catch { return [] }
 }
@@ -62,4 +101,23 @@ export function parseJsonStrArr(raw: unknown): string[] {
  *  Bingo, even though they are never "marked". Returns their indices. */
 export function freeSpaceIndices(cells: Cell[]): number[] {
   return cells.filter((c) => c.is_free_space).map((c) => c.index)
+}
+
+// A player's "current" card is simply their most recently created one — no
+// longer gated to matching today's calendar week. A card lives until the
+// player taps out or completes a bingo; neither of those replaces the row,
+// they just insert a newer one, so "most recent" is always the right
+// answer without needing an is_active flag.
+export async function getPlayerCurrentCard(
+  supabase: SupabaseClient,
+  userId: string,
+) {
+  const { data } = await supabase
+    .from('player_cards')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return data
 }

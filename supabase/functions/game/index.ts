@@ -1,6 +1,7 @@
 import { handleCors, jsonResponse, errorResponse, corsHeaders } from '../_shared/cors.ts'
 import { getAuthUser, requireAuth, requireAdmin } from '../_shared/auth.ts'
 import { getSupabase, getSubPath, matchPath } from '../_shared/db.ts'
+import { getClientIp } from '../_shared/rate_limit.ts'
 import { sendEmail, passwordResetEmail, adminLockoutEmail, adminPasswordResetEmail, referralInviteEmail, bingoWinEmail, prizeClaimConfirmationEmail, prizeVoucherEmail, gameAnnouncementEmail, newGameLaunchEmail } from '../_shared/email.ts'
 import { callAnthropicForText } from '../_shared/anthropic.ts'
 import {
@@ -3478,14 +3479,19 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── POST /admin/verify ────────────────────────────────────────────────────
+    // Lockout is scoped per-visitor (bucket_key = IP), not global — a
+    // stranger repeatedly guessing wrong only ever locks themselves out,
+    // never the real admin on a different connection. See migration
+    // 20260831000002_admin_lockout_per_ip.sql for why.
     if (method === 'POST' && path === '/admin/verify') {
       const body = await req.json()
+      const bucketKey = getClientIp(req)
 
       const { data: lockout } = await supabase
-        .from('admin_lockout').select('*').eq('id', 1).maybeSingle()
+        .from('admin_lockout_by_ip').select('*').eq('bucket_key', bucketKey).maybeSingle()
 
       if (lockout?.locked) {
-        return errorResponse('Admin login locked. Check your email for an unlock link.', 423)
+        return errorResponse('Admin login locked for this connection. Check your email for an unlock link.', 423)
       }
 
       const { data: cfg } = await supabase
@@ -3503,13 +3509,14 @@ Deno.serve(async (req: Request) => {
           const unlockToken = Array.from(tokenBytes).map(b => b.toString(16).padStart(2, '0')).join('')
           const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
 
-          await supabase.from('admin_lockout').update({
+          await supabase.from('admin_lockout_by_ip').upsert({
+            bucket_key: bucketKey,
             failed_attempts: newCount,
             locked: true,
             unlock_token: unlockToken,
             unlock_token_expires_at: expiresAt,
             updated_at: new Date().toISOString(),
-          }).eq('id', 1)
+          }, { onConflict: 'bucket_key' })
 
           const { data: recipients } = await supabase
             .from('admin_alert_recipients').select('email').eq('is_active', true)
@@ -3520,10 +3527,11 @@ Deno.serve(async (req: Request) => {
             await Promise.all(recipients.map((r) => sendEmail({ to: r.email, subject: tpl.subject, html: tpl.html })))
           }
         } else {
-          await supabase.from('admin_lockout').update({
+          await supabase.from('admin_lockout_by_ip').upsert({
+            bucket_key: bucketKey,
             failed_attempts: newCount,
             updated_at: new Date().toISOString(),
-          }).eq('id', 1)
+          }, { onConflict: 'bucket_key' })
         }
 
         // Same 403 whether this guess was merely wrong or the one that just
@@ -3532,11 +3540,12 @@ Deno.serve(async (req: Request) => {
         return errorResponse('Invalid admin password', 403)
       }
 
-      // Correct password — reset counter
-      await supabase.from('admin_lockout').update({
+      // Correct password — reset counter for this connection
+      await supabase.from('admin_lockout_by_ip').upsert({
+        bucket_key: bucketKey,
         failed_attempts: 0,
         updated_at: new Date().toISOString(),
-      }).eq('id', 1)
+      }, { onConflict: 'bucket_key' })
 
       return jsonResponse({ success: true })
     }
@@ -3547,22 +3556,22 @@ Deno.serve(async (req: Request) => {
       if (!token) return errorResponse('Missing token', 400)
 
       const { data: lockout } = await supabase
-        .from('admin_lockout').select('*').eq('id', 1).maybeSingle()
+        .from('admin_lockout_by_ip').select('*').eq('unlock_token', token).maybeSingle()
 
-      if (!lockout?.locked || lockout.unlock_token !== token) {
+      if (!lockout?.locked) {
         return errorResponse('Link invalid or already used', 400)
       }
       if (new Date(lockout.unlock_token_expires_at) < new Date()) {
         return errorResponse('Link expired', 400)
       }
 
-      await supabase.from('admin_lockout').update({
+      await supabase.from('admin_lockout_by_ip').update({
         locked: false,
         failed_attempts: 0,
         unlock_token: null,
         unlock_token_expires_at: null,
         updated_at: new Date().toISOString(),
-      }).eq('id', 1)
+      }).eq('id', lockout.id)
 
       return jsonResponse({ success: true })
     }

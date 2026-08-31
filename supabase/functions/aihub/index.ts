@@ -1,4 +1,4 @@
-import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
+import { handleCors, jsonResponse, errorResponse, corsHeaders } from '../_shared/cors.ts'
 import { getSubPath } from '../_shared/db.ts'
 import OpenAI from 'npm:openai@4'
 
@@ -177,7 +177,7 @@ Deno.serve(async (req: Request) => {
           headers: {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
-            'Access-Control-Allow-Origin': '*',
+            ...corsHeaders,
           },
         })
       }

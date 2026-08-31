@@ -1,5 +1,9 @@
+// Only the real site should ever hear a browser response from these
+// functions. Local dev talks to Supabase through Vite's own dev-server
+// proxy (see frontend/vite.config.ts), which is same-origin from the
+// browser's point of view, so it never needs a CORS allowance here.
 export const corsHeaders: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': 'https://havagr8day.com',
   'Access-Control-Allow-Headers':
     'authorization, x-client-info, apikey, content-type, x-requested-with',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',

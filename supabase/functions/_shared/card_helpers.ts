@@ -1,0 +1,65 @@
+// =============================================================================
+// Core card/cell types and tiny pure helpers, shared by game/index.ts and
+// every extracted route module that touches card_data. No external imports.
+// =============================================================================
+
+export interface Cell {
+  index: number
+  deed_text: string
+  deed_text_long: string | null
+  deed_id: number | null
+  is_free_space: boolean
+  is_purchasable: boolean
+  purchase_price: number | null
+  is_referral_free: boolean
+  is_secret: boolean
+  secret_reward: number | null
+  secret_revealed?: boolean
+  // Bomb Square — ~1% of classic cards hide one (admin-configurable via
+  // bomb_square_probability_pct). Never sent to the client under any
+  // circumstance (see sanitizeCells in game/index.ts) — the whole point is
+  // nobody, including the player looking at their own card, knows it's
+  // there until they tap it.
+  is_bomb?: boolean
+  quantity: number
+  category: string | null
+  // I Dare Ya — snapshotted at generation, revealed on first center-cell click.
+  // Renamed 2026-07-23 from "Bet Ya"; the bet_ya_* fields stay declared
+  // (never written on new cards) purely so a card generated before that
+  // rename still reads correctly — see dareYaField() below.
+  dare_ya_outcome_type?: string | null
+  dare_ya_label?: string | null
+  dare_ya_action_value?: number | null
+  dare_ya_revealed?: boolean
+  bet_ya_outcome_type?: string | null
+  bet_ya_label?: string | null
+  bet_ya_action_value?: number | null
+  bet_ya_revealed?: boolean
+}
+
+// A card generated before the 2026-07-23 Bet Ya -> Dare Ya rename has these
+// fields under the old bet_ya_* keys in its already-persisted card_data JSON;
+// a card generated after only ever has dare_ya_*. Prefer the new key, fall
+// back to the old one, so both keep working without a data backfill.
+export function dareYaField<K extends 'outcome_type' | 'label' | 'action_value' | 'revealed'>(
+  cell: Cell, key: K,
+): Cell[`dare_ya_${K}`] {
+  const newKey = `dare_ya_${key}` as const
+  const oldKey = `bet_ya_${key}` as const
+  return (cell[newKey] ?? cell[oldKey]) as Cell[`dare_ya_${K}`]
+}
+
+export function parseJsonArr(raw: string | null | undefined): number[] {
+  try { return JSON.parse(raw ?? '[]') } catch { return [] }
+}
+
+export function parseJsonStrArr(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw as string[]
+  try { return JSON.parse((raw as string) ?? '[]') } catch { return [] }
+}
+
+/** Free-space cells (the centre "I Dare Ya" square) always count toward
+ *  Bingo, even though they are never "marked". Returns their indices. */
+export function freeSpaceIndices(cells: Cell[]): number[] {
+  return cells.filter((c) => c.is_free_space).map((c) => c.index)
+}

@@ -628,10 +628,6 @@ export async function getWallet(): Promise<WalletData> {
   return withRetry(() => apiClient.get<WalletData>('/game/wallet'));
 }
 
-export async function addFunds(amount: number) {
-  return apiClient.post<{ new_balance: number }>('/game/wallet/add-funds', { amount });
-}
-
 export async function getTransactions(): Promise<{ transactions: Transaction[] }> {
   return apiClient.get<{ transactions: Transaction[] }>('/game/wallet/transactions');
 }

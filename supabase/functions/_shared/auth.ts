@@ -9,7 +9,12 @@ export interface JWTPayload {
 }
 
 function getSecret(): Uint8Array {
-  const key = Deno.env.get('JWT_SECRET_KEY') ?? 'changeme-set-JWT_SECRET_KEY-in-env'
+  const key = Deno.env.get('JWT_SECRET_KEY')
+  // Refuse to run on a guessable default rather than silently signing/verifying
+  // every session with a value visible to anyone reading this public repo.
+  if (!key) {
+    throw { status: 500, detail: 'Server misconfigured: JWT_SECRET_KEY is not set' }
+  }
   return new TextEncoder().encode(key)
 }
 

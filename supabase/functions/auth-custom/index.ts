@@ -470,22 +470,35 @@ Deno.serve(async (req: Request) => {
     if (method === 'GET' && path === '/me') {
       const user = await getAuthUser(req)
       requireAuth(user)
+
+      // Re-read role/existence from the database rather than trusting the old
+      // token's claims — otherwise a role change or account removal made in
+      // the database would never take effect for someone who keeps the app
+      // open, since the sliding refresh below would just keep re-signing
+      // their stale permissions indefinitely.
+      const { data: dbUser } = await supabase
+        .from('users')
+        .select('id, email, name, role, last_login')
+        .eq('id', user!.sub)
+        .maybeSingle()
+      if (!dbUser) throw { status: 401, detail: 'Account no longer exists' }
+
       // Sliding session: every successful check re-issues a fresh token so an
       // active player is never hard-logged-out mid-use just because the
       // original token's fixed expiry passed while they kept using the app.
       const refreshedToken = await createAccessToken({
-        sub: user!.sub,
-        email: user!.email,
-        role: user!.role,
-        name: user!.name,
-        last_login: user!.last_login,
+        sub: dbUser.id,
+        email: dbUser.email,
+        role: dbUser.role,
+        name: dbUser.name,
+        last_login: dbUser.last_login,
       })
       return jsonResponse({
-        id: user!.sub,
-        email: user!.email,
-        name: user!.name,
-        role: user!.role,
-        last_login: user!.last_login,
+        id: dbUser.id,
+        email: dbUser.email,
+        name: dbUser.name,
+        role: dbUser.role,
+        last_login: dbUser.last_login,
         token: refreshedToken,
       })
     }

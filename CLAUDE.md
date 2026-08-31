@@ -9,9 +9,8 @@ This file governs how Claude Code operates on this project. Every rule here is m
 | Person | Role | How to refer |
 |---|---|---|
 | **Curt** (John Curtis Skene) | Project owner and founder | Curt. Never "client" |
-| **Michael** (Michael Ojiemeke) | Developer / AI engineer managing this repo | Michael |
 
-Either Curt or Michael must explicitly confirm before anything goes live or is pushed to GitHub. 
+Curt must explicitly confirm before anything goes live or is pushed to GitHub. 
 
 ---
 
@@ -36,8 +35,8 @@ These rules override everything else. No exceptions.
 
 ### 2.1 Never push to live or GitHub without confirmation
 
-- **Do not push to GitHub** until the task is fully complete, working correctly, and Curt or Michael have confirmed nothing is broken.
-- **Do not deploy to the live site** (havagr8day.com) under any circumstance without explicit approval from either Curt or Michael in that conversation.
+- **Do not push to GitHub** until the task is fully complete, working correctly, and Curt has confirmed nothing is broken.
+- **Do not deploy to the live site** (havagr8day.com) under any circumstance without explicit approval from Curt in that conversation.
 - "Looks good to me" is not enough. The actual feature must be tested end-to-end first.
 - A previous AI session caused serious unintended damage to the live server by pushing without proper confirmation. This rule exists because of that incident.
 
@@ -61,8 +60,7 @@ Suggested fix: [brief description]
 ### 2.3 Never implement until all information is clear
 
 - If a task is ambiguous, ask before writing a single line of code.
-- If you need information from Curt (e.g. a config value, a design decision, a password, a preference), **write the exact message Michael should send to Curt** rather than guessing or making assumptions.
-- Format it clearly so Michael can copy-paste it.
+- If you need information from Curt (e.g. a config value, a design decision, a password, a preference), **ask Curt directly and clearly** rather than guessing or making assumptions.
 - Do not proceed on assumptions. Curt knows the system better than anyone.
 
 ### 2.4 Be proactive about risks
@@ -197,7 +195,7 @@ havagr8daybingo/
 
 Credentials are **never stored in this file**. They live in `.env` / `.env.local` files (gitignored).
 
-Access details for this project are held by Michael. If you need a credential value during a task, ask Michael. Do not hardcode any key, password, or token into source files.
+Access details for this project are held by Curt. If you need a credential value during a task, ask Curt. Do not hardcode any key, password, or token into source files.
 
 **Services this project connects to:**
 - Supabase (database + edge functions)
@@ -239,7 +237,7 @@ The cPanel account `falleng1` on `173.209.32.66` hosts **multiple separate websi
 1. pnpm build                         (in frontend/)
 2. Supabase edge functions deploy      (if game/index.ts changed)
 3. supabase db push                    (if new migrations)
-4. git commit + push to GitHub         (after Curt + Michael confirm)
+4. git commit + push to GitHub         (after Curt confirms)
 5. python tools/deploy_to_cpanel.py    (FTP upload to havagr8day.com)
 ```
 
@@ -265,7 +263,7 @@ frontend changes the push to `main` **is** the deploy step.
 
 1. Work is done locally and verified working
 2. Smoke test all affected features
-3. Confirm with Michael and Curt that the task is complete and nothing broke
+3. Confirm with Curt that the task is complete and nothing broke
 4. Only then: stage, commit, and push to GitHub
 5. Commit messages must be clear and specific (e.g. `fix: enforce centre square as REFER A PLAYER only`)
 6. Never force-push to main
@@ -429,4 +427,4 @@ The centre square is the **"I Dare Ya!"** weighted-odds square (see §4) — `re
 
 ---
 
-*Last updated: July 2026 — Maintained by Michael Ojiemeke for Curt Skene*
+*Last updated: August 2026 — Maintained for Curt Skene*

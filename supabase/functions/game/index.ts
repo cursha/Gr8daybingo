@@ -1691,7 +1691,12 @@ Deno.serve(async (req: Request) => {
       // special squares of any kind).
       if (cell.is_bomb === true) {
         const rebuilt = await regenerateClassicCard(supabase, user.sub, card.win_condition)
-        await supabase.from('player_cards').update({
+        // Guarded by the row's pre-read updated_at (see the main mark below
+        // for why a two-step "claim, then separately write" was tried and
+        // rejected): only the request that still matches the version it
+        // read wins; a concurrent duplicate finds 0 rows and is rejected
+        // before anything is written.
+        const { data: written } = await supabase.from('player_cards').update({
           card_data: JSON.stringify(rebuilt.cells),
           completed_cells: '[]',
           purchased_cells: '[]',
@@ -1701,7 +1706,10 @@ Deno.serve(async (req: Request) => {
           play_cycle: (card.play_cycle ?? 0) + 1,
           bonus_patterns_awarded: '[]',
           updated_at: new Date().toISOString(),
-        }).eq('id', card_id)
+        }).eq('id', card_id).eq('updated_at', card.updated_at).select('id').maybeSingle()
+        if (!written) {
+          return errorResponse('This card was updated elsewhere. Please refresh and try again.', 409)
+        }
 
         return jsonResponse({
           success: true,
@@ -1740,10 +1748,49 @@ Deno.serve(async (req: Request) => {
       const gate = await checkDeedGate(supabase, user)
       if (!gate.allowed) return errorResponse(gate.message ?? 'Daily deed limit reached', 429)
 
-      // Secret square reward
+      // Secret square reward: figure out whether this mark earns one, but
+      // don't touch the wallet yet — see the guarded write below for why.
+      const secretRewardAmount =
+        cell.is_secret && !cell.secret_revealed && (cell.secret_reward ?? 0) > 0 ? cell.secret_reward! : null
+      if (secretRewardAmount != null) {
+        cell.secret_revealed = true
+        cells[cell_index] = cell
+      }
+
+      completed.push(cell_index)
+      const allCompleted = [...new Set([...completed, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
+      const isBingo = checkBingo(allCompleted, card.win_condition)
+
+      // Scoring table (One Line, Two Lines, Four Corners, X, Around the
+      // Edges, Fill Card) — independent of win_condition, and the player
+      // keeps playing this same card past their first win, so more can
+      // complete later. See newlySatisfiedPatterns/awardBingoPatterns.
+      const existingPatterns = parseJsonStrArr(card.bonus_patterns_awarded)
+      const newPatterns = newlySatisfiedPatterns(completed, allCompleted, existingPatterns)
+
+      // This write — not a separate earlier "claim" — is what has to be the
+      // one guarded step. A claim-then-later-unconditional-write two-step
+      // (tried first here) leaves a gap: a second request can slip its own
+      // successful claim in between the first request's claim and its final
+      // write, so both proceed. Gating the actual state-changing write
+      // itself on the originally-read updated_at closes that: only one
+      // request's version of "completed_cells" can ever be persisted for a
+      // given prior card state, so nothing downstream (the wallet credit
+      // below) runs unless this specific request's view of the card won.
+      const { data: written } = await supabase.from('player_cards').update({
+        card_data: JSON.stringify(cells),
+        completed_cells: JSON.stringify(completed),
+        is_bingo: isBingo,
+        bonus_patterns_awarded: JSON.stringify([...existingPatterns, ...newPatterns.map((p) => p.pattern)]),
+        updated_at: new Date().toISOString(),
+      }).eq('id', card_id).eq('updated_at', card.updated_at).select('id').maybeSingle()
+      if (!written) {
+        return errorResponse('This card was updated elsewhere. Please refresh and try again.', 409)
+      }
+
       let secretRewardAwarded: number | null = null
-      if (cell.is_secret && !cell.secret_revealed && (cell.secret_reward ?? 0) > 0) {
-        const reward = cell.secret_reward!
+      if (secretRewardAmount != null) {
+        const reward = secretRewardAmount
         let { data: wallet } = await supabase
           .from('player_wallets').select('*').eq('user_id', user.sub).maybeSingle()
         if (!wallet) {
@@ -1763,28 +1810,7 @@ Deno.serve(async (req: Request) => {
           item_description: `Secret Square reward (+${reward.toFixed(2)} Gr8Day Bucks)`,
         })
         secretRewardAwarded = reward
-        cell.secret_revealed = true
-        cells[cell_index] = cell
       }
-
-      completed.push(cell_index)
-      const allCompleted = [...new Set([...completed, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
-      const isBingo = checkBingo(allCompleted, card.win_condition)
-
-      // Scoring table (One Line, Two Lines, Four Corners, X, Around the
-      // Edges, Fill Card) — independent of win_condition, and the player
-      // keeps playing this same card past their first win, so more can
-      // complete later. See newlySatisfiedPatterns/awardBingoPatterns.
-      const existingPatterns = parseJsonStrArr(card.bonus_patterns_awarded)
-      const newPatterns = newlySatisfiedPatterns(completed, allCompleted, existingPatterns)
-
-      await supabase.from('player_cards').update({
-        card_data: JSON.stringify(cells),
-        completed_cells: JSON.stringify(completed),
-        is_bingo: isBingo,
-        bonus_patterns_awarded: JSON.stringify([...existingPatterns, ...newPatterns.map((p) => p.pattern)]),
-        updated_at: new Date().toISOString(),
-      }).eq('id', card_id)
 
       // Blackout: this square is resolved (completed) — remove it from the
       // open group, closing the group (active_group -> null) once every
@@ -2303,31 +2329,12 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ balance: parseFloat(wallet.balance), wallet_id: wallet.id })
     }
 
-    // ── POST /wallet/add-funds ────────────────────────────────────────────────
-    if (method === 'POST' && path === '/wallet/add-funds') {
-      const user = requireAuth(authUser)
-      const body = await req.json()
-      const amount = parseFloat(body.amount ?? 0)
-      if (amount <= 0) return errorResponse('Amount must be positive', 400)
-
-      let { data: wallet } = await supabase
-        .from('player_wallets').select('*').eq('user_id', user.sub).maybeSingle()
-      if (!wallet) {
-        const { data: w } = await supabase
-          .from('player_wallets')
-          .insert({ user_id: user.sub, balance: 0 }).select().single()
-        wallet = w
-      }
-
-      const newBalance = parseFloat(wallet.balance) + amount
-      await supabase.from('player_wallets')
-        .update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
-      await supabase.from('wallet_transactions').insert({
-        user_id: user.sub, amount, transaction_type: 'deposit',
-        item_description: `Added ${amount} Gr8Day Bucks to wallet`,
-      })
-      return jsonResponse({ success: true, new_balance: newBalance })
-    }
+    // POST /wallet/add-funds was removed: it credited a client-supplied amount
+    // with no payment verification at all. The real, payment-verified path is
+    // the Stripe checkout + signature-verified webhook in payment/index.ts,
+    // which nothing here duplicated — this endpoint had no legitimate caller
+    // (the frontend's addFunds() helper was likewise unused) and existed only
+    // as a way to mint free wallet balance and cash it in as a real prize win.
 
     // ── GET /wallet/transactions ──────────────────────────────────────────────
     if (method === 'GET' && path === '/wallet/transactions') {
@@ -6231,66 +6238,25 @@ Deno.serve(async (req: Request) => {
         amount: actionValue,
       }
 
-      // Atomically claim this reveal before executing any side effect, so two
-      // concurrent requests for the same card can't both pass the "not yet
-      // revealed" check above and double-apply a wallet credit/debit or a
-      // duplicate bingo award. Uses updated_at as an optimistic-concurrency
-      // stamp: only the request that still sees the row's pre-read updated_at
-      // wins the claim: a racing second request finds 0 rows and is rejected
-      // before touching the wallet. refer_friend has no one-shot side effect
-      // here (see header comment) and stays re-invocable, so it's exempt.
-      if (outcomeType !== 'refer_friend') {
-        const { data: claimed } = await supabase
-          .from('player_cards')
-          .update({ updated_at: new Date().toISOString() })
-          .eq('id', card_id)
-          .eq('updated_at', card.updated_at)
-          .select('id')
-          .maybeSingle()
-        if (!claimed) {
-          return errorResponse('This I Dare Ya square was already processed. Please refresh and try again.', 409)
-        }
-      }
-
       let updatedCompleted = parseJsonArr(card.completed_cells) as number[]
       const purchased = parseJsonArr(card.purchased_cells) as number[]
       const referral = parseJsonArr(card.referral_cells) as number[]
+
+      // fund_credit/remove_funds touch the wallet — deferred until after the
+      // guarded card write below wins, so a losing concurrent request can
+      // never reach the wallet. free_square/replace_three only affect
+      // card_data/completed_cells, which the guarded write itself covers, so
+      // they're computed here same as before.
+      let pendingWalletEffect: 'fund_credit' | 'remove_funds' | null = null
 
       if (outcomeType === 'free_square') {
         if (!updatedCompleted.includes(12)) updatedCompleted.push(12)
 
       } else if (outcomeType === 'fund_credit') {
-        let { data: wallet } = await supabase.from('player_wallets').select('*').eq('user_id', user.sub).maybeSingle()
-        if (!wallet) {
-          const { data: w } = await supabase.from('player_wallets').insert({ user_id: user.sub, balance: 0 }).select().single()
-          wallet = w
-        }
-        const newBalance = parseFloat(wallet.balance) + actionValue
-        await supabase.from('player_wallets').update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
-        await supabase.from('wallet_transactions').insert({
-          user_id: user.sub, amount: actionValue, transaction_type: 'dare_reward',
-          item_description: `I Dare Ya! reward (+${actionValue.toFixed(2)} Gr8Day Bucks)`,
-        })
-        result.new_balance = newBalance
+        pendingWalletEffect = 'fund_credit'
 
       } else if (outcomeType === 'remove_funds') {
-        let { data: wallet } = await supabase.from('player_wallets').select('*').eq('user_id', user.sub).maybeSingle()
-        if (!wallet) {
-          const { data: w } = await supabase.from('player_wallets').insert({ user_id: user.sub, balance: 0 }).select().single()
-          wallet = w
-        }
-        const currentBalance = parseFloat(wallet.balance)
-        const deduction = Math.min(actionValue, currentBalance)
-        const newBalance = currentBalance - deduction
-        if (deduction > 0) {
-          await supabase.from('player_wallets').update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
-          await supabase.from('wallet_transactions').insert({
-            user_id: user.sub, amount: -deduction, transaction_type: 'dare_penalty',
-            item_description: `I Dare Ya! penalty (-${deduction.toFixed(2)} Gr8Day Bucks)`,
-          })
-        }
-        result.new_balance = newBalance
-        result.amount = deduction
+        pendingWalletEffect = 'remove_funds'
 
       } else if (outcomeType === 'refer_friend') {
         result.prompt_referral = true
@@ -6363,13 +6329,58 @@ Deno.serve(async (req: Request) => {
       const existingPatterns = parseJsonStrArr(card.bonus_patterns_awarded)
       const newPatterns = newlySatisfiedPatterns(updatedCompleted, allCompleted, existingPatterns)
 
-      await supabase.from('player_cards').update({
+      // This write is the guard, not a separate earlier "claim" — a
+      // claim-then-later-unconditional-write two-step leaves a gap where a
+      // second request's own claim can slip in before the first request's
+      // final write lands, so both proceed (proved out under real
+      // concurrency while fixing mark-cell; see that endpoint's comment).
+      // Gating this actual state-changing write on the originally-read
+      // updated_at means only one request's outcome can ever be persisted,
+      // so the wallet effect below only runs for the request that won.
+      const { data: written } = await supabase.from('player_cards').update({
         card_data: JSON.stringify(cells),
         completed_cells: JSON.stringify(updatedCompleted),
         is_bingo: isBingo,
         bonus_patterns_awarded: JSON.stringify([...existingPatterns, ...newPatterns.map((p) => p.pattern)]),
         updated_at: new Date().toISOString(),
-      }).eq('id', card_id)
+      }).eq('id', card_id).eq('updated_at', card.updated_at).select('id').maybeSingle()
+      if (!written) {
+        return errorResponse('This I Dare Ya square was already processed. Please refresh and try again.', 409)
+      }
+
+      if (pendingWalletEffect === 'fund_credit') {
+        let { data: wallet } = await supabase.from('player_wallets').select('*').eq('user_id', user.sub).maybeSingle()
+        if (!wallet) {
+          const { data: w } = await supabase.from('player_wallets').insert({ user_id: user.sub, balance: 0 }).select().single()
+          wallet = w
+        }
+        const newBalance = parseFloat(wallet.balance) + actionValue
+        await supabase.from('player_wallets').update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
+        await supabase.from('wallet_transactions').insert({
+          user_id: user.sub, amount: actionValue, transaction_type: 'dare_reward',
+          item_description: `I Dare Ya! reward (+${actionValue.toFixed(2)} Gr8Day Bucks)`,
+        })
+        result.new_balance = newBalance
+
+      } else if (pendingWalletEffect === 'remove_funds') {
+        let { data: wallet } = await supabase.from('player_wallets').select('*').eq('user_id', user.sub).maybeSingle()
+        if (!wallet) {
+          const { data: w } = await supabase.from('player_wallets').insert({ user_id: user.sub, balance: 0 }).select().single()
+          wallet = w
+        }
+        const currentBalance = parseFloat(wallet.balance)
+        const deduction = Math.min(actionValue, currentBalance)
+        const newBalance = currentBalance - deduction
+        if (deduction > 0) {
+          await supabase.from('player_wallets').update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
+          await supabase.from('wallet_transactions').insert({
+            user_id: user.sub, amount: -deduction, transaction_type: 'dare_penalty',
+            item_description: `I Dare Ya! penalty (-${deduction.toFixed(2)} Gr8Day Bucks)`,
+          })
+        }
+        result.new_balance = newBalance
+        result.amount = deduction
+      }
 
       // Award any newly-completed scoring patterns' bonuses + congratulate by
       // email on first win, same as mark-cell.
@@ -6430,40 +6441,7 @@ Deno.serve(async (req: Request) => {
         return jsonResponse({ matched: false, message: 'No matching referral found for that email yet. You can try again anytime.' })
       }
 
-      // Atomically claim the centre square before paying out anything, so two
-      // concurrent claims against two DIFFERENT valid referrals can't both
-      // credit the wallet for a square that's only supposed to complete once.
-      // Same optimistic-concurrency pattern as /dare-ya-reveal: only the
-      // request that still sees the row's pre-read updated_at wins the claim;
-      // a losing concurrent request is rejected here, before it ever stamps a
-      // referral or touches the wallet.
-      const { data: claimed } = await supabase
-        .from('player_cards')
-        .update({ updated_at: new Date().toISOString() })
-        .eq('id', card_id)
-        .eq('updated_at', card.updated_at)
-        .select('id')
-        .maybeSingle()
-      if (!claimed) {
-        return errorResponse('This centre square was already completed. Please refresh and try again.', 409)
-      }
-
-      // Stamp the referral row so a future retry/race can't double-pay it.
-      await supabase.from('referrals').update({ dare_ya_credited_at: new Date().toISOString() }).eq('id', referralMatch.id)
-
       const rewardAmount = Number(dareYaField(centerCell, 'action_value') ?? 0)
-      let { data: wallet } = await supabase.from('player_wallets').select('*').eq('user_id', user.sub).maybeSingle()
-      if (!wallet) {
-        const { data: w } = await supabase.from('player_wallets').insert({ user_id: user.sub, balance: 0 }).select().single()
-        wallet = w
-      }
-      const newBalance = parseFloat(wallet.balance) + rewardAmount
-      await supabase.from('player_wallets').update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
-      await supabase.from('wallet_transactions').insert({
-        user_id: user.sub, amount: rewardAmount, transaction_type: 'dare_referral_reward',
-        item_description: `I Dare Ya! Friend Referred reward (+${rewardAmount.toFixed(2)} Gr8Day Bucks)`,
-      })
-
       cells[12] = { ...centerCell, dare_ya_label: 'Friend Referred', dare_ya_revealed: true }
       const updatedCompleted = [...completed, 12]
       const purchased = parseJsonArr(card.purchased_cells) as number[]
@@ -6474,13 +6452,49 @@ Deno.serve(async (req: Request) => {
       const existingPatterns = parseJsonStrArr(card.bonus_patterns_awarded)
       const newPatterns = newlySatisfiedPatterns(updatedCompleted, allCompleted, existingPatterns)
 
-      await supabase.from('player_cards').update({
+      // This write is the guard, not a separate earlier "claim" — see the
+      // comment on the equivalent write in /dare-ya-reveal for why a
+      // claim-then-later-unconditional-write two-step doesn't actually
+      // serialize concurrent requests. Gating this real write on the
+      // originally-read updated_at means only one concurrent submission
+      // (even against two different valid referral emails) can ever
+      // complete the centre square, so the referral stamp and wallet
+      // credit below only run for the request that won.
+      const { data: written } = await supabase.from('player_cards').update({
         card_data: JSON.stringify(cells),
         completed_cells: JSON.stringify(updatedCompleted),
         is_bingo: isBingo,
         bonus_patterns_awarded: JSON.stringify([...existingPatterns, ...newPatterns.map((p) => p.pattern)]),
         updated_at: new Date().toISOString(),
-      }).eq('id', card_id)
+      }).eq('id', card_id).eq('updated_at', card.updated_at).select('id').maybeSingle()
+      if (!written) {
+        return errorResponse('This centre square was already completed. Please refresh and try again.', 409)
+      }
+
+      // Stamp the referral row so a future retry/race can't double-pay it —
+      // guarded the same way: only succeeds if still uncredited.
+      const { data: referralClaimed } = await supabase
+        .from('referrals')
+        .update({ dare_ya_credited_at: new Date().toISOString() })
+        .eq('id', referralMatch.id)
+        .is('dare_ya_credited_at', null)
+        .select('id')
+        .maybeSingle()
+
+      let newBalance: number | null = null
+      if (referralClaimed) {
+        let { data: wallet } = await supabase.from('player_wallets').select('*').eq('user_id', user.sub).maybeSingle()
+        if (!wallet) {
+          const { data: w } = await supabase.from('player_wallets').insert({ user_id: user.sub, balance: 0 }).select().single()
+          wallet = w
+        }
+        newBalance = parseFloat(wallet.balance) + rewardAmount
+        await supabase.from('player_wallets').update({ balance: newBalance, updated_at: new Date().toISOString() }).eq('user_id', user.sub)
+        await supabase.from('wallet_transactions').insert({
+          user_id: user.sub, amount: rewardAmount, transaction_type: 'dare_referral_reward',
+          item_description: `I Dare Ya! Friend Referred reward (+${rewardAmount.toFixed(2)} Gr8Day Bucks)`,
+        })
+      }
 
       const result: Record<string, unknown> = {
         matched: true, label: 'Friend Referred', amount: rewardAmount, new_balance: newBalance,

@@ -19,6 +19,7 @@ import {
 import { getCurrentWeekYear, getWeekStart } from '../_shared/week.ts'
 import { Cell, dareYaField, parseJsonArr, parseJsonStrArr, freeSpaceIndices, getPlayerCurrentCard, sanitizeCells } from '../_shared/card_helpers.ts'
 import { recordCompletedDeed, checkDeedGate, updatePlayerStreak } from '../_shared/deed_completion.ts'
+import { reverseCellCompletion } from '../_shared/deed_reversal.ts'
 import { getBadge } from '../_shared/badges.ts'
 import { fetchTargetingData, filterDeedsByTargeting } from '../_shared/targeting.ts'
 import { awardBingoPatterns } from '../_shared/bingo_award.ts'
@@ -1958,19 +1959,15 @@ Deno.serve(async (req: Request) => {
       const completed = parseJsonArr(card.completed_cells)
       if (!completed.includes(cell_index)) return errorResponse('Cell is not marked', 400)
 
-      const updatedCompleted = completed.filter((i) => i !== cell_index)
-      const purchased = parseJsonArr(card.purchased_cells)
-      const referral = parseJsonArr(card.referral_cells)
-      const allCompleted = [...new Set([...updatedCompleted, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
-      const isBingo = checkBingo(allCompleted, card.win_condition)
+      // Unmarking takes back everything this square earned — its draw
+      // entry, and any scoring-pattern bonus that no longer holds without
+      // it — not just the checkmark. See _shared/deed_reversal.ts.
+      const result = await reverseCellCompletion(supabase, card, cell_index, user.sub, 'Player unmarked the square')
+      if (!result.ok) {
+        return errorResponse('This card was updated elsewhere. Please refresh and try again.', 409)
+      }
 
-      await supabase.from('player_cards').update({
-        completed_cells: JSON.stringify(updatedCompleted),
-        is_bingo: isBingo,
-        updated_at: new Date().toISOString(),
-      }).eq('id', card_id)
-
-      return jsonResponse({ success: true, completed_cells: updatedCompleted, is_bingo: isBingo })
+      return jsonResponse({ success: true, completed_cells: result.updatedCompleted, is_bingo: result.isBingo })
     }
 
     // ── POST /admin/announce-game, GET /admin/test-encouragement-blurb ───────
@@ -1992,21 +1989,16 @@ Deno.serve(async (req: Request) => {
         .from('player_cards').select('*').eq('id', card_id).maybeSingle()
       if (!card) return errorResponse('Card not found', 404)
 
-      const cells: Cell[] = JSON.parse(card.card_data)
       const completed = parseJsonArr(card.completed_cells)
       if (!completed.includes(cell_index)) return errorResponse('Cell is not marked', 400)
 
-      const updatedCompleted = completed.filter((i: number) => i !== cell_index)
-      const purchased = parseJsonArr(card.purchased_cells)
-      const referral = parseJsonArr(card.referral_cells)
-      const allCompleted = [...new Set([...updatedCompleted, ...purchased, ...referral, ...freeSpaceIndices(cells)])]
-      const isBingo = checkBingo(allCompleted, card.win_condition)
-
-      await supabase.from('player_cards').update({
-        completed_cells: JSON.stringify(updatedCompleted),
-        is_bingo: isBingo,
-        updated_at: new Date().toISOString(),
-      }).eq('id', card_id)
+      // Voiding takes back everything this square earned — its draw entry,
+      // and any scoring-pattern bonus that no longer holds without it — not
+      // just the checkmark. See _shared/deed_reversal.ts.
+      const result = await reverseCellCompletion(supabase, card, cell_index, authUser!.sub, voidReason ?? 'Voided by admin')
+      if (!result.ok) {
+        return errorResponse('This card was updated elsewhere. Please try again.', 409)
+      }
 
       await supabase.from('cell_mark_log').insert({
         user_id: card.user_id,
@@ -2017,7 +2009,13 @@ Deno.serve(async (req: Request) => {
         void_reason: voidReason,
       })
 
-      return jsonResponse({ success: true, completed_cells: updatedCompleted, is_bingo: isBingo })
+      return jsonResponse({
+        success: true,
+        completed_cells: result.updatedCompleted,
+        is_bingo: result.isBingo,
+        deed_entry_reversed: result.deedReversed,
+        bingo_bonus_reversed: result.bingoReversed,
+      })
     }
 
     // ── GET /admin/cell-mark-log ──────────────────────────────────────────────

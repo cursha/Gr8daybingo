@@ -134,36 +134,40 @@ The platform is a **configurable kindness-gamification engine**. Nothing is hard
 |---|---|
 | Frontend | React, TypeScript, Vite, Tailwind CSS, shadcn/ui |
 | Package manager | pnpm |
-| Backend | FastAPI (Python), SQLAlchemy async, Alembic migrations |
-| Database | Supabase (PostgreSQL) |
-| Auth | JWT-based custom auth |
-| Edge Functions | Supabase Edge Functions (TypeScript/Deno) |
-| Payments | Stripe (scaffolded, not yet live) |
+| Backend | Supabase Edge Functions (TypeScript/Deno) — **there is no separate Python/FastAPI backend.** `RUN_LOCAL.md`'s FastAPI + Neon instructions describe an earlier architecture and no longer apply; use `supabase start` + `supabase functions serve` for local dev instead. |
+| Database | Supabase (PostgreSQL), with Row Level Security enabled on every table |
+| Auth | JWT-based custom auth (`supabase/functions/auth-custom`) |
+| Payments | Stripe — **live**, with idempotency protection against double-charging a wallet top-up |
 | Hosting | cPanel (live site: havagr8day.com) |
-| Email | To be configured (Resend or SendGrid) |
-| Version control | GitHub — `https://github.com/cursha/havagr8daybingo` |
+| Email | Resend — **live**, sending verification, password reset, win notification, prize confirmation, and admin new-signup-notification emails |
+| Version control | GitHub — `https://github.com/cursha/Gr8daybingo` |
 
 ---
 
 ## 6. Directory Structure
 
 ```
-havagr8daybingo/
+Gr8daybingo/
 ├── CLAUDE.md                  ← This file
+├── CHANGELOG.md
 ├── README.md                  ← Project mission and philosophy
-├── RUN_LOCAL.md               ← Local dev setup instructions
+├── RUN_LOCAL.md               ← STALE — describes an old FastAPI/Neon setup; see §5
 ├── todo.md                    ← Active development backlog
+├── deno.json                  ← `deno task test` runs the backend test suite (see supabase/tests/)
 ├── start_app_v2.sh            ← Script to start local dev environment
 ├── .mgx/                      ← Framework config (do not edit manually)
 ├── docs/
-│   └── gr8day-bingo-v1-overview.md   ← Full V1 feature spec and roadmap
+│   ├── Constitution.md               ← Governance doc (see "Governance" above)
+│   ├── gr8day-bingo-v1-overview.md   ← Full V1 feature spec and roadmap
+│   └── weekly-draw-entry-system.md
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/             ← Route-level page components
+│   │   │   └── admin/         ← AdminPanel.tsx's sections, each its own component
 │   │   ├── components/        ← Reusable UI components
-│   │   ├── lib/               ← Utilities, API clients, game logic
-│   │   ├── contexts/          ← React context providers
-│   │   └── hooks/             ← Custom React hooks
+│   │   ├── lib/                ← Utilities, API clients, game logic
+│   │   ├── contexts/           ← React context providers
+│   │   └── hooks/               ← Custom React hooks
 │   ├── public/                ← Static assets
 │   ├── dist/                  ← Built output (do not edit directly)
 │   ├── .env.example           ← Required env vars template
@@ -171,21 +175,34 @@ havagr8daybingo/
 ├── supabase/
 │   ├── config.toml
 │   ├── migrations/            ← Database schema migrations
-│   └── functions/             ← Edge functions
-│       ├── _shared/           ← Shared utilities (auth, cors, db)
-│       ├── game/              ← Game logic endpoints
-│       ├── payment/           ← Stripe integration
-│       ├── registration/      ← User registration
-│       ├── users/             ← User management
-│       ├── admin-settings/    ← Admin config
-│       └── aihub/             ← AI feature integration point
-├── tools/                     ← (WAT) Deterministic Python scripts
+│   ├── tests/                 ← `deno task test` — pure-logic tests plus one
+│   │                             live-server integration test (mark-cell race
+│   │                             guard); see the test file itself for how it
+│   │                             skips cleanly when no local stack is running
+│   └── functions/             ← Edge functions (all of Deno/TypeScript, no Python)
+│       ├── _shared/           ← Shared utilities: auth, cors, db, email (Resend),
+│       │                         rate_limit, bingo_logic, draw logic, targeting, etc.
+│       ├── game/               ← Core gameplay (mark-cell, generate-card, etc.)
+│       │   └── routes/         ← Extracted admin/feature route modules (deeds,
+│       │                          teams, prizes, streaks, quick-tap, etc.)
+│       ├── auth-custom/        ← Register/login/verify-email/password reset
+│       ├── payment/            ← Stripe integration
+│       ├── registration/       ← User registration
+│       ├── users/              ← User management
+│       ├── admin-settings/     ← Admin config
+│       ├── aihub/              ← AI feature integration point
+│       └── weekly-reset/, weekly-member-update/, send-founder-notes/,
+│           flag-inactive-players/, health/  ← scheduled/background functions
+├── .github/workflows/
+│   ├── deploy-cpanel.yml               ← frontend auto-deploy (see §8)
+│   └── deploy-supabase-functions.yml   ← backend auto-deploy (see §8)
+├── tools/                     ← (WAT) Deterministic scripts (deploy, backfill, e2e playtest)
 └── workflows/                 ← (WAT) Markdown SOPs
 ```
 
 **What goes where:**
 - `.tmp/` — Temporary processing files. Regenerated as needed. Do not commit.
-- `tools/` — Python scripts for deterministic execution
+- `tools/` — Deterministic scripts for one-off/deploy work (mostly Node/Python)
 - `workflows/` — Markdown SOPs defining what to do and how
 - `.env` / `.env.local` — API keys and secrets. **Never commit these. Never store secrets anywhere else.**
 
@@ -199,9 +216,10 @@ Access details for this project are held by Curt. If you need a credential value
 
 **Services this project connects to:**
 - Supabase (database + edge functions)
-- GitHub (`cursha/havagr8daybingo`)
+- GitHub (`cursha/Gr8daybingo`)
 - cPanel hosting (live site management)
-- Stripe (payments — not yet live)
+- Stripe (payments — live)
+- Resend (transactional email — live)
 - Google reCAPTCHA v2 (comment forms on fallengators.com — separate site)
 - GetResponse (optional mailing list integration)
 
@@ -234,28 +252,37 @@ The cPanel account `falleng1` on `173.209.32.66` hosts **multiple separate websi
 ### Deployment sequence
 
 ```
-1. pnpm build                         (in frontend/)
-2. Supabase edge functions deploy      (if game/index.ts changed)
-3. supabase db push                    (if new migrations)
-4. git commit + push to GitHub         (after Curt confirms)
-5. python tools/deploy_to_cpanel.py    (FTP upload to havagr8day.com)
+1. pnpm build                         (in frontend/, only if not relying on auto-deploy below)
+2. supabase db push                    (if new migrations)
+3. git commit + push to GitHub         (after Curt confirms — see below, this IS the deploy step)
+4. python tools/deploy_to_cpanel.py    (manual/local fallback only — see below)
 ```
 
-### Auto-deploy via GitHub Actions
+### Auto-deploy via GitHub Actions — this covers BOTH frontend and backend
 
-`.github/workflows/deploy-cpanel.yml` automatically runs steps 1 and 5 above whenever a
-commit touching `frontend/**` lands on **`main`**. It builds the frontend in CI (using
-the committed public config in `frontend/.env.production`) and FTP-uploads `dist/` to
-`/havagr8day.com`, guarded by checks that refuse to deploy a build missing required
-env vars or the Supabase config. The FTP credentials (`CPANEL_USER`/`CPANEL_PASS`/`CPANEL_HOST`)
-live in the repo's GitHub Actions secrets, not in this environment.
+Two separate workflows watch `main`, each scoped to its own paths, and **both deploy
+straight to production with no manual approval step**:
 
-This means: **merging/pushing to `main` goes live automatically** — there is no separate
-manual approval gate once a commit is on `main`. So the "explicit confirmation before
-deploying live" rule in §2.1 must be satisfied *before* merging into `main`, not after.
-`tools/deploy_to_cpanel.py` is still useful as a manual/local fallback (e.g. deploying
+- **`.github/workflows/deploy-cpanel.yml`** — any commit touching `frontend/**` builds
+  the frontend in CI (using the committed public config in `frontend/.env.production`)
+  and FTP-uploads `dist/` to `/havagr8day.com`, guarded by checks that refuse to deploy
+  a build missing required env vars or the Supabase config. FTP credentials
+  (`CPANEL_USER`/`CPANEL_PASS`/`CPANEL_HOST`) live in the repo's GitHub Actions secrets.
+- **`.github/workflows/deploy-supabase-functions.yml`** — any commit touching
+  `supabase/functions/**` (or the workflow file itself) runs
+  `supabase functions deploy --project-ref cjvnxvzuummcgzmjkffk`, redeploying **every**
+  edge function from the checked-out repo. Authenticated via the `SUPABASE_ACCESS_TOKEN`
+  repo secret.
+
+This means: **merging/pushing to `main` goes live automatically for both frontend and
+backend** — there is no separate manual approval gate once a commit is on `main`. So the
+"explicit confirmation before deploying live" rule in §2.1 must be satisfied *before*
+merging into `main`, not after, for changes under either `frontend/**` or
+`supabase/functions/**`. Database migrations are the one piece **not** auto-applied —
+`supabase db push` (or the Supabase dashboard) is still a separate, manual step.
+`tools/deploy_to_cpanel.py` remains useful as a manual/local fallback (e.g. deploying
 from a branch, or from a machine when the Action isn't available), but for normal
-frontend changes the push to `main` **is** the deploy step.
+changes the push to `main` **is** the deploy step for both layers.
 
 ---
 
@@ -271,36 +298,38 @@ frontend changes the push to `main` **is** the deploy step.
 
 ---
 
-## 9. Current Development Priorities
+## 10. Current Development Priorities
+
+*Checked items below were confirmed directly against the live code (not just assumed done because they were built at some point) — either by the 2026-08/09 security & readiness audit or by work completed in that same pass. An unchecked item hasn't been verified either way; don't assume it's missing just because it's unchecked, but don't assume it's done either — check the actual code first.*
 
 ### P0 — Must have before V1 launch
-1. **Stripe payment integration** for wallet top-ups
-2. **Production email delivery** (Resend/SendGrid) — needed for password reset, PDF card email, win notifications
-3. **Prize claim flow** — modal for winner to submit contact info + admin prize queue
-4. **Password reset / forgot password** (requires email service)
-5. **Abuse guards on mark-cell** — rate limiting, optional photo/note, admin void capability
-6. **Terms of Service + Privacy Policy** pages
-7. **Production database migration** — verify Alembic runs clean on prod DB
+1. ✅ **Stripe payment integration** for wallet top-ups — live, with idempotency protection against a double-charge on the same top-up.
+2. ✅ **Production email delivery** (Resend) — live. Sends password reset, verification, win notification, prize confirmation, and admin new-signup-notification emails.
+3. ✅ **Prize claim flow** — working end-to-end (claim submission → admin queue → fulfillment).
+4. ✅ **Password reset / forgot password** — working, not a placeholder.
+5. **Abuse guards on mark-cell** — ✅ rate limiting and the double-submit/race-condition guard are done and automatically tested (`supabase/tests/mark_cell_concurrency.test.ts`); optional photo/note on a completed deed and an admin void-cell capability still need checking/building.
+6. ✅ **Terms of Service + Privacy Policy** pages — complete, not placeholders.
+7. **Production database migration** — Supabase migrations (not Alembic — see §5) apply via `supabase db push`; the 2026-08-31 RLS-lockdown migration was pushed and verified working against production during the audit, but this line item as a whole (i.e. "prod schema is fully current") hasn't been separately re-verified since.
 
 ### P1 — Strongly recommended for V1
-- Referral validation (referred user must register before referral counts)
-- Rate limiting and anti-bot middleware
-- Weekly auto-reset cron job
-- Prize history page
-- Accessibility audit
-- Basic analytics
+- ✅ Referral validation — a referral only pays out once the referred friend actually registers.
+- ✅ Rate limiting and anti-bot middleware — login/signup throttling, per-IP admin-lockout scoping.
+- ✅ Weekly auto-reset cron job — working end-to-end.
+- Prize history page — `frontend/src/pages/PrizeHistory.tsx` exists; functional completeness not separately verified.
+- Accessibility audit — not done as a formal pass; image alt text was spot-checked and present on the pages the audit looked at.
+- Basic analytics — not verified.
 
 ### P2 — Post-V1
-- Social share on bingo win
-- Player profile pages
-- Photo proof of completed deeds
-- Teams/groups
-- Charity partner integration
-- PWA / mobile app shell
+- Social share on bingo win — not verified.
+- Player profile pages — `frontend/src/pages/PlayerProfile.tsx` exists; functional completeness not separately verified.
+- Photo proof of completed deeds — not built (see P0.5 above).
+- ✅ Teams/groups — built (trades, team members, admin management all present under `frontend/src/pages/admin/TeamsSection.tsx` and `supabase/functions/game/routes/teams_trades.ts`).
+- Charity partner integration — not built.
+- PWA / mobile app shell — not built.
 
 ---
 
-## 10. Comprehensive Game Review Framework
+## 11. Comprehensive Game Review Framework
 
 When asked to review this project, act as a **senior game developer, UX designer, product strategist, and code reviewer** and cover all of the following areas in full detail.
 
@@ -376,7 +405,7 @@ Do not only praise the project. State clearly:
 
 ---
 
-## 11. Communication Protocol
+## 12. Communication Protocol
 
 ### When you need information from Curt
 If a task requires a decision or data that only Curt can provide, write a message in this format:
@@ -411,7 +440,7 @@ Action needed: Let me know if you want me to address this separately.
 
 ---
 
-## 12. Deeds Reference
+## 13. Deeds Reference
 
 The game is built around performing real acts of kindness. The full deeds list lives in the database (`good_deeds` table). Categories include:
 
@@ -427,4 +456,4 @@ The centre square is the **"I Dare Ya!"** weighted-odds square (see §4) — `re
 
 ---
 
-*Last updated: August 2026 — Maintained for Curt Skene*
+*Last updated: September 2026 — Maintained for Curt Skene*

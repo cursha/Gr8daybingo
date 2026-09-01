@@ -30,8 +30,6 @@ import {
   DeedCategory,
   getAdminDeedCategories,
   updateAdminDeedCategory,
-  DrawWinner,
-  getAdminDrawResults,
   adminGetSpotlightQuickTap,
   adminSetSpotlightQuickTap,
   AdminPlayerCardResult,
@@ -85,6 +83,7 @@ import GameAnnouncementSection from '@/pages/admin/GameAnnouncementSection';
 import SquareTradesSection from '@/pages/admin/SquareTradesSection';
 import DeedLogSection from '@/pages/admin/DeedLogSection';
 import TeamsSection from '@/pages/admin/TeamsSection';
+import DrawResultsSection from '@/pages/admin/DrawResultsSection';
 
 const WIN_CONDITIONS = [
   { id: 'one_line', name: 'One Line', description: 'Complete 5 in a row (horizontal, vertical, or diagonal)' },
@@ -166,7 +165,6 @@ const AdminPanel: React.FC = () => {
   // Prize claims state
 
   // Draw results state
-  const [drawWinners, setDrawWinners] = useState<DrawWinner[]>([]);
 
   // Draw entry leaderboard state
   // Member list state
@@ -345,15 +343,6 @@ const AdminPanel: React.FC = () => {
       setPendingDeeds(res.pending_deeds || []);
     } catch {
       toast.error('Failed to load Gr8Day Deed suggestions');
-    }
-  };
-
-  const loadDrawResults = async () => {
-    try {
-      const res = await getAdminDrawResults();
-      setDrawWinners(res.winners || []);
-    } catch {
-      // silent
     }
   };
 
@@ -618,7 +607,6 @@ const AdminPanel: React.FC = () => {
     if (authenticated) {
       loadData();
       loadPendingDeeds('pending');
-      loadDrawResults();
       loadMembers();
       loadSpotlightQuickTap();
       getCountries().then(setCountries).catch(() => {});
@@ -2877,54 +2865,7 @@ const AdminPanel: React.FC = () => {
         </Card>
         </section>
 
-        {/* Draw Results */}
-        <section id="section-draw">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Ticket className="w-5 h-5 text-purple-500" />
-              Weekly Draw Results
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-slate-500 mb-3">
-              Every completed deed earns a weekly-draw entry, and a bingo earns a configurable bonus on top. The draw runs weekly.
-            </p>
-            {drawWinners.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2">
-                <Ticket className="w-8 h-8 text-slate-300" />
-                No draw results yet.
-              </div>
-            ) : (
-              <div className="border rounded-lg overflow-hidden">
-                <div className="max-h-[360px] overflow-y-auto divide-y">
-                  {drawWinners.map((w) => (
-                    <div key={w.id} className="px-3 py-3 text-sm">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="space-y-0.5">
-                          <p className="font-semibold text-slate-800">{w.name ?? 'Unknown'}</p>
-                          {w.email && (
-                            <p className="text-slate-500 text-xs">
-                              <a href={`mailto:${w.email}`} className="text-indigo-600 hover:underline">{w.email}</a>
-                            </p>
-                          )}
-                          <p className="text-xs text-slate-400">
-                            {w.week_year} · won with {w.winning_active_entries ?? '?'} of {w.total_pool_entries ?? '?'} pool entries
-                            {w.eligible_players != null ? ` (${w.eligible_players} eligible players)` : ''} · drawn {new Date(w.selected_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <span className={`text-xs font-bold px-2 py-1 rounded ${w.odds_weight < 0.5 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                          {w.odds_weight < 0.5 ? 'Repeat winner' : 'Winner'}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        </section>
+        <DrawResultsSection />
 
         <DrawLeaderboardSection refreshKey={drawLeaderboardRefreshKey} />
 

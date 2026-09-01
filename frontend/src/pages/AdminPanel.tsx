@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import {
   DeedItem,
   PendingDeed,
-  PrizeClaim,
   TeamItem,
   adminVerify,
   adminRequestPasswordReset,
@@ -19,8 +18,6 @@ import {
   rejectPendingDeed,
   deletePendingDeed,
   importDeeds,
-  getAdminPrizeClaims,
-  updatePrizeClaimStatus,
   getAdminMembers,
   MemberItem,
   adminCreatePlayer,
@@ -44,11 +41,6 @@ import {
   getAdminDrawResults,
   adminGetSpotlightQuickTap,
   adminSetSpotlightQuickTap,
-  StreakMilestone,
-  adminGetStreakMilestones,
-  adminCreateStreakMilestone,
-  adminUpdateStreakMilestone,
-  adminDeleteStreakMilestone,
   AdminPlayerCardResult,
   AdminPlayerMatch,
   adminGetPlayerCard,
@@ -100,6 +92,8 @@ import FounderNotesSection from '@/pages/admin/FounderNotesSection';
 import WeeklyUpdateEmailsSection from '@/pages/admin/WeeklyUpdateEmailsSection';
 import WeeklyDrawResetSection from '@/pages/admin/WeeklyDrawResetSection';
 import DrawLeaderboardSection from '@/pages/admin/DrawLeaderboardSection';
+import PrizeClaimsSection from '@/pages/admin/PrizeClaimsSection';
+import StreaksSection from '@/pages/admin/StreaksSection';
 
 const WIN_CONDITIONS = [
   { id: 'one_line', name: 'One Line', description: 'Complete 5 in a row (horizontal, vertical, or diagonal)' },
@@ -189,7 +183,6 @@ const AdminPanel: React.FC = () => {
   const [pendingFilter, setPendingFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
 
   // Prize claims state
-  const [prizeClaims, setPrizeClaims] = useState<PrizeClaim[]>([]);
 
   // Draw results state
   const [drawWinners, setDrawWinners] = useState<DrawWinner[]>([]);
@@ -239,12 +232,6 @@ const AdminPanel: React.FC = () => {
   const [drawLeaderboardRefreshKey, setDrawLeaderboardRefreshKey] = useState(0);
 
   // Streak milestones state
-  const [streakMilestones, setStreakMilestones] = useState<StreakMilestone[]>([]);
-  const [newMilestone, setNewMilestone] = useState({ days_required: '', label: '', message: '', display_order: '' });
-  const [editingMilestoneId, setEditingMilestoneId] = useState<number | null>(null);
-  const [editMilestoneData, setEditMilestoneData] = useState({ days_required: '', label: '', message: '', display_order: '' });
-  const [milestoneLoading, setMilestoneLoading] = useState(false);
-
   // I Dare Ya outcomes state
   const VALID_ACTION_TYPES: DareYaActionType[] = ['free_square','refer_friend','fund_credit','remove_funds','replace_three','nothing'];
   const ACTION_TYPE_LABELS: Record<DareYaActionType, string> = {
@@ -375,12 +362,6 @@ const AdminPanel: React.FC = () => {
         setDeedCategories(catRes.categories || []);
       } catch { /* silent */ }
 
-      // Load streak milestones
-      try {
-        const milestones = await adminGetStreakMilestones();
-        setStreakMilestones(milestones);
-      } catch { /* silent */ }
-
       // Load targeting attributes
       try {
         const taRes = await getAdminTargetingAttributes();
@@ -415,15 +396,6 @@ const AdminPanel: React.FC = () => {
       setPendingDeeds(res.pending_deeds || []);
     } catch {
       toast.error('Failed to load Gr8Day Deed suggestions');
-    }
-  };
-
-  const loadPrizeClaims = async () => {
-    try {
-      const res = await getAdminPrizeClaims();
-      setPrizeClaims(res.claims || []);
-    } catch {
-      // silent
     }
   };
 
@@ -574,16 +546,6 @@ const AdminPanel: React.FC = () => {
       toast.success(approved ? 'Response approved for Community Voices' : 'Response hidden');
     } catch (e: any) { toast.error(e?.message || 'Failed to update response'); }
     finally { setResponseApprovalLoading(null); }
-  };
-
-  const handleUpdateClaimStatus = async (id: number, status: string) => {
-    try {
-      await updatePrizeClaimStatus(id, status);
-      toast.success('Claim status updated');
-      await loadPrizeClaims();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to update claim');
-    }
   };
 
   const loadMembers = async () => {
@@ -785,82 +747,10 @@ const AdminPanel: React.FC = () => {
     }
   };
 
-  const loadStreakMilestones = async () => {
-    try {
-      const milestones = await adminGetStreakMilestones();
-      setStreakMilestones(milestones);
-    } catch { /* silent */ }
-  };
-
-  const handleCreateMilestone = async () => {
-    const days = parseInt(newMilestone.days_required);
-    if (!days || !newMilestone.label.trim() || !newMilestone.message.trim()) {
-      toast.error('Days, label, and message are required');
-      return;
-    }
-    setMilestoneLoading(true);
-    try {
-      await adminCreateStreakMilestone({
-        days_required: days,
-        label: newMilestone.label.trim(),
-        message: newMilestone.message.trim(),
-        display_order: parseInt(newMilestone.display_order) || 0,
-      });
-      toast.success('Milestone created');
-      setNewMilestone({ days_required: '', label: '', message: '', display_order: '' });
-      await loadStreakMilestones();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to create milestone');
-    } finally {
-      setMilestoneLoading(false);
-    }
-  };
-
-  const handleUpdateMilestone = async (id: number) => {
-    setMilestoneLoading(true);
-    try {
-      await adminUpdateStreakMilestone(id, {
-        days_required: parseInt(editMilestoneData.days_required) || undefined,
-        label: editMilestoneData.label.trim() || undefined,
-        message: editMilestoneData.message.trim() || undefined,
-        display_order: parseInt(editMilestoneData.display_order) || undefined,
-      });
-      toast.success('Milestone updated');
-      setEditingMilestoneId(null);
-      await loadStreakMilestones();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to update milestone');
-    } finally {
-      setMilestoneLoading(false);
-    }
-  };
-
-  const handleToggleMilestone = async (id: number, isActive: boolean) => {
-    try {
-      await adminUpdateStreakMilestone(id, { is_active: isActive });
-      await loadStreakMilestones();
-    } catch { toast.error('Failed to update milestone'); }
-  };
-
-  const handleDeleteMilestone = async (id: number) => {
-    if (!confirm('Delete this milestone? Player achievements for this milestone will also be removed.')) return;
-    setMilestoneLoading(true);
-    try {
-      await adminDeleteStreakMilestone(id);
-      toast.success('Milestone deleted');
-      await loadStreakMilestones();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to delete milestone');
-    } finally {
-      setMilestoneLoading(false);
-    }
-  };
-
   useEffect(() => {
     if (authenticated) {
       loadData();
       loadPendingDeeds('pending');
-      loadPrizeClaims();
       loadDrawResults();
       loadMembers();
       loadTeams();
@@ -2923,196 +2813,7 @@ const AdminPanel: React.FC = () => {
         </Card>
         </section>
 
-        {/* Streak Milestones */}
-        <section id="section-streaks">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <span className="text-lg">🔥</span>
-              Daily Streak Milestones
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-xs text-slate-500">
-              Milestones are awarded when a player's current streak reaches the specified number of days. Each milestone is awarded once per player. Deleting a milestone also removes player achievements for it.
-            </p>
-
-            {/* Streak enabled toggle in config */}
-            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border">
-              <span className="text-sm font-medium text-slate-700 flex-1">Streak Tracker Enabled</span>
-              <select
-                value={editConfigs['streak_enabled'] ?? 'true'}
-                onChange={async (e) => {
-                  const val = e.target.value;
-                  setEditConfigs(prev => ({ ...prev, streak_enabled: val }));
-                  try {
-                    await updateAdminConfig({ streak_enabled: val });
-                    toast.success('Streak setting saved');
-                  } catch { toast.error('Failed to save'); }
-                }}
-                className="border rounded px-2 py-1 text-sm"
-              >
-                <option value="true">Enabled</option>
-                <option value="false">Disabled</option>
-              </select>
-            </div>
-
-            {/* Existing milestones */}
-            {streakMilestones.length === 0 ? (
-              <p className="text-sm text-slate-400 text-center py-4">No milestones configured.</p>
-            ) : (
-              <div className="divide-y border rounded-lg overflow-hidden">
-                {streakMilestones.map((m) => (
-                  <div key={m.id} className="p-3 text-sm">
-                    {editingMilestoneId === m.id ? (
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="text-xs text-slate-500">Days Required</label>
-                            <Input
-                              type="number"
-                              value={editMilestoneData.days_required}
-                              onChange={(e) => setEditMilestoneData(p => ({ ...p, days_required: e.target.value }))}
-                              className="text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-xs text-slate-500">Display Order</label>
-                            <Input
-                              type="number"
-                              value={editMilestoneData.display_order}
-                              onChange={(e) => setEditMilestoneData(p => ({ ...p, display_order: e.target.value }))}
-                              className="text-sm"
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <label className="text-xs text-slate-500">Label</label>
-                          <Input
-                            value={editMilestoneData.label}
-                            onChange={(e) => setEditMilestoneData(p => ({ ...p, label: e.target.value }))}
-                            className="text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs text-slate-500">Message</label>
-                          <Textarea
-                            value={editMilestoneData.message}
-                            onChange={(e) => setEditMilestoneData(p => ({ ...p, message: e.target.value }))}
-                            className="text-sm"
-                            rows={2}
-                          />
-                        </div>
-                        <div className="flex gap-2">
-                          <Button size="sm" onClick={() => handleUpdateMilestone(m.id)} disabled={milestoneLoading}>
-                            <Save className="w-3 h-3 mr-1" /> Save
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setEditingMilestoneId(null)}>
-                            <X className="w-3 h-3 mr-1" /> Cancel
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-0.5">
-                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${m.is_active ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-400'}`}>
-                              {m.days_required}d
-                            </span>
-                            <span className="font-semibold text-slate-800 truncate">{m.label}</span>
-                          </div>
-                          <p className="text-xs text-slate-500 line-clamp-2">{m.message}</p>
-                        </div>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <button
-                            onClick={() => handleToggleMilestone(m.id, !m.is_active)}
-                            className={`text-xs px-2 py-0.5 rounded border ${m.is_active ? 'border-emerald-300 text-emerald-700' : 'border-slate-300 text-slate-400'}`}
-                            title={m.is_active ? 'Disable' : 'Enable'}
-                          >
-                            {m.is_active ? 'On' : 'Off'}
-                          </button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setEditingMilestoneId(m.id);
-                              setEditMilestoneData({
-                                days_required: String(m.days_required),
-                                label: m.label,
-                                message: m.message,
-                                display_order: String(m.display_order),
-                              });
-                            }}
-                          >
-                            <Edit2 className="w-3 h-3" />
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => handleDeleteMilestone(m.id)} className="text-red-500 hover:text-red-700">
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Add new milestone */}
-            <div className="border rounded-lg p-3 bg-slate-50 space-y-2">
-              <p className="text-xs font-semibold text-slate-600">Add New Milestone</p>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs text-slate-500">Days Required *</label>
-                  <Input
-                    type="number"
-                    placeholder="e.g. 30"
-                    value={newMilestone.days_required}
-                    onChange={(e) => setNewMilestone(p => ({ ...p, days_required: e.target.value }))}
-                    className="text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-500">Display Order</label>
-                  <Input
-                    type="number"
-                    placeholder="e.g. 30"
-                    value={newMilestone.display_order}
-                    onChange={(e) => setNewMilestone(p => ({ ...p, display_order: e.target.value }))}
-                    className="text-sm"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-slate-500">Label *</label>
-                <Input
-                  placeholder="e.g. 30-Day Streak"
-                  value={newMilestone.label}
-                  onChange={(e) => setNewMilestone(p => ({ ...p, label: e.target.value }))}
-                  className="text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-500">Message *</label>
-                <Textarea
-                  placeholder="Celebration message shown to player..."
-                  value={newMilestone.message}
-                  onChange={(e) => setNewMilestone(p => ({ ...p, message: e.target.value }))}
-                  className="text-sm"
-                  rows={2}
-                />
-              </div>
-              <Button
-                size="sm"
-                onClick={handleCreateMilestone}
-                disabled={milestoneLoading}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white"
-              >
-                <Plus className="w-3 h-3 mr-1" /> Add Milestone
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-        </section>
+        <StreaksSection editConfigs={editConfigs} setEditConfigs={setEditConfigs} />
 
         {/* Deeds */}
         <section id="section-deeds">
@@ -3842,69 +3543,7 @@ const AdminPanel: React.FC = () => {
 
         <DrawLeaderboardSection refreshKey={drawLeaderboardRefreshKey} />
 
-        {/* Prize Claims */}
-        <section id="section-prize-claims">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-amber-500" />
-              Prize Claims ({prizeClaims.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-slate-500 mb-3">
-              Players who won bingo and submitted a claim. Update the status after contacting them.
-            </p>
-            {prizeClaims.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2">
-                <Trophy className="w-8 h-8 text-slate-300" />
-                No prize claims yet.
-              </div>
-            ) : (
-              <div className="border rounded-lg overflow-hidden">
-                <div className="max-h-[400px] overflow-y-auto divide-y">
-                  {prizeClaims.map((claim) => (
-                    <div key={claim.id} className="px-3 py-3 text-sm hover:bg-slate-50">
-                      <div className="flex items-start justify-between gap-3 flex-wrap">
-                        <div className="flex-1 min-w-0 space-y-0.5">
-                          <p className="font-semibold text-slate-800">{claim.full_name}</p>
-                          <p className="text-slate-500 flex items-center gap-1">
-                            <Mail className="w-3 h-3" />
-                            <a href={`mailto:${claim.email}`} className="text-indigo-600 hover:underline">{claim.email}</a>
-                          </p>
-                          {claim.phone && <p className="text-slate-500 text-xs">📞 {claim.phone}</p>}
-                          {claim.mailing_address && <p className="text-slate-500 text-xs">📍 {claim.mailing_address}</p>}
-                          {claim.notes && <p className="text-slate-400 italic text-xs">"{claim.notes}"</p>}
-                          <p className="text-xs text-slate-400">
-                            Week {claim.week_year} · {claim.created_at ? new Date(claim.created_at).toLocaleDateString() : ''}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <select
-                            value={claim.status}
-                            onChange={(e) => handleUpdateClaimStatus(claim.id, e.target.value)}
-                            className={`text-xs border rounded px-2 py-1 font-semibold ${
-                              claim.status === 'fulfilled' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                              claim.status === 'contacted' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                              claim.status === 'rejected' ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                              'bg-amber-50 text-amber-700 border-amber-200'
-                            }`}
-                          >
-                            <option value="pending">Pending</option>
-                            <option value="contacted">Contacted</option>
-                            <option value="fulfilled">Fulfilled</option>
-                            <option value="rejected">Rejected</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        </section>
+        <PrizeClaimsSection />
 
         {/* Game Announcement */}
         <section id="section-announce">

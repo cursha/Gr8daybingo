@@ -30,7 +30,6 @@ import {
   getStates,
   CountryOption,
   StateOption,
-  adminTriggerWeeklyReset,
   adminAnnounceGame,
   adminGetTeams,
   adminCreateTeam,
@@ -43,10 +42,6 @@ import {
   updateAdminDeedCategory,
   DrawWinner,
   getAdminDrawResults,
-  WeeklyUpdateLogEntry,
-  getAdminWeeklyUpdates,
-  DrawLeaderboardPlayer,
-  getAdminDrawLeaderboard,
   adminGetSpotlightQuickTap,
   adminSetSpotlightQuickTap,
   StreakMilestone,
@@ -86,8 +81,6 @@ import {
   DeedLogRow,
   adminGetDeedLog,
   adminExportDeedLogCsv,
-  FounderNoteRow,
-  adminGetFounderNotes,
   AdminTradeRow,
   adminGetTrades,
   adminVoidTrade,
@@ -103,6 +96,10 @@ import { toast } from 'sonner';
 import { ArrowLeft, Heart, Lock, Settings, Plus, Trash2, Save, Edit2, X, Target, Inbox, Check, XCircle, Lightbulb, Gift, Upload, Download, FileSpreadsheet, Printer, Trophy, Mail, Users, Ticket, Search, Flame, Sparkles, Eye, MessageCircleQuestion, ClipboardList, PenLine, ArrowLeftRight, Ban, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import Footer from '@/components/Footer';
 import { TargetingGroupsInput } from '@/components/TargetingGroupsInput';
+import FounderNotesSection from '@/pages/admin/FounderNotesSection';
+import WeeklyUpdateEmailsSection from '@/pages/admin/WeeklyUpdateEmailsSection';
+import WeeklyDrawResetSection from '@/pages/admin/WeeklyDrawResetSection';
+import DrawLeaderboardSection from '@/pages/admin/DrawLeaderboardSection';
 
 const WIN_CONDITIONS = [
   { id: 'one_line', name: 'One Line', description: 'Complete 5 in a row (horizontal, vertical, or diagonal)' },
@@ -197,14 +194,7 @@ const AdminPanel: React.FC = () => {
   // Draw results state
   const [drawWinners, setDrawWinners] = useState<DrawWinner[]>([]);
 
-  // Weekly update email log state
-  const [weeklyUpdateLogs, setWeeklyUpdateLogs] = useState<WeeklyUpdateLogEntry[]>([]);
-
   // Draw entry leaderboard state
-  const [drawLeaderboard, setDrawLeaderboard] = useState<DrawLeaderboardPlayer[]>([]);
-  const [drawLeaderboardWeek, setDrawLeaderboardWeek] = useState<string>('');
-  const [drawLeaderboardLoading, setDrawLeaderboardLoading] = useState(false);
-
   // Member list state
   const [members, setMembers] = useState<MemberItem[]>([]);
   const [memberCountryFilter, setMemberCountryFilter] = useState('all');
@@ -221,9 +211,6 @@ const AdminPanel: React.FC = () => {
   const [playerForm, setPlayerForm] = useState({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '' as string | number, state_id: '' as string | number, is_trusted: false, is_test: false, is_active: true });
   const [playerFormLoading, setPlayerFormLoading] = useState(false);
 
-
-  // Weekly reset state
-  const [weeklyResetLoading, setWeeklyResetLoading] = useState(false);
 
   // Game announcement state
   const [announceLoading, setAnnounceLoading] = useState(false);
@@ -249,6 +236,7 @@ const AdminPanel: React.FC = () => {
   const [adjustAmount, setAdjustAmount] = useState('');
   const [adjustReason, setAdjustReason] = useState('');
   const [adjustLoading, setAdjustLoading] = useState(false);
+  const [drawLeaderboardRefreshKey, setDrawLeaderboardRefreshKey] = useState(0);
 
   // Streak milestones state
   const [streakMilestones, setStreakMilestones] = useState<StreakMilestone[]>([]);
@@ -320,13 +308,6 @@ const AdminPanel: React.FC = () => {
   const [tradeStatusFilter, setTradeStatusFilter] = useState('');
   const [voidingTradeId, setVoidingTradeId] = useState<number | null>(null);
   const [voidReasonDraft, setVoidReasonDraft] = useState('');
-
-  // Founder Notes state
-  const FOUNDER_NOTES_PAGE_SIZE = 50;
-  const [founderNoteRows, setFounderNoteRows] = useState<FounderNoteRow[]>([]);
-  const [founderNoteTotal, setFounderNoteTotal] = useState(0);
-  const [founderNotePage, setFounderNotePage] = useState(0);
-  const [founderNoteLoading, setFounderNoteLoading] = useState(false);
 
   const handleLogin = async () => {
     setAuthLoading(true);
@@ -452,28 +433,6 @@ const AdminPanel: React.FC = () => {
       setDrawWinners(res.winners || []);
     } catch {
       // silent
-    }
-  };
-
-  const loadWeeklyUpdates = async () => {
-    try {
-      const res = await getAdminWeeklyUpdates();
-      setWeeklyUpdateLogs(res.logs || []);
-    } catch {
-      // silent
-    }
-  };
-
-  const loadDrawLeaderboard = async () => {
-    setDrawLeaderboardLoading(true);
-    try {
-      const res = await getAdminDrawLeaderboard();
-      setDrawLeaderboard(res.players || []);
-      setDrawLeaderboardWeek(res.week_year);
-    } catch {
-      // silent
-    } finally {
-      setDrawLeaderboardLoading(false);
     }
   };
 
@@ -718,20 +677,6 @@ const AdminPanel: React.FC = () => {
     }
   };
 
-  const loadFounderNotes = async (page = 0) => {
-    setFounderNoteLoading(true);
-    try {
-      const res = await adminGetFounderNotes(page);
-      setFounderNoteRows(res.rows);
-      setFounderNoteTotal(res.total);
-      setFounderNotePage(res.page);
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to load founder notes');
-    } finally {
-      setFounderNoteLoading(false);
-    }
-  };
-
   const handleCardViewerLookup = async () => {
     const pn = parseInt(cardViewerPN.trim());
     if (isNaN(pn)) { toast.error('Enter a valid player number'); return; }
@@ -813,7 +758,7 @@ const AdminPanel: React.FC = () => {
           : 'Deed hidden (no draw entry existed to reverse)'
       );
       if (cardViewerResult?.player.id) await loadCompletedDeeds(cardViewerResult.player.id);
-      await loadDrawLeaderboard();
+      setDrawLeaderboardRefreshKey(k => k + 1);
     } catch (err: any) {
       toast.error(err?.message || 'Failed to reverse deed');
     } finally {
@@ -832,7 +777,7 @@ const AdminPanel: React.FC = () => {
       toast.success(`Draw entries ${amount > 0 ? 'added' : 'removed'}`);
       setAdjustAmount('');
       setAdjustReason('');
-      await loadDrawLeaderboard();
+      setDrawLeaderboardRefreshKey(k => k + 1);
     } catch (err: any) {
       toast.error(err?.message || 'Failed to adjust draw entries');
     } finally {
@@ -917,13 +862,10 @@ const AdminPanel: React.FC = () => {
       loadPendingDeeds('pending');
       loadPrizeClaims();
       loadDrawResults();
-      loadWeeklyUpdates();
-      loadDrawLeaderboard();
       loadMembers();
       loadTeams();
       loadSpotlightQuickTap();
       loadDeedLog();
-      loadFounderNotes();
       loadTrades();
       getCountries().then(setCountries).catch(() => {});
     }
@@ -1036,18 +978,6 @@ const AdminPanel: React.FC = () => {
       toast.success('Player removed.');
       loadTeams();
     } catch (err: any) { toast.error(err?.message || 'Failed to remove player.'); }
-  };
-
-  const handleWeeklyReset = async () => {
-    setWeeklyResetLoading(true);
-    try {
-      const res = await adminTriggerWeeklyReset();
-      toast.success(res.draw.already_ran ? 'Weekly draw already ran for this week.' : `Weekly draw run for ${res.week}${res.draw.winner_name ? ` — winner: ${res.draw.winner_name}` : ' — no winner selected'}.`);
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to send weekly emails.');
-    } finally {
-      setWeeklyResetLoading(false);
-    }
   };
 
   const handleAnnounceGame = async () => {
@@ -1660,7 +1590,6 @@ const AdminPanel: React.FC = () => {
 
   const weeklyUpdatePercentage = editConfigs['weekly_update_percentage'] || '';
   const weeklyUpdatePrompt = editConfigs['weekly_update_prompt'] || '';
-  const founderNotePct = editConfigs['founder_note_pct'] ?? '';
 
   const blackoutWeightsSum = (['0', '1', '2', '3'] as const).reduce((s, k) => s + (parseFloat(blackoutWeights[k]) || 0), 0);
 
@@ -2568,106 +2497,7 @@ const AdminPanel: React.FC = () => {
         </Card>
         </section>
 
-        {/* Founder Notes */}
-        <section id="section-founder-notes">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <PenLine className="w-5 h-5 text-rose-500" />
-              Founder Notes
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-xs text-slate-500">
-              A short, casual note "from Curt" — written by Claude, reacting to the specific deed —
-              triggered by a random slice of deed completions and sent 12-24h later (once per player
-              per day, max). Requires an <code>ANTHROPIC_API_KEY</code> secret and{' '}
-              <code>RESEND_API_KEY</code> to actually send.
-            </p>
-            <div className="max-w-xs">
-              <label className="text-sm font-medium text-slate-700 mb-1 block">% Chance per Deed Completion (0 = off)</label>
-              <Input
-                type="number"
-                min="0"
-                max="100"
-                value={founderNotePct}
-                onChange={(e) => setEditConfigs((prev) => ({ ...prev, founder_note_pct: e.target.value }))}
-              />
-            </div>
-            <Button onClick={handleSaveConfig} className="bg-rose-600 hover:bg-rose-700 text-white">
-              <Save className="w-4 h-4 mr-1" /> Save Founder Note Settings
-            </Button>
-
-            <div className="border rounded-lg overflow-hidden mt-2">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-slate-50 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide">
-                      <th className="px-3 py-2">Player</th>
-                      <th className="px-3 py-2">Deed</th>
-                      <th className="px-3 py-2">Status</th>
-                      <th className="px-3 py-2">Scheduled</th>
-                      <th className="px-3 py-2">Sent</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {founderNoteRows.map((row) => (
-                      <tr key={row.id}>
-                        <td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap">{row.player_name}</td>
-                        <td className="px-3 py-2 text-slate-700 max-w-xs truncate" title={row.generated_message ?? row.deed_text_snapshot}>
-                          {row.deed_text_snapshot}
-                        </td>
-                        <td className="px-3 py-2 whitespace-nowrap">
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
-                            row.status === 'sent' ? 'bg-emerald-50 text-emerald-700'
-                            : row.status === 'failed' ? 'bg-rose-50 text-rose-700'
-                            : 'bg-amber-50 text-amber-700'
-                          }`}>
-                            {row.status}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{new Date(row.scheduled_send_at).toLocaleString()}</td>
-                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{row.sent_at ? new Date(row.sent_at).toLocaleString() : '—'}</td>
-                      </tr>
-                    ))}
-                    {founderNoteRows.length === 0 && !founderNoteLoading && (
-                      <tr>
-                        <td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-400">
-                          No founder notes queued yet.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between text-xs text-slate-500">
-              <span>
-                {founderNoteTotal === 0 ? '0 results' : `${founderNotePage * FOUNDER_NOTES_PAGE_SIZE + 1}–${Math.min(founderNoteTotal, (founderNotePage + 1) * FOUNDER_NOTES_PAGE_SIZE)} of ${founderNoteTotal}`}
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={founderNoteLoading || founderNotePage === 0}
-                  onClick={() => loadFounderNotes(founderNotePage - 1)}
-                >
-                  Previous
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={founderNoteLoading || (founderNotePage + 1) * FOUNDER_NOTES_PAGE_SIZE >= founderNoteTotal}
-                  onClick={() => loadFounderNotes(founderNotePage + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        </section>
+        <FounderNotesSection editConfigs={editConfigs} setEditConfigs={setEditConfigs} onSaveConfig={handleSaveConfig} />
 
         {/* Game Settings */}
         <section id="section-game-settings">
@@ -4010,52 +3840,7 @@ const AdminPanel: React.FC = () => {
         </Card>
         </section>
 
-        {/* Draw Entry Leaderboard */}
-        <section id="section-draw-leaderboard">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Ticket className="w-5 h-5 text-purple-500" />
-              Draw Entry Leaderboard
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-slate-500 mb-3">
-              Per-player draw-entry balances for week {drawLeaderboardWeek || '—'}. Active entries are what's actually weighted in the draw; lifetime is a running total that never decreases.
-            </p>
-            {drawLeaderboardLoading ? (
-              <div className="text-center py-8 text-slate-400 text-sm">Loading…</div>
-            ) : drawLeaderboard.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2">
-                <Ticket className="w-8 h-8 text-slate-300" />
-                No players have earned draw entries yet.
-              </div>
-            ) : (
-              <div className="border rounded-lg overflow-hidden">
-                <div className="max-h-[420px] overflow-y-auto divide-y">
-                  {drawLeaderboard.map((p) => (
-                    <div key={p.user_id} className="px-3 py-2.5 text-sm flex items-center justify-between gap-3">
-                      <div className="space-y-0.5 min-w-0">
-                        <p className="font-semibold text-slate-800 truncate">{p.player_name}</p>
-                        <p className="text-xs text-slate-400">
-                          {p.this_week_entries} this week · {p.lifetime_entries} lifetime
-                          {p.last_draw_win ? ` · last won ${new Date(p.last_draw_win).toLocaleDateString()}` : ''}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <span className={`text-xs font-bold px-2 py-1 rounded ${p.current_week_eligible ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                          {p.current_week_eligible ? 'Eligible' : 'Not eligible'}
-                        </span>
-                        <span className="text-sm font-bold text-purple-600 w-14 text-right">{p.active_entries}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        </section>
+        <DrawLeaderboardSection refreshKey={drawLeaderboardRefreshKey} />
 
         {/* Prize Claims */}
         <section id="section-prize-claims">
@@ -4515,76 +4300,9 @@ const AdminPanel: React.FC = () => {
         </Card>
         </section>
 
-        {/* Weekly Update Emails */}
-        <section id="section-weekly-updates">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Mail className="w-5 h-5 text-teal-500" />
-              Weekly Update Emails
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-slate-500 mb-3">
-              History of the AI-generated weekly member update emails actually delivered, most recent first.
-            </p>
-            {weeklyUpdateLogs.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2">
-                <Mail className="w-8 h-8 text-slate-300" />
-                No weekly update emails sent yet.
-              </div>
-            ) : (
-              <div className="border rounded-lg overflow-hidden">
-                <div className="max-h-[360px] overflow-y-auto divide-y">
-                  {weeklyUpdateLogs.map((l) => {
-                    const subjectLine = l.message_snapshot.split('\n')[0].replace(/^Subject:\s*/, '');
-                    return (
-                      <div key={l.id} className="px-3 py-3 text-sm">
-                        <div className="space-y-0.5">
-                          <p className="font-semibold text-slate-800">{l.name ?? 'Unknown'}</p>
-                          {l.email && (
-                            <p className="text-slate-500 text-xs">
-                              <a href={`mailto:${l.email}`} className="text-indigo-600 hover:underline">{l.email}</a>
-                            </p>
-                          )}
-                          <p className="text-xs text-slate-600 italic">"{subjectLine}"</p>
-                          <p className="text-xs text-slate-400">
-                            Week of {l.week_of} · sent {new Date(l.sent_at).toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        </section>
+        <WeeklyUpdateEmailsSection />
 
-        {/* Weekly Reset */}
-        <section id="section-reset">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Mail className="w-5 h-5 text-sky-500" />
-              Weekly Draw Run
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-slate-500">
-              Runs the weekly prize draw and emails the winner. This runs automatically every Monday at 8am UTC (safe to re-run — it's a no-op if the draw already ran this week). The "new card is ready" email is sent separately and automatically, the first time any player loads a card for the new week.
-            </p>
-            <Button
-              onClick={handleWeeklyReset}
-              disabled={weeklyResetLoading}
-              className="bg-sky-600 hover:bg-sky-700 text-white font-bold"
-            >
-              {weeklyResetLoading ? 'Running…' : 'Run Draw Now'}
-            </Button>
-          </CardContent>
-        </Card>
-        </section>
+        <WeeklyDrawResetSection />
       </div>
       <Footer tone="light" />
     </div>

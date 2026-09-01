@@ -316,7 +316,7 @@ Deno.serve(async (req: Request) => {
 
       const { data: user } = await supabase
         .from('users')
-        .select('id, email, first_name, last_name, email_verified, email_verify_token_expires_at')
+        .select('id, email, first_name, last_name, username, player_number, city, province_state, country, challenge_level, created_at, email_verified, email_verify_token_expires_at')
         .eq('email_verify_token', token)
         .maybeSingle()
 
@@ -333,6 +333,7 @@ Deno.serve(async (req: Request) => {
       }).eq('id', user.id)
 
       // Validate any pending referrals for this email now that it's confirmed
+      const referredByNames: string[] = []
       try {
         const { data: pendingRefs } = await supabase
           .from('referrals')
@@ -363,6 +364,7 @@ Deno.serve(async (req: Request) => {
             if (referrer?.email) {
               const tpl = referralJoinedEmail(user.first_name ?? user.email ?? null)
               await sendEmail({ to: referrer.email, subject: tpl.subject, html: tpl.html })
+              referredByNames.push(referrer.name || referrer.username || referrer.email)
             }
 
             if (referralBonus > 0) {
@@ -436,9 +438,23 @@ Deno.serve(async (req: Request) => {
         })
       } catch { /* silent */ }
 
-      // Notify admin
+      // Notify admin — include everything on file about this player, not
+      // just name/email, since this is the one moment Curt sees a new
+      // signup at all.
       try {
-        const tpl = newPlayerNotificationEmail(user.first_name ?? '', user.last_name ?? '', user.email)
+        const tpl = newPlayerNotificationEmail({
+          firstName: user.first_name ?? '',
+          lastName: user.last_name ?? '',
+          email: user.email,
+          username: user.username ?? null,
+          playerNumber: user.player_number ?? null,
+          city: user.city ?? null,
+          provinceState: user.province_state ?? null,
+          country: user.country ?? null,
+          challengeLevel: user.challenge_level ?? null,
+          createdAt: user.created_at ?? null,
+          referredBy: referredByNames.length > 0 ? referredByNames.join(', ') : null,
+        })
         await sendEmail({ to: ADMIN_EMAIL, subject: tpl.subject, html: tpl.html })
       } catch { /* silent */ }
 

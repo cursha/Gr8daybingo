@@ -295,14 +295,43 @@ export function bingoWinEmail(name: string | null, winConditionLabel?: string | 
   }
 }
 
-export function newPlayerNotificationEmail(firstName: string, lastName: string, email: string): { subject: string; html: string } {
+export function newPlayerNotificationEmail(opts: {
+  firstName: string
+  lastName: string
+  email: string
+  username?: string | null
+  playerNumber?: number | null
+  city?: string | null
+  provinceState?: string | null
+  country?: string | null
+  challengeLevel?: number | null
+  createdAt?: string | null
+  referredBy?: string | null
+}): { subject: string; html: string } {
+  const { firstName, lastName, email, username, playerNumber, city, provinceState, country, challengeLevel, createdAt, referredBy } = opts
+  // Every field here is player-entered at signup, so it's escaped before
+  // going into this HTML email — unlike most values shown back to the
+  // player themselves elsewhere, this one lands in Curt's inbox.
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const location = [city, provinceState, country].filter(Boolean).join(', ')
+  const joined = createdAt
+    ? new Date(createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
+    : null
+  const row = (label: string, value: string | null | undefined) =>
+    value ? `<p style="margin:4px 0"><strong>${label}:</strong> ${esc(value)}</p>` : ''
   return {
-    subject: `New player signed up: ${firstName} ${lastName}`,
+    subject: `New player signed up: ${firstName} ${lastName}`.trim(),
     html: layout(`
       <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">New player just registered!</h2>
-      <p><strong>Name:</strong> ${firstName} ${lastName}</p>
-      <p><strong>Email:</strong> ${email}</p>
-      <p style="color:#64748b;font-size:13px">This is an automatic notification from Havagr8day Bingo.</p>
+      ${row('Name', `${firstName} ${lastName}`.trim() || null)}
+      ${row('Username', username)}
+      ${row('Player #', playerNumber != null ? `GR8-${playerNumber}` : null)}
+      ${row('Email', email)}
+      ${row('Location', location || null)}
+      ${row('Referred by', referredBy)}
+      ${row('Challenge level', challengeLevel != null ? String(challengeLevel) : null)}
+      ${row('Joined', joined)}
+      <p style="color:#64748b;font-size:13px;margin-top:16px">This is an automatic notification from Havagr8day Bingo, sent once this player verifies their email.</p>
     `),
   }
 }

@@ -371,6 +371,7 @@ export const handleProfilesRoutes: RouteHandler = async ({ req, path, method, au
       ...('is_trusted' in body && { is_trusted: body.is_trusted === true }),
       ...('is_test' in body && { is_test: body.is_test === true }),
       ...('is_active' in body && { is_active: body.is_active === true }),
+      ...('excluded_from_draw' in body && { excluded_from_draw: body.excluded_from_draw === true }),
     }).eq('id', targetId)
 
     if (playerUpdateErr) {

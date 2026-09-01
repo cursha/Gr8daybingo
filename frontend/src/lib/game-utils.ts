@@ -1041,6 +1041,7 @@ export interface MemberItem {
   is_trusted: boolean;
   is_test: boolean;
   is_active: boolean;
+  excluded_from_draw: boolean;
   last_valid_deed_date: string | null;
   created_at: string | null;
 }

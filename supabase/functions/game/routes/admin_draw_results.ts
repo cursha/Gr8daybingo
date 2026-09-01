@@ -11,7 +11,10 @@ import { getCurrentWeekYear, getWeekStart } from '../../_shared/week.ts'
 import { Cell, parseJsonArr, parseJsonStrArr, freeSpaceIndices } from '../../_shared/card_helpers.ts'
 import { checkBingo, completedLineIndices, isPatternComplete } from '../../_shared/bingo_logic.ts'
 import { getDrawSettings, reverseDeedEntry, reversePatternBonus, manualAdjust, runWeeklyDraw } from '../../_shared/draw.ts'
+import { sendEmail, drawWinnerAdminNotificationEmail } from '../../_shared/email.ts'
 import { RouteHandler } from '../route_types.ts'
+
+const ADMIN_EMAIL = 'curt.skene@curtskene.com'
 
 export const handleAdminDrawResultsRoutes: RouteHandler = async ({ req, url, method, path, authUser, supabase }) => {
   // ── GET /admin/draw-results ───────────────────────────────────────────────
@@ -276,6 +279,21 @@ export const handleAdminDrawResultsRoutes: RouteHandler = async ({ req, url, met
       weekYear = `${y}-W${String(w).padStart(2, '0')}`
     }
     const result = await runWeeklyDraw(supabase, weekYear)
+
+    if (result.winner_id && !result.already_ran) {
+      try {
+        const adminTpl = drawWinnerAdminNotificationEmail({
+          winnerName: result.winner_name,
+          winnerEmail: result.winner_email,
+          weekYear: result.week_year,
+          winningEntries: result.winning_entries,
+          poolEntries: result.pool_entries,
+          eligiblePlayers: result.eligible_players,
+        })
+        await sendEmail({ to: ADMIN_EMAIL, subject: adminTpl.subject, html: adminTpl.html })
+      } catch { /* best-effort — never fail the request over a notification email */ }
+    }
+
     return jsonResponse({ success: true, draw: result })
   }
 

@@ -243,7 +243,7 @@ export const handleAdminConfigRoutes: RouteHandler = async ({ req, path, method,
     requireAdmin(authUser)
     const { data } = await supabase
       .from('users')
-      .select('id, email, username, name, first_name, last_name, role, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified, is_trusted, is_test, is_active, last_valid_deed_date, created_at')
+      .select('id, email, username, name, first_name, last_name, role, province_state, country, city, country_id, state_id, player_number, last_login, profile_completed, email_verified, is_trusted, is_test, is_active, excluded_from_draw, last_valid_deed_date, created_at')
       .order('player_number', { ascending: true })
     return jsonResponse({
       members: (data ?? []).map((u) => ({
@@ -266,6 +266,7 @@ export const handleAdminConfigRoutes: RouteHandler = async ({ req, path, method,
         is_trusted: !!u.is_trusted,
         is_test: !!u.is_test,
         is_active: u.is_active ?? true,
+        excluded_from_draw: !!u.excluded_from_draw,
         last_valid_deed_date: u.last_valid_deed_date ?? null,
         created_at: u.created_at ?? null,
       })),

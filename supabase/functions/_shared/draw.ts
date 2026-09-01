@@ -130,6 +130,7 @@ export interface DrawResult {
   winner_id: string | null
   winner_name: string | null
   winner_email: string | null
+  winning_entries: number
   eligible_players: number
   pool_entries: number
   week_year: string
@@ -149,7 +150,7 @@ export async function runWeeklyDraw(
   const settings = await getDrawSettings(supabase)
   const base: DrawResult = {
     ran: false, already_ran: false, winner_id: null, winner_name: null, winner_email: null,
-    eligible_players: 0, pool_entries: 0, week_year: drawWeekYear,
+    winning_entries: 0, eligible_players: 0, pool_entries: 0, week_year: drawWeekYear,
   }
 
   if (!settings.weeklyDrawEnabled) return { ...base, reason: 'weekly_draw_disabled' }
@@ -189,10 +190,13 @@ export async function runWeeklyDraw(
   const recentIds = new Set((recent ?? []).map((w: { user_id: string }) => w.user_id))
 
   // Inactive players are excluded from the draw — see is_active on users
-  // (flag-inactive-players, the daily sweep).
+  // (flag-inactive-players, the daily sweep). excluded_from_draw is a
+  // separate, permanent opt-out (e.g. Curt's own account, so the game
+  // owner can't win their own prize giveaway).
   const { data: activeUsers } = await supabase
-    .from('users').select('id, is_active').in('id', balances.map((b: { player_id: string }) => b.player_id))
+    .from('users').select('id, is_active, excluded_from_draw').in('id', balances.map((b: { player_id: string }) => b.player_id))
   const activeIds = new Set((activeUsers ?? []).filter((u: { id: string; is_active: boolean }) => u.is_active).map((u: { id: string }) => u.id))
+  const excludedIds = new Set((activeUsers ?? []).filter((u: { id: string; excluded_from_draw: boolean }) => u.excluded_from_draw).map((u: { id: string }) => u.id))
 
   const candidates: PoolCandidate[] = balances
     .map((b: { player_id: string; active_entries: number; last_participation_date: string | null }) => ({
@@ -201,6 +205,7 @@ export async function runWeeklyDraw(
       last_participation_date: b.last_participation_date,
       is_recent_winner: recentIds.has(b.player_id),
       is_active: activeIds.has(b.player_id),
+      excluded_from_draw: excludedIds.has(b.player_id),
     }))
     .filter((c: PoolCandidate) => isEligible(c, settings, participated.has(c.user_id) || !settings.requireParticipation))
 
@@ -267,6 +272,7 @@ export async function runWeeklyDraw(
     ran: true, already_ran: false, winner_id: winner.user_id,
     winner_name: u?.first_name ?? u?.name ?? u?.username ?? null,
     winner_email: u?.email ?? null,
+    winning_entries: winnerActive,
     eligible_players: candidates.length, pool_entries: poolEntries, week_year: drawWeekYear,
   }
 }

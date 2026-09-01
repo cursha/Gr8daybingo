@@ -1,9 +1,10 @@
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { getSupabase } from '../_shared/db.ts'
-import { sendEmail } from '../_shared/email.ts'
+import { sendEmail, drawWinnerAdminNotificationEmail } from '../_shared/email.ts'
 import { runWeeklyDraw } from '../_shared/draw.ts'
 
 const SITE_URL = 'https://havagr8day.com'
+const ADMIN_EMAIL = 'curt.skene@curtskene.com'
 
 function drawWinnerEmail(name: string | null, weekLabel: string): { subject: string; html: string } {
   const hi = name && name.trim() ? name.trim() : 'there'
@@ -65,7 +66,9 @@ async function runWeeklyDrawForReset(
   winner_id: string | null
   winner_name: string | null
   winner_email: string | null
+  winning_entries: number
   entries: number
+  eligible_players: number
   week_year: string
   already_ran: boolean
 }> {
@@ -75,7 +78,9 @@ async function runWeeklyDrawForReset(
     winner_id: r.winner_id,
     winner_name: r.winner_name,
     winner_email: r.winner_email,
+    winning_entries: r.winning_entries,
     entries: r.pool_entries,
+    eligible_players: r.eligible_players,
     week_year: r.week_year,
     already_ran: r.already_ran,
   }
@@ -110,6 +115,23 @@ Deno.serve(async (req: Request) => {
       const weekLabel = getCurrentWeekLabel().replace('Week', 'the week of')
       const tpl = drawWinnerEmail(draw.winner_name, weekLabel)
       await sendEmail({ to: draw.winner_email, subject: tpl.subject, html: tpl.html })
+    }
+
+    // Notify Curt too — the winner's own email doesn't prompt them for
+    // contact info, so this is what actually tells him someone needs
+    // following up.
+    if (draw.winner_id && !draw.already_ran) {
+      try {
+        const adminTpl = drawWinnerAdminNotificationEmail({
+          winnerName: draw.winner_name,
+          winnerEmail: draw.winner_email,
+          weekYear: draw.week_year,
+          winningEntries: draw.winning_entries,
+          poolEntries: draw.entries,
+          eligiblePlayers: draw.eligible_players,
+        })
+        await sendEmail({ to: ADMIN_EMAIL, subject: adminTpl.subject, html: adminTpl.html })
+      } catch { /* best-effort — never block the reset over a notification email */ }
     }
 
     // The bulk "new card is ready" email lived here until it was replaced by

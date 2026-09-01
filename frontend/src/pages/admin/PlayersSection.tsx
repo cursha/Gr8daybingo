@@ -43,7 +43,7 @@ const PlayersSection: React.FC<PlayersSectionProps> = ({ editConfigs }) => {
   const [playerStates, setPlayerStates] = useState<StateOption[]>([]);
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<string | null>(null);
-  const [playerForm, setPlayerForm] = useState({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '' as string | number, state_id: '' as string | number, is_trusted: false, is_test: false, is_active: true });
+  const [playerForm, setPlayerForm] = useState({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '' as string | number, state_id: '' as string | number, is_trusted: false, is_test: false, is_active: true, excluded_from_draw: false });
   const [playerFormLoading, setPlayerFormLoading] = useState(false);
 
   const loadMembers = async () => {
@@ -73,7 +73,7 @@ const PlayersSection: React.FC<PlayersSectionProps> = ({ editConfigs }) => {
       await adminCreatePlayer({ ...playerForm, country_id: playerForm.country_id ? Number(playerForm.country_id) : undefined, state_id: playerForm.state_id ? Number(playerForm.state_id) : undefined } as any);
       toast.success('Player created');
       setShowAddPlayer(false);
-      setPlayerForm({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '', state_id: '', is_trusted: false, is_test: false, is_active: true });
+      setPlayerForm({ first_name: '', last_name: '', email: '', username: '', password: '', role: 'user', city: '', country_id: '', state_id: '', is_trusted: false, is_test: false, is_active: true, excluded_from_draw: false });
       await loadMembers();
     } catch (err: any) {
       toast.error(err?.message || 'Failed to create player');
@@ -108,7 +108,7 @@ const PlayersSection: React.FC<PlayersSectionProps> = ({ editConfigs }) => {
   };
 
   const startEditPlayer = (m: MemberItem) => {
-    setPlayerForm({ first_name: m.first_name ?? '', last_name: m.last_name ?? '', email: m.email ?? '', username: m.username ?? '', password: '', role: m.role ?? 'user', city: (m as any).city ?? '', country_id: (m as any).country_id ?? '', state_id: (m as any).state_id ?? '', is_trusted: m.is_trusted ?? false, is_test: m.is_test ?? false, is_active: m.is_active ?? true });
+    setPlayerForm({ first_name: m.first_name ?? '', last_name: m.last_name ?? '', email: m.email ?? '', username: m.username ?? '', password: '', role: m.role ?? 'user', city: (m as any).city ?? '', country_id: (m as any).country_id ?? '', state_id: (m as any).state_id ?? '', is_trusted: m.is_trusted ?? false, is_test: m.is_test ?? false, is_active: m.is_active ?? true, excluded_from_draw: m.excluded_from_draw ?? false });
     setEditingPlayer(m.id);
     if ((m as any).country_id) getStates(Number((m as any).country_id)).then(setPlayerStates).catch(() => {});
   };
@@ -398,6 +398,10 @@ const PlayersSection: React.FC<PlayersSectionProps> = ({ editConfigs }) => {
                                 <label className="flex items-center gap-2 text-sm text-slate-700 col-span-2">
                                   <input type="checkbox" checked={playerForm.is_active} onChange={e => setPlayerForm(f => ({ ...f, is_active: e.target.checked }))} />
                                   Active (daily sweep sets this to false after {editConfigs['inactive_days_threshold'] || '30'} days without a deed, and back to true once they're playing again)
+                                </label>
+                                <label className="flex items-center gap-2 text-sm text-slate-700 col-span-2">
+                                  <input type="checkbox" checked={playerForm.excluded_from_draw} onChange={e => setPlayerForm(f => ({ ...f, excluded_from_draw: e.target.checked }))} />
+                                  Excluded from weekly draw (won't be selected as a winner, even with ballots)
                                 </label>
                                 <select className="border rounded px-2 py-1.5 text-sm" value={playerForm.country_id} onChange={e => handlePlayerCountryChange(e.target.value)}>
                                   <option value="">Country…</option>

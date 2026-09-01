@@ -336,6 +336,37 @@ export function newPlayerNotificationEmail(opts: {
   }
 }
 
+// Sent to Curt (not the player) the moment a weekly draw winner is picked.
+// The player's own "you won" email just says "we'll be in touch" — nothing
+// in the app prompts a draw winner to submit their contact info the way a
+// bingo winner's own claim-prize flow does, so this is what actually tells
+// Curt someone needs following up.
+export function drawWinnerAdminNotificationEmail(opts: {
+  winnerName: string | null
+  winnerEmail: string | null
+  weekYear: string
+  winningEntries: number
+  poolEntries: number
+  eligiblePlayers: number
+}): { subject: string; html: string } {
+  const { winnerName, winnerEmail, weekYear, winningEntries, poolEntries, eligiblePlayers } = opts
+  const row = (label: string, value: string | null | undefined) =>
+    value ? `<p style="margin:4px 0"><strong>${label}:</strong> ${value}</p>` : ''
+  return {
+    subject: `Draw winner selected: ${winnerName ?? winnerEmail ?? 'unnamed player'} (${weekYear})`,
+    html: layout(`
+      <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">This week's draw winner has been picked</h2>
+      ${row('Winner', winnerName)}
+      ${row('Email', winnerEmail)}
+      ${row('Week', weekYear)}
+      ${row('Winning ballots', String(winningEntries))}
+      ${row('Total ballots in pool', String(poolEntries))}
+      ${row('Eligible players', String(eligiblePlayers))}
+      <p style="color:#64748b;font-size:13px;margin-top:16px">The winner's own email just tells them "we'll be in touch" — there's no in-app form for them to submit their contact details unless they've separately gotten a bingo on their card. Reach out to them directly to arrange the prize.</p>
+    `),
+  }
+}
+
 export function prizeClaimConfirmationEmail(name: string | null): { subject: string; html: string } {
   const hi = name && name.trim() ? name.trim() : 'there'
   return {

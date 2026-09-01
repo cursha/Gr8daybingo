@@ -307,7 +307,7 @@ changes the push to `main` **is** the deploy step for both layers.
 2. ✅ **Production email delivery** (Resend) — live. Sends password reset, verification, win notification, prize confirmation, and admin new-signup-notification emails.
 3. ✅ **Prize claim flow** — working end-to-end (claim submission → admin queue → fulfillment).
 4. ✅ **Password reset / forgot password** — working, not a placeholder.
-5. **Abuse guards on mark-cell** — ✅ rate limiting and the double-submit/race-condition guard are done and automatically tested (`supabase/tests/mark_cell_concurrency.test.ts`); optional photo/note on a completed deed and an admin void-cell capability still need checking/building.
+5. **Abuse guards on mark-cell** — ✅ rate limiting, ✅ the double-submit/race-condition guard (automatically tested, `supabase/tests/mark_cell_concurrency.test.ts`), and ✅ admin void-cell (`POST /admin/void-cell` in `supabase/functions/game/index.ts`) are all done. Only "optional photo/note on a completed deed" is still unbuilt.
 6. ✅ **Terms of Service + Privacy Policy** pages — complete, not placeholders.
 7. **Production database migration** — Supabase migrations (not Alembic — see §5) apply via `supabase db push`; the 2026-08-31 RLS-lockdown migration was pushed and verified working against production during the audit, but this line item as a whole (i.e. "prod schema is fully current") hasn't been separately re-verified since.
 

@@ -115,6 +115,59 @@ function cryptoShuffle<T>(arr: T[]): void {
   }
 }
 
+type ChallengeLevel = 1 | 3 | 5
+
+/** Challenge Level (Easy/Medium/Hard): weight deed selection toward the
+ * player's chosen good_deeds.complexity without excluding the other tiers
+ * entirely — 70% target level / 20% adjacent / 10% far, so a card still has
+ * variety and picking Hard doesn't mean zero easy wins. Deeds with no
+ * complexity set are treated as Medium (3) so ungraded legacy deeds stay
+ * eligible everywhere. Falls back to filling from any tier if the target
+ * tier is too thin to reach `count` on its own. */
+function selectWeightedDeeds<T extends { id: number; complexity?: number | null }>(
+  deeds: T[], level: ChallengeLevel, count: number, rng: SeededRandom,
+): T[] {
+  const buckets: Record<ChallengeLevel, T[]> = { 1: [], 3: [], 5: [] }
+  for (const d of deeds) {
+    const c: ChallengeLevel = d.complexity === 1 ? 1 : d.complexity === 5 ? 5 : 3
+    buckets[c].push(d)
+  }
+  for (const tier of [1, 3, 5] as const) rng.shuffle(buckets[tier])
+
+  const far: ChallengeLevel = level === 1 ? 5 : level === 5 ? 1 : 5
+  const tierOrder: ChallengeLevel[] = level === 3 ? [3, 1, 5] : [level, 3, far]
+  const targetCount = Math.round(count * 0.7)
+  const adjacentCount = Math.round(count * (level === 3 ? 0.15 : 0.2))
+  const tierCounts = [targetCount, adjacentCount, count - targetCount - adjacentCount]
+
+  const picked: T[] = []
+  const pickedIds = new Set<number>()
+  tierOrder.forEach((tier, i) => {
+    let need = tierCounts[i]
+    for (const d of buckets[tier]) {
+      if (need <= 0 || picked.length >= count) break
+      if (pickedIds.has(d.id)) continue
+      picked.push(d); pickedIds.add(d.id); need--
+    }
+  })
+
+  // Backfill if a tier came up short (e.g. not enough Hard deeds seeded yet):
+  // target level first, then Medium, then whatever's left.
+  if (picked.length < count) {
+    for (const tier of [level, 3, 1, 5] as const) {
+      for (const d of buckets[tier]) {
+        if (picked.length >= count) break
+        if (pickedIds.has(d.id)) continue
+        picked.push(d); pickedIds.add(d.id)
+      }
+      if (picked.length >= count) break
+    }
+  }
+
+  rng.shuffle(picked)
+  return picked.slice(0, count)
+}
+
 /** Bomb Square trigger: a full, genuinely-random reroll of every square on a
  *  classic card — new deeds, new purchasable/secret/bomb positions, a fresh
  *  I Dare Ya roll. Deliberately NOT the seeded per-(player,week) RNG that
@@ -337,9 +390,12 @@ Deno.serve(async (req: Request) => {
       const existing = await getPlayerCurrentCard(supabase, user.sub)
       const { data: boCfg } = await supabase
         .from('game_configs').select('config_value').eq('config_key', 'blackout_enabled').maybeSingle()
+      const { data: userRow } = await supabase
+        .from('users').select('challenge_level').eq('id', user.sub).maybeSingle()
       return jsonResponse({
         has_card: existing != null,
         blackout_offered: boCfg?.config_value === 'true',
+        default_challenge_level: userRow?.challenge_level ?? 3,
       })
     }
 
@@ -365,6 +421,12 @@ Deno.serve(async (req: Request) => {
         return errorResponse('Blackout is not available this week', 400)
       }
       const gameMode = blackoutOffered ? requestedMode : 'classic'
+
+      // Challenge Level (Easy=1/Medium=3/Hard=5) — always offered, unlike
+      // Blackout which is admin-toggled. Invalid/missing input defaults to
+      // Medium rather than rejecting the request.
+      const rawChallengeLevel = Number(body.challenge_level)
+      const challengeLevel: ChallengeLevel = rawChallengeLevel === 1 || rawChallengeLevel === 5 ? rawChallengeLevel : 3
 
       // Check for an existing (still-current) card — no longer scoped to
       // this calendar week; a card stays current until tap-out or bingo.
@@ -436,6 +498,7 @@ Deno.serve(async (req: Request) => {
           week_year: existing.week_year,
           created_at: existing.created_at,
           game_mode: existing.game_mode ?? 'classic',
+          card_level: existing.card_level ?? null,
           cells: sanitizeCells(cells, completedIdx, blackoutState?.hidden_cells),
           win_condition: existing.win_condition,
           completed_cells: completedIdx,
@@ -472,8 +535,7 @@ Deno.serve(async (req: Request) => {
       const { playerValueIds, deedTargetingMap } = await fetchTargetingData(supabase, user.sub)
       const targetedDeeds = filterDeedsByTargeting(deeds ?? [], playerValueIds, deedTargetingMap, deeds ?? [])
 
-      const deedList = [...targetedDeeds]
-      rng.shuffle(deedList)
+      const deedList = selectWeightedDeeds(targetedDeeds, challengeLevel, deedsNeeded, rng)
 
       let cells: Cell[]
       let referralCellIndices: number[]
@@ -633,6 +695,7 @@ Deno.serve(async (req: Request) => {
           card_data: JSON.stringify(cells),
           win_condition: adminWinCondition,
           game_mode: gameMode,
+          card_level: challengeLevel,
           completed_cells: '[]',
           purchased_cells: '[]',
           referral_cells: JSON.stringify(referralCellIndices),
@@ -670,6 +733,7 @@ Deno.serve(async (req: Request) => {
         week_year: newCard.week_year,
         created_at: newCard.created_at,
         game_mode: gameMode,
+        card_level: challengeLevel,
         cells: sanitizeCells(cells, [], blackoutState?.hidden_cells),
         win_condition: adminWinCondition,
         completed_cells: [],

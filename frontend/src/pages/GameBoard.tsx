@@ -38,6 +38,7 @@ import {
   StreakMilestoneHit,
   BlackoutState,
   getMyCardStatus,
+  setMyChallengeLevel,
   revealBlackoutCell,
   passBlackoutCell,
   pauseBlackout,
@@ -280,7 +281,9 @@ const GameBoard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [card, setCard] = useState<CardData | null>(null);
   const [showModePicker, setShowModePicker] = useState(false);
+  const [blackoutOffered, setBlackoutOffered] = useState(false);
   const [pickedMode, setPickedMode] = useState<'classic' | 'blackout' | null>(null);
+  const [pickedLevel, setPickedLevel] = useState<1 | 3 | 5>(3);
   const [modeConfirming, setModeConfirming] = useState(false);
   const [pickupPrompt, setPickupPrompt] = useState<{ id: number; question_text: string } | null>(null);
   const [pickupPromptAnswer, setPickupPromptAnswer] = useState('');
@@ -383,11 +386,17 @@ const GameBoard: React.FC = () => {
       ]);
       setWallet(walletData);
 
-      // No card yet this week, and Blackout is being offered as a choice —
-      // show the picker BEFORE ever calling generate-card. Once a card
-      // exists, that single call is the lock: generate-card just returns it
-      // unchanged, so the picker must never show again after this point.
-      if (!status.has_card && status.blackout_offered) {
+      // No card yet — always show the picker (mode + Challenge Level) BEFORE
+      // ever calling generate-card. Once a card exists, that single call is
+      // the lock: generate-card just returns it unchanged, so the picker
+      // must never show again after this point.
+      if (!status.has_card) {
+        setPickedLevel(status.default_challenge_level ?? 3);
+        setBlackoutOffered(status.blackout_offered);
+        // When Blackout isn't being offered this cycle, mode isn't really a
+        // choice — pre-select Classic so Challenge Level is the only thing
+        // the player needs to confirm.
+        setPickedMode(status.blackout_offered ? null : 'classic');
         setShowModePicker(true);
         setLoading(false);
         getPickupPrompt()
@@ -403,7 +412,7 @@ const GameBoard: React.FC = () => {
       // every single visit. The overlay only belongs to the exact moment a
       // mark/purchase/dare-ya action just flips the card to is_bingo (see the
       // action handlers below), never to a page load.
-      const cardData = await generateCard(status.has_card ? undefined : 'classic');
+      const cardData = await generateCard();
       setCard(cardData);
     } catch (err: any) {
       toast.error(err?.message || 'Failed to load game');
@@ -421,8 +430,11 @@ const GameBoard: React.FC = () => {
     if (pickupPrompt && trimmedAnswer) {
       submitPickupPromptResponse(pickupPrompt.id, trimmedAnswer).catch(() => {});
     }
+    // Best-effort, fire-and-forget — remembers this choice as next time's
+    // default without blocking or delaying card generation.
+    setMyChallengeLevel(pickedLevel).catch(() => {});
     try {
-      const cardData = await generateCard(pickedMode);
+      const cardData = await generateCard(pickedMode, pickedLevel);
       setCard(cardData);
       setShowModePicker(false);
       if (cardData.is_bingo) {
@@ -1045,33 +1057,54 @@ const GameBoard: React.FC = () => {
             <h1 className="text-xl font-black text-white">Choose Your Game</h1>
             <p className="text-sm text-white/70">This locks in for the whole week once you confirm.</p>
           </div>
-          <div className="grid grid-cols-1 gap-3">
-            <button
-              onClick={() => setPickedMode('classic')}
-              className={`text-left rounded-xl border-2 p-4 transition-all duration-150 ${
-                pickedMode === 'blackout'
-                  ? 'opacity-40 border-white/10 bg-white/5 text-white/50'
-                  : pickedMode === 'classic'
-                    ? 'border-emerald-400 bg-emerald-500/15 text-white'
-                    : 'border-white/20 bg-white/5 text-white hover:border-white/40'
-              }`}
-            >
-              <p className="font-bold">Regular Bingo</p>
-              <p className="text-xs opacity-80 mt-0.5">The classic card — every square visible from the start.</p>
-            </button>
-            <button
-              onClick={() => setPickedMode('blackout')}
-              className={`text-left rounded-xl border-2 p-4 transition-all duration-150 ${
-                pickedMode === 'classic'
-                  ? 'opacity-40 border-white/10 bg-white/5 text-white/50'
-                  : pickedMode === 'blackout'
-                    ? 'border-amber-400 bg-amber-500/15 text-white'
-                    : 'border-white/20 bg-white/5 text-white hover:border-white/40'
-              }`}
-            >
-              <p className="font-bold">Blackout Bingo</p>
-              <p className="text-xs opacity-80 mt-0.5">Every square starts hidden. Reveal a few at a time, complete or pass on each.</p>
-            </button>
+          {blackoutOffered && (
+            <div className="grid grid-cols-1 gap-3">
+              <button
+                onClick={() => setPickedMode('classic')}
+                className={`text-left rounded-xl border-2 p-4 transition-all duration-150 ${
+                  pickedMode === 'blackout'
+                    ? 'opacity-40 border-white/10 bg-white/5 text-white/50'
+                    : pickedMode === 'classic'
+                      ? 'border-emerald-400 bg-emerald-500/15 text-white'
+                      : 'border-white/20 bg-white/5 text-white hover:border-white/40'
+                }`}
+              >
+                <p className="font-bold">Regular Bingo</p>
+                <p className="text-xs opacity-80 mt-0.5">The classic card — every square visible from the start.</p>
+              </button>
+              <button
+                onClick={() => setPickedMode('blackout')}
+                className={`text-left rounded-xl border-2 p-4 transition-all duration-150 ${
+                  pickedMode === 'classic'
+                    ? 'opacity-40 border-white/10 bg-white/5 text-white/50'
+                    : pickedMode === 'blackout'
+                      ? 'border-amber-400 bg-amber-500/15 text-white'
+                      : 'border-white/20 bg-white/5 text-white hover:border-white/40'
+                }`}
+              >
+                <p className="font-bold">Blackout Bingo</p>
+                <p className="text-xs opacity-80 mt-0.5">Every square starts hidden. Reveal a few at a time, complete or pass on each.</p>
+              </button>
+            </div>
+          )}
+          <div className="space-y-2 pt-1 border-t border-white/10">
+            <p className="text-sm font-bold text-white pt-3">Challenge Level</p>
+            <div className="grid grid-cols-3 gap-2">
+              {([[1, 'Easy'], [3, 'Medium'], [5, 'Hard']] as const).map(([level, label]) => (
+                <button
+                  key={level}
+                  onClick={() => setPickedLevel(level)}
+                  className={`text-center rounded-xl border-2 py-3 px-2 text-sm font-bold transition-all duration-150 ${
+                    pickedLevel === level
+                      ? 'border-indigo-400 bg-indigo-500/20 text-white'
+                      : 'border-white/20 bg-white/5 text-white/70 hover:border-white/40'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-white/50">Sets the mix of deeds on your card. You can pick a different level next time.</p>
           </div>
           {pickupPrompt && (
             <div className="space-y-2 pt-1 border-t border-white/10">

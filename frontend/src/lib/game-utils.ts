@@ -132,6 +132,7 @@ export interface CardData {
   draw_bonus_entries?: number;
   pick_three_used?: boolean;
   game_mode?: 'classic' | 'blackout';
+  card_level?: 1 | 3 | 5 | null;
   blackout?: BlackoutState | null;
   // Tap-out eligibility — a card can only be replaced once it's at least a
   // week old (see TAP_OUT_MIN_DAYS on the backend). Bingo doesn't shortcut
@@ -252,12 +253,25 @@ export interface QuickTapDeed {
 }
 
 // API calls
-export async function generateCard(gameMode?: 'classic' | 'blackout'): Promise<CardData> {
-  return withRetry(() => apiClient.post<CardData>('/game/generate-card', gameMode ? { game_mode: gameMode } : {}));
+export async function generateCard(gameMode?: 'classic' | 'blackout', challengeLevel?: 1 | 3 | 5): Promise<CardData> {
+  const body: Record<string, unknown> = {};
+  if (gameMode) body.game_mode = gameMode;
+  if (challengeLevel) body.challenge_level = challengeLevel;
+  return withRetry(() => apiClient.post<CardData>('/game/generate-card', body));
 }
 
-export async function getMyCardStatus(): Promise<{ has_card: boolean; blackout_offered: boolean }> {
+export async function getMyCardStatus(): Promise<{ has_card: boolean; blackout_offered: boolean; default_challenge_level: 1 | 3 | 5 }> {
   return apiClient.get('/game/my-card-status');
+}
+
+export async function setMyChallengeLevel(challenge_level: 1 | 3 | 5): Promise<void> {
+  await apiClient.put('/game/my-profile', { challenge_level });
+}
+
+export async function uploadPrizeImage(file: File): Promise<{ url: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiClient.postForm<{ url: string }>('/game/admin/prize-image', formData);
 }
 
 export async function revealBlackoutCell(cellIndex: number): Promise<{ revealed: CellData[]; hidden_cells: number[]; active_group: number[] }> {

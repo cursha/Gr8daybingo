@@ -264,7 +264,7 @@ export const handleProfilesRoutes: RouteHandler = async ({ req, path, method, au
   if (method === 'PUT' && path === '/my-profile') {
     const user = requireAuth(authUser)
     const body = await req.json()
-    const { first_name, last_name, username, city, country_id, state_id } = body
+    const { first_name, last_name, username, city, country_id, state_id, challenge_level } = body
 
     if (username) {
       const { data: existing } = await supabase
@@ -279,6 +279,8 @@ export const handleProfilesRoutes: RouteHandler = async ({ req, path, method, au
       ...(city !== undefined && { city }),
       ...(country_id !== undefined && { country_id }),
       ...(state_id !== undefined && { state_id }),
+      ...(challenge_level === 1 || challenge_level === 3 || challenge_level === 5
+        ? { challenge_level } : {}),
     }).eq('id', user.sub)
 
     if (profileErr) {

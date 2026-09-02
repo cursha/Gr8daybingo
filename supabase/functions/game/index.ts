@@ -377,32 +377,10 @@ Deno.serve(async (req: Request) => {
           needsSave = true
         }
 
+        // card_data is a snapshot taken at generation time — every deed field,
+        // including quantity, is frozen for the life of the card. An admin's
+        // deed edits only affect the NEXT card a player generates.
         const cells: Cell[] = JSON.parse(existing.card_data)
-
-        // Re-sync each cell's quantity from the current good_deeds table so that
-        // when an admin changes a deed's quantity, existing cards pick it up
-        // (card_data is a snapshot taken at generation time).
-        // Category is intentionally NOT re-synced: it is frozen at generation
-        // so that completed-deed history reflects the category in effect when
-        // the player received their card, not any later admin edit.
-        const deedIds = cells.map((c) => c.deed_id).filter((id): id is number => id != null)
-        if (deedIds.length > 0) {
-          const { data: freshDeeds } = await supabase
-            .from('good_deeds').select('id, quantity').in('id', deedIds)
-          const qtyById = new Map<number, number>()
-          for (const d of freshDeeds ?? []) {
-            qtyById.set(d.id, d.quantity ?? 1)
-          }
-          for (const c of cells) {
-            if (c.deed_id != null && qtyById.has(c.deed_id)) {
-              const freshQty = qtyById.get(c.deed_id)!
-              if (c.quantity !== freshQty) {
-                c.quantity = freshQty
-                needsSave = true
-              }
-            }
-          }
-        }
 
         // Re-sync referral cells
         const { data: validRefs } = await supabase

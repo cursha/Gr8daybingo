@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { Lock, Target, Ticket, Eye, Gift, Upload, X, Settings, Mail, Save } from 'lucide-react';
-import { DeedCategory, updateAdminConfig, updateAdminDeedCategory } from '@/lib/game-utils';
+import { DeedCategory, updateAdminConfig, updateAdminDeedCategory, uploadPrizeImage } from '@/lib/game-utils';
 
 const WIN_CONDITIONS = [
   { id: 'one_line', name: 'One Line', description: 'Complete 5 in a row (horizontal, vertical, or diagonal)' },
@@ -60,6 +60,20 @@ const GameSettingsSection: React.FC<GameSettingsSectionProps> = ({
   editConfigs, setEditConfigs, onSaveConfig, configs, blackoutWeights, setBlackoutWeights, deedCategories, setDeedCategories,
 }) => {
   const [blackoutWeightsSaving, setBlackoutWeightsSaving] = useState(false);
+  const [prizeImageUploading, setPrizeImageUploading] = useState(false);
+
+  const handlePrizeImageUpload = async (file: File) => {
+    setPrizeImageUploading(true);
+    try {
+      const { url } = await uploadPrizeImage(file);
+      setEditConfigs((prev) => ({ ...prev, prize_image_url: url }));
+      toast.success('Image uploaded — click Save Prize to publish it');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to upload image');
+    } finally {
+      setPrizeImageUploading(false);
+    }
+  };
 
   const handleSaveBlackoutWeights = async () => {
     setBlackoutWeightsSaving(true);
@@ -298,7 +312,7 @@ const GameSettingsSection: React.FC<GameSettingsSectionProps> = ({
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-slate-500">
-            Showcase this game's prize on the homepage and game board. Paste a direct image URL (PNG/JPG/WebP). Recommended size around 800×600.
+            Showcase this game's prize on the homepage and game board. Upload an image below, or paste a direct URL.
           </p>
 
           <div>
@@ -314,16 +328,27 @@ const GameSettingsSection: React.FC<GameSettingsSectionProps> = ({
           </div>
 
           <div>
-            <label className="text-sm font-medium text-slate-700 mb-1 block">Prize Image URL</label>
+            <label className="text-sm font-medium text-slate-700 mb-1 block">Prize Image</label>
             <div className="flex gap-2">
-              <Input
-                type="url"
-                placeholder="https://example.com/prize.png"
-                value={prizeImageUrl}
-                onChange={(e) =>
-                  setEditConfigs((prev) => ({ ...prev, prize_image_url: e.target.value }))
-                }
-                className="flex-1"
+              <Button
+                type="button"
+                variant="outline"
+                disabled={prizeImageUploading}
+                onClick={() => document.getElementById('prize-image-file-input')?.click()}
+              >
+                <Upload className="w-4 h-4 mr-1" />
+                {prizeImageUploading ? 'Uploading…' : 'Upload Image'}
+              </Button>
+              <input
+                id="prize-image-file-input"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handlePrizeImageUpload(file);
+                  e.target.value = '';
+                }}
               />
               {prizeImageUrl && (
                 <Button
@@ -337,9 +362,16 @@ const GameSettingsSection: React.FC<GameSettingsSectionProps> = ({
                 </Button>
               )}
             </div>
-            <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
-              <Upload className="w-3 h-3" /> Host your image anywhere (e.g. Imgur, Cloudinary, S3) and paste the direct link here.
-            </p>
+            <p className="text-xs text-slate-400 mt-1">PNG, JPEG, or WebP, up to 5MB. Recommended size around 800×600.</p>
+            <Input
+              type="url"
+              placeholder="Or paste a direct image URL"
+              value={prizeImageUrl}
+              onChange={(e) =>
+                setEditConfigs((prev) => ({ ...prev, prize_image_url: e.target.value }))
+              }
+              className="mt-2"
+            />
           </div>
 
           <div>

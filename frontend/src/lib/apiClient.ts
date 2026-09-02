@@ -89,6 +89,35 @@ async function request<T>(path: string, options: ApiRequestOptions = {}): Promis
   return data as T;
 }
 
+/** Like `request`, but sends a FormData body instead of JSON — used for file
+ * uploads. The browser sets its own multipart Content-Type (with boundary),
+ * so that header must NOT be forced to application/json like `request` does. */
+async function requestForm<T>(path: string, formData: FormData): Promise<T> {
+  const finalHeaders: Record<string, string> = {
+    'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+    'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+  };
+  const token = getAuthToken();
+  if (token) finalHeaders['Authorization'] = `Bearer ${token}`;
+
+  const url = path.startsWith('http') ? path : `${getAPIBaseURL()}${path}`;
+  const response = await fetch(url, { method: 'POST', headers: finalHeaders, body: formData });
+
+  const contentType = response.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
+  const data = isJson ? await response.json().catch(() => null) : await response.text();
+
+  if (!response.ok) {
+    const detail =
+      (data && typeof data === 'object' && 'detail' in data && (data as { detail?: string }).detail) ||
+      (typeof data === 'string' ? data : '') ||
+      `Request failed (${response.status})`;
+    throw new ApiError(detail as string, response.status, data);
+  }
+
+  return data as T;
+}
+
 export const apiClient = {
   get: <T>(path: string, options?: ApiRequestOptions) =>
     request<T>(path, { ...options, method: 'GET' }),
@@ -98,4 +127,5 @@ export const apiClient = {
     request<T>(path, { ...options, method: 'PUT', body }),
   delete: <T>(path: string, options?: ApiRequestOptions) =>
     request<T>(path, { ...options, method: 'DELETE' }),
+  postForm: <T>(path: string, formData: FormData) => requestForm<T>(path, formData),
 };

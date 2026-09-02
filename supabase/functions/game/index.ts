@@ -38,6 +38,7 @@ import { handleStreaksRoutes } from './routes/streaks.ts'
 import { handleAdminDeedsRoutes } from './routes/admin_deeds.ts'
 import { handlePrizesRoutes } from './routes/prizes.ts'
 import { handleAdminConfigRoutes } from './routes/admin_config.ts'
+import { handleAdminPrizeImageRoutes } from './routes/admin_prize_image.ts'
 import { handleTeamsTradesRoutes } from './routes/teams_trades.ts'
 import { handleProfilesRoutes } from './routes/profiles.ts'
 import bcrypt from 'npm:bcryptjs@2'
@@ -1935,6 +1936,13 @@ Deno.serve(async (req: Request) => {
     // Extracted to routes/admin_config.ts.
     {
       const res = await handleAdminConfigRoutes({ req, url, method, path, authUser, supabase })
+      if (res) return res
+    }
+
+    // Admin: prize image upload to Supabase Storage ───────────────────────────
+    // Extracted to routes/admin_prize_image.ts.
+    {
+      const res = await handleAdminPrizeImageRoutes({ req, url, method, path, authUser, supabase })
       if (res) return res
     }
 

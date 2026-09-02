@@ -1292,7 +1292,7 @@ const GameBoard: React.FC = () => {
         {user && (
           <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-4 mb-4">
             <div className="flex items-center justify-between mb-2 sm:mb-3">
-              <h3 className="font-bold text-white/80 text-[11px] sm:text-xs uppercase tracking-wider">Quick Kindness — tap when you do it</h3>
+              <h3 className="font-bold text-white/80 text-[11px] sm:text-xs uppercase tracking-wider">Quick Taps — tap when you do it</h3>
               <button onClick={handleOpenPicker} className="text-[10px] sm:text-xs text-indigo-300 hover:text-white transition-colors">Customize</button>
             </div>
             {quickTapDeeds.length === 0 ? (

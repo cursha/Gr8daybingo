@@ -10,11 +10,21 @@ import { requireAuth, requireAdmin } from '../../_shared/auth.ts'
 import { getCurrentWeekYear, getWeekStart } from '../../_shared/week.ts'
 import { Cell, parseJsonArr, parseJsonStrArr, freeSpaceIndices } from '../../_shared/card_helpers.ts'
 import { checkBingo, completedLineIndices, isPatternComplete } from '../../_shared/bingo_logic.ts'
-import { getDrawSettings, reverseDeedEntry, reversePatternBonus, manualAdjust, runWeeklyDraw } from '../../_shared/draw.ts'
-import { sendEmail, drawWinnerAdminNotificationEmail } from '../../_shared/email.ts'
+import { getDrawSettings, reverseDeedEntry, reversePatternBonus, manualAdjust, computeDrawWinner, commitDrawWinner } from '../../_shared/draw.ts'
+import { sendEmail, drawWinnerAdminNotificationEmail, drawWinnerEmail, drawWinnerAnnouncementEmail } from '../../_shared/email.ts'
 import { RouteHandler } from '../route_types.ts'
 
 const ADMIN_EMAIL = 'curt.skene@curtskene.com'
+
+/** Default draw target: the calendar week that just ended (ISO week/year). */
+function resolveDrawWeekYear(explicit?: string | null): string {
+  if (explicit) return explicit
+  const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  const t = new Date(d); t.setDate(d.getDate() + (4 - (d.getDay() || 7)))
+  const y = t.getFullYear(); const j = new Date(y, 0, 1)
+  const w = Math.ceil(((t.getTime() - j.getTime()) / 86_400_000 + 1) / 7)
+  return `${y}-W${String(w).padStart(2, '0')}`
+}
 
 export const handleAdminDrawResultsRoutes: RouteHandler = async ({ req, url, method, path, authUser, supabase }) => {
   // ── GET /admin/draw-results ───────────────────────────────────────────────
@@ -265,36 +275,150 @@ export const handleAdminDrawResultsRoutes: RouteHandler = async ({ req, url, met
   }
 
   // ── POST /admin/run-draw ──────────────────────────────────────────────────
-  // Manually trigger the weekly draw for a given (or the previous) week.
+  // Computes (but does not commit) the winner for a given/previous week —
+  // a preview an admin reviews before POST /admin/confirm-draw actually
+  // records it. Re-running before confirming returns the SAME pending
+  // winner rather than re-rolling, so what gets confirmed always matches
+  // what was shown.
   if (method === 'POST' && path === '/admin/run-draw') {
     requireAdmin(authUser)
     const body = await req.json().catch(() => ({}))
-    let weekYear: string = body.week_year ? String(body.week_year) : ''
-    if (!weekYear) {
-      // Default to the week that just ended.
-      const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-      const t = new Date(d); t.setDate(d.getDate() + (4 - (d.getDay() || 7)))
-      const y = t.getFullYear(); const j = new Date(y, 0, 1)
-      const w = Math.ceil(((t.getTime() - j.getTime()) / 86_400_000 + 1) / 7)
-      weekYear = `${y}-W${String(w).padStart(2, '0')}`
-    }
-    const result = await runWeeklyDraw(supabase, weekYear)
+    const weekYear = resolveDrawWeekYear(body.week_year ? String(body.week_year) : null)
 
-    if (result.winner_id && !result.already_ran) {
+    const { data: existingWinner } = await supabase
+      .from('draw_winners').select('user_id, winner_display_name').eq('week_year', weekYear).maybeSingle()
+    if (existingWinner) {
+      return jsonResponse({
+        success: true, already_ran: true, week_year: weekYear,
+        winner: { user_id: existingWinner.user_id, display_name: existingWinner.winner_display_name },
+      })
+    }
+
+    const { data: pending } = await supabase
+      .from('draw_pending').select('*').eq('week_year', weekYear).maybeSingle()
+    if (pending) {
+      return jsonResponse({
+        success: true, already_ran: false, pending: true, week_year: weekYear,
+        winner: {
+          user_id: pending.user_id, display_name: pending.winner_display_name,
+          winning_entries: pending.winning_entries, pool_entries: pending.pool_entries,
+          eligible_players: pending.eligible_players,
+        },
+      })
+    }
+
+    const computed = await computeDrawWinner(supabase, weekYear)
+    if (!computed.ran || !computed.winner_id) {
+      return jsonResponse({ success: true, already_ran: false, pending: false, week_year: weekYear, reason: computed.reason ?? 'no_eligible_players' })
+    }
+
+    await supabase.from('draw_pending').upsert({
+      week_year: weekYear, user_id: computed.winner_id, winner_display_name: computed.winner_display_name,
+      winning_entries: computed.winning_entries, pool_entries: computed.pool_entries,
+      eligible_players: computed.eligible_players, computed_at: new Date().toISOString(),
+    })
+
+    return jsonResponse({
+      success: true, already_ran: false, pending: true, week_year: weekYear,
+      winner: {
+        user_id: computed.winner_id, display_name: computed.winner_display_name,
+        winning_entries: computed.winning_entries, pool_entries: computed.pool_entries,
+        eligible_players: computed.eligible_players,
+      },
+    })
+  }
+
+  // ── GET /admin/pending-draw ───────────────────────────────────────────────
+  // Lets the admin panel show the confirm screen on page load, without
+  // requiring a fresh "Run Draw" click just to see existing pending state.
+  if (method === 'GET' && path === '/admin/pending-draw') {
+    requireAdmin(authUser)
+    const weekYear = resolveDrawWeekYear(url.searchParams.get('week_year'))
+
+    const { data: existingWinner } = await supabase
+      .from('draw_winners').select('id').eq('week_year', weekYear).maybeSingle()
+    if (existingWinner) return jsonResponse({ pending: null, already_ran: true, week_year: weekYear })
+
+    const { data: pending } = await supabase.from('draw_pending').select('*').eq('week_year', weekYear).maybeSingle()
+    return jsonResponse({
+      already_ran: false,
+      week_year: weekYear,
+      pending: pending ? {
+        week_year: pending.week_year, user_id: pending.user_id, display_name: pending.winner_display_name,
+        winning_entries: pending.winning_entries, pool_entries: pending.pool_entries,
+        eligible_players: pending.eligible_players,
+      } : null,
+    })
+  }
+
+  // ── POST /admin/confirm-draw ──────────────────────────────────────────────
+  // Commits the pending winner previously shown by /admin/run-draw, then
+  // sends the winner's personal email, the admin audit-trail email, and the
+  // mass "winner announced" email to every active/verified player.
+  if (method === 'POST' && path === '/admin/confirm-draw') {
+    requireAdmin(authUser)
+    const body = await req.json().catch(() => ({}))
+    const weekYear: string = body.week_year ? String(body.week_year) : ''
+    if (!weekYear) return errorResponse('week_year is required', 400)
+
+    const { data: pending } = await supabase.from('draw_pending').select('*').eq('week_year', weekYear).maybeSingle()
+    if (!pending) return errorResponse('No pending draw for that week — run the draw first.', 404)
+
+    const result = await commitDrawWinner(supabase, weekYear, {
+      winner_id: pending.user_id, winning_entries: pending.winning_entries,
+      pool_entries: pending.pool_entries, eligible_players: pending.eligible_players,
+      winner_display_name: pending.winner_display_name,
+    })
+    await supabase.from('draw_pending').delete().eq('week_year', weekYear)
+
+    if (result.already_ran) {
+      return jsonResponse({ success: true, already_ran: true, week_year: weekYear })
+    }
+
+    const { data: winnerUser } = await supabase
+      .from('users').select('email, first_name, name, username').eq('id', pending.user_id).maybeSingle()
+    const winnerDisplayName = pending.winner_display_name ?? winnerUser?.first_name ?? winnerUser?.username ?? 'a lucky player'
+
+    if (winnerUser?.email) {
       try {
-        const adminTpl = drawWinnerAdminNotificationEmail({
-          winnerName: result.winner_name,
-          winnerEmail: result.winner_email,
-          weekYear: result.week_year,
-          winningEntries: result.winning_entries,
-          poolEntries: result.pool_entries,
-          eligiblePlayers: result.eligible_players,
-        })
-        await sendEmail({ to: ADMIN_EMAIL, subject: adminTpl.subject, html: adminTpl.html })
-      } catch { /* best-effort — never fail the request over a notification email */ }
+        const tpl = drawWinnerEmail(winnerUser.first_name ?? winnerUser.name ?? winnerUser.username ?? null, weekYear)
+        await sendEmail({ to: winnerUser.email, subject: tpl.subject, html: tpl.html })
+      } catch { /* best-effort — never block confirmation over a notification email */ }
     }
 
-    return jsonResponse({ success: true, draw: result })
+    try {
+      const adminTpl = drawWinnerAdminNotificationEmail({
+        winnerName: winnerUser?.first_name ?? winnerUser?.name ?? winnerUser?.username ?? null,
+        winnerEmail: winnerUser?.email ?? null,
+        weekYear, winningEntries: pending.winning_entries, poolEntries: pending.pool_entries,
+        eligiblePlayers: pending.eligible_players,
+      })
+      await sendEmail({ to: ADMIN_EMAIL, subject: adminTpl.subject, html: adminTpl.html })
+    } catch { /* best-effort */ }
+
+    const { data: prizeCfgRows } = await supabase
+      .from('game_configs').select('config_value').eq('config_key', 'prize_title').maybeSingle()
+    const prizeTitle = prizeCfgRows?.config_value || null
+
+    const { data: players } = await supabase
+      .from('users').select('email, first_name, name, username')
+      .eq('email_verified', true).eq('role', 'user').eq('is_active', true)
+
+    let sent = 0
+    let failed = 0
+    for (const player of players ?? []) {
+      const displayName = player.first_name ?? player.name ?? player.username ?? null
+      const tpl = drawWinnerAnnouncementEmail({ name: displayName, winnerDisplayName, prizeTitle, weekLabel: weekYear })
+      const r = await sendEmail({ to: player.email, subject: tpl.subject, html: tpl.html })
+      if (r.sent) sent++
+      else failed++
+    }
+
+    return jsonResponse({
+      success: true, already_ran: false, week_year: weekYear,
+      winner: { display_name: winnerDisplayName },
+      announced: { sent, failed },
+    })
   }
 
   return null

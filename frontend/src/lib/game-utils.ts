@@ -593,8 +593,41 @@ export async function getMyTeam(): Promise<{ team: MyTeamData | null }> {
   return apiClient.get<{ team: MyTeamData | null }>('/game/my-team');
 }
 
-export async function adminTriggerWeeklyReset(): Promise<{ week: string; draw: { winner_name: string | null; already_ran: boolean } }> {
-  return apiClient.post('/weekly-reset', {});
+export interface PendingDrawWinner {
+  week_year: string;
+  user_id: string;
+  display_name: string | null;
+  winning_entries: number;
+  pool_entries: number;
+  eligible_players: number;
+}
+
+export interface DrawPreviewResult {
+  success: boolean;
+  already_ran: boolean;
+  pending?: boolean;
+  week_year: string;
+  reason?: string;
+  winner?: { user_id: string; display_name: string | null; winning_entries?: number; pool_entries?: number; eligible_players?: number };
+}
+
+/** Computes (but does not commit) this week's draw winner for admin review.
+ *  Safe to call repeatedly before confirming — returns the same pending
+ *  winner rather than re-rolling. */
+export async function adminPreviewDraw(): Promise<DrawPreviewResult> {
+  return apiClient.post('/game/admin/run-draw', {});
+}
+
+/** Current pending (unconfirmed) draw winner, if any — lets the admin panel
+ *  show the confirm screen on load without a fresh "Run Draw" click. */
+export async function adminGetPendingDraw(): Promise<{ already_ran: boolean; week_year: string; pending: PendingDrawWinner | null }> {
+  return apiClient.get('/game/admin/pending-draw');
+}
+
+/** Commits the previewed winner for `weekYear`, then emails the winner, the
+ *  admin, and every player announcing the result. */
+export async function adminConfirmDraw(weekYear: string): Promise<{ success: boolean; already_ran: boolean; winner?: { display_name: string | null }; announced?: { sent: number; failed: number } }> {
+  return apiClient.post('/game/admin/confirm-draw', { week_year: weekYear });
 }
 
 export async function adminAnnounceGame(params: {

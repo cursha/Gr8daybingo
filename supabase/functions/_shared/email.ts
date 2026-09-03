@@ -367,6 +367,55 @@ export function drawWinnerAdminNotificationEmail(opts: {
   }
 }
 
+/** Personal "you won" email to the draw winner themselves. Previously lived
+ *  as a private, unshared-layout function inside weekly-reset/index.ts;
+ *  moved here (same content, now using the shared layout()) so the
+ *  confirm-draw admin route can send it too. */
+export function drawWinnerEmail(name: string | null, weekLabel: string): { subject: string; html: string } {
+  const hi = name && name.trim() ? name.trim() : 'there'
+  return {
+    subject: `🎉 You won the Havagr8day draw — ${weekLabel}!`,
+    html: layout(`
+      <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">Congratulations, ${hi}!</h2>
+      <p>Your kindness paid off — you've been selected as this week's Havagr8day Bingo draw winner!</p>
+      <p>The Havagr8day team will be in touch about your prize. Keep doing good things out there!</p>
+      <p style="text-align:center;margin:24px 0">
+        <a href="${SITE_URL}/game" style="display:inline-block;background:#DC2626;color:#fff;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none;border:2px solid #FCD34D">Play Again This Week</a>
+      </p>
+      <p style="color:#64748b;font-size:13px">Have a gr8 day — and make someone else's gr8 too.</p>
+    `),
+  }
+}
+
+/** Mass-emailed to every active/verified player once an admin confirms the
+ *  draw winner (see POST /admin/confirm-draw) — same population and send
+ *  loop as gameAnnouncementEmail/announce-game, different template. */
+export function drawWinnerAnnouncementEmail(opts: {
+  name: string | null
+  winnerDisplayName: string
+  prizeTitle: string | null
+  weekLabel: string
+}): { subject: string; html: string } {
+  const hi = opts.name && opts.name.trim() ? opts.name.trim() : 'there'
+  const prizeLine = opts.prizeTitle ? `<p style="margin:0 0 8px"><strong>🏆 Prize:</strong> ${opts.prizeTitle}</p>` : ''
+  return {
+    subject: `🎉 ${opts.winnerDisplayName} won this week's Havagr8day draw!`,
+    html: layout(`
+      <h2 style="margin:0 0 12px;color:#4F46E5;font-size:20px">And the winner is...</h2>
+      <p>Hey ${hi} — congrats to <strong>${opts.winnerDisplayName}</strong>, this week's Havagr8day Bingo draw winner!</p>
+      <div style="background:#f8fafc;border-radius:10px;padding:16px 20px;margin:16px 0;border-left:4px solid #4FB3E8">
+        ${prizeLine}
+        <p style="margin:0"><strong>📅 Week:</strong> ${opts.weekLabel}</p>
+      </div>
+      <p>Thanks to everyone who played and did some good this week. Keep earning entries — you could be next!</p>
+      <p style="text-align:center;margin:24px 0">
+        <a href="${SITE_URL}/game" style="display:inline-block;background:#DC2626;color:#fff;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none;border:2px solid #FCD34D">Play Now</a>
+      </p>
+      <p style="color:#64748b;font-size:13px">Have a gr8 day — and make someone else's gr8 too.</p>
+    `),
+  }
+}
+
 export function prizeClaimConfirmationEmail(name: string | null): { subject: string; html: string } {
   const hi = name && name.trim() ? name.trim() : 'there'
   return {

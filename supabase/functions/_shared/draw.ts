@@ -122,7 +122,8 @@ export async function manualAdjust(
   return true
 }
 
-// ── Weekly draw runner (called from weekly-reset) ─────────────────────────────
+// ── Weekly draw: compute (no writes) + commit (writes), called separately so
+// an admin can review a computed winner before anything is persisted ─────────
 
 export interface DrawResult {
   ran: boolean
@@ -137,20 +138,27 @@ export interface DrawResult {
   reason?: string
 }
 
-/** Run the weekly draw for `drawWeekYear` (the week that just ended).
- *  Weighted by ACTIVE entries, with the legacy recent-winner odds reduction
- *  preserved. Idempotent: refuses to run twice for the same week.            */
-export async function runWeeklyDraw(
+export interface ComputedDrawWinner extends DrawResult {
+  winner_display_name: string | null
+}
+
+/** Compute (but do not persist) the weekly draw winner for `drawWeekYear`
+ *  (the week that just ended). Weighted by ACTIVE entries, with the legacy
+ *  recent-winner odds reduction preserved. Read-only except for the
+ *  inactive-entry expiry sweep (idempotent cleanup, independent of who
+ *  wins) — no draw_winners row is written and no balances are reset. Pass
+ *  the result to commitDrawWinner() to actually record it. */
+export async function computeDrawWinner(
   supabase: SupabaseClient,
   drawWeekYear: string,
   rand01: () => number = () => {
     const b = new Uint32Array(1); crypto.getRandomValues(b); return b[0] / 4_294_967_296
   },
-): Promise<DrawResult> {
+): Promise<ComputedDrawWinner> {
   const settings = await getDrawSettings(supabase)
-  const base: DrawResult = {
+  const base: ComputedDrawWinner = {
     ran: false, already_ran: false, winner_id: null, winner_name: null, winner_email: null,
-    winning_entries: 0, eligible_players: 0, pool_entries: 0, week_year: drawWeekYear,
+    winner_display_name: null, winning_entries: 0, eligible_players: 0, pool_entries: 0, week_year: drawWeekYear,
   }
 
   if (!settings.weeklyDrawEnabled) return { ...base, reason: 'weekly_draw_disabled' }
@@ -217,14 +225,48 @@ export async function runWeeklyDraw(
   const poolEntries = candidates.reduce((s, c) => s + c.active_entries, 0)
   const winnerActive = candidates.find((c) => c.user_id === winner.user_id)?.active_entries ?? 0
 
-  // Winner display info — fetched once, reused for both the snapshot below
-  // and the notification email further down.
   const { data: u } = await supabase
     .from('users').select('email, first_name, last_name, name, username, player_number').eq('id', winner.user_id).maybeSingle()
   const winnerDisplayName =
     [u?.first_name, u?.last_name].filter(Boolean).join(' ') ||
     u?.username ||
     (u?.player_number ? `GR8-${u.player_number}` : null)
+
+  return {
+    ran: true, already_ran: false, winner_id: winner.user_id,
+    winner_name: u?.first_name ?? u?.name ?? u?.username ?? null,
+    winner_email: u?.email ?? null,
+    winner_display_name: winnerDisplayName,
+    winning_entries: winnerActive,
+    eligible_players: candidates.length, pool_entries: poolEntries, week_year: drawWeekYear,
+  }
+}
+
+/** Persist a winner already produced by computeDrawWinner(). Idempotent:
+ *  refuses to commit twice for the same week (returns already_ran instead).
+ *  This is the only place a draw_winners row gets written, entries get
+ *  reset, or rollover happens. */
+export async function commitDrawWinner(
+  supabase: SupabaseClient,
+  drawWeekYear: string,
+  computed: {
+    winner_id: string
+    winning_entries: number
+    pool_entries: number
+    eligible_players: number
+    winner_display_name: string | null
+  },
+): Promise<{ committed: boolean; already_ran: boolean }> {
+  const settings = await getDrawSettings(supabase)
+
+  const { data: existing } = await supabase
+    .from('draw_winners').select('id').eq('week_year', drawWeekYear).maybeSingle()
+  if (existing) return { committed: false, already_ran: true }
+
+  const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - settings.recentWinnerMonths)
+  const { data: recent } = await supabase
+    .from('draw_winners').select('user_id').gte('selected_at', cutoff.toISOString())
+  const isRecentWinner = (recent ?? []).some((w: { user_id: string }) => w.user_id === computed.winner_id)
 
   // Snapshot the prize that's live right now — game_configs.prize_title/
   // prize_image_url are mutable and get overwritten for the next week, so
@@ -237,28 +279,28 @@ export async function runWeeklyDraw(
   // Record the winner (existing table + new reporting columns).
   const drawId = crypto.randomUUID()
   await supabase.from('draw_winners').insert({
-    id: drawId, user_id: winner.user_id, week_year: drawWeekYear,
-    odds_weight: recentIds.has(winner.user_id) ? settings.recentWinnerWeight : 1.0,
-    winning_active_entries: winnerActive, total_pool_entries: poolEntries,
-    eligible_players: candidates.length,
-    winner_display_name: winnerDisplayName,
+    id: drawId, user_id: computed.winner_id, week_year: drawWeekYear,
+    odds_weight: isRecentWinner ? settings.recentWinnerWeight : 1.0,
+    winning_active_entries: computed.winning_entries, total_pool_entries: computed.pool_entries,
+    eligible_players: computed.eligible_players,
+    winner_display_name: computed.winner_display_name,
     prize_title_snapshot: prizeCfg['prize_title'] || null,
     prize_image_url_snapshot: prizeCfg['prize_image_url'] || null,
   })
 
   // Audit the selection, then reset the winner's active entries if configured.
   await supabase.rpc('draw_record_selected', {
-    p_player: winner.user_id, p_draw_id: drawId, p_week_year: drawWeekYear,
-    p_pool: poolEntries, p_eligible: candidates.length,
+    p_player: computed.winner_id, p_draw_id: drawId, p_week_year: drawWeekYear,
+    p_pool: computed.pool_entries, p_eligible: computed.eligible_players,
   })
   if (settings.resetAfterWin) {
     await supabase.rpc('draw_winner_reset', {
-      p_player: winner.user_id, p_draw_id: drawId, p_week_year: drawWeekYear,
+      p_player: computed.winner_id, p_draw_id: drawId, p_week_year: drawWeekYear,
     })
   } else {
     // Still record the win date even when not resetting.
     await supabase.from('player_draw_balances')
-      .update({ last_draw_win_date: new Date().toISOString() }).eq('player_id', winner.user_id)
+      .update({ last_draw_win_date: new Date().toISOString() }).eq('player_id', computed.winner_id)
   }
 
   // When rollover is disabled, nobody carries entries into next week — win or
@@ -268,13 +310,29 @@ export async function runWeeklyDraw(
     await supabase.rpc('draw_rollover_reset', { p_week_year: drawWeekYear })
   }
 
-  return {
-    ran: true, already_ran: false, winner_id: winner.user_id,
-    winner_name: u?.first_name ?? u?.name ?? u?.username ?? null,
-    winner_email: u?.email ?? null,
-    winning_entries: winnerActive,
-    eligible_players: candidates.length, pool_entries: poolEntries, week_year: drawWeekYear,
-  }
+  return { committed: true, already_ran: false }
+}
+
+/** Compute AND immediately commit — the pre-existing atomic behaviour, kept
+ *  for weekly-reset/index.ts (unused now that the Monday cron is disabled,
+ *  but left working as a manual fallback). New callers should use
+ *  computeDrawWinner()/commitDrawWinner() separately instead so a human can
+ *  review the winner before it's persisted. */
+export async function runWeeklyDraw(
+  supabase: SupabaseClient,
+  drawWeekYear: string,
+  rand01?: () => number,
+): Promise<DrawResult> {
+  const computed = await computeDrawWinner(supabase, drawWeekYear, rand01)
+  if (!computed.ran || computed.already_ran || !computed.winner_id) return computed
+  await commitDrawWinner(supabase, drawWeekYear, {
+    winner_id: computed.winner_id,
+    winning_entries: computed.winning_entries,
+    pool_entries: computed.pool_entries,
+    eligible_players: computed.eligible_players,
+    winner_display_name: computed.winner_display_name,
+  })
+  return computed
 }
 
 /* weekBounds + currentWeekYear are re-exported from ./draw_logic.ts (pure, tested). */
